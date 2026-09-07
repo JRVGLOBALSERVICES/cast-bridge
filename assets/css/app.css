@@ -219,6 +219,103 @@ summary:focus-visible {
 /* Casting takeover — the phone stops being the screen and becomes the
    remote. The 16/9 box is released here on purpose: a transport bar
    squeezed into 206px of letterbox is a row of targets too small to hit. */
+/* ---------- The session you left running ----------
+   Sits above the player, in the app's own raised-surface idiom rather than
+   as a coloured alert strip: this is not a warning, it is a thing you can
+   pick back up, and painting it amber would say something went wrong.
+
+   The button is on its own row, always. Inline beside the text it took
+   114px, and on a 390px phone that left "Bigg Boss 20 — Epi…" — which is
+   to say it truncated away the episode number and the position, the two
+   facts the banner exists to carry, in order to protect a button whose
+   label is guessable from context. The text wins the width.
+
+   Colours are taken from the tokens, not chosen: --cb-mute is documented
+   there as decoration only (2.04:1, fails as text) so the subtitle uses
+   --cb-ink-2, which is 5.80:1 and passes AA. */
+.cb-session {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 0.9rem;
+  padding: 0.75rem 0.8rem;
+  border-radius: var(--cb-radius-xl);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+}
+.cb-session[hidden] { display: none; }
+.cb-session-ico { flex: none; color: var(--cb-accent); }
+
+.cb-session-text {
+  display: flex;
+  flex-direction: column;
+  /* min-width:0 lets it shrink; the ZERO BASIS is what stops it demanding
+     its max-content width in the first place. With `flex: 1 1 auto` the
+     base size is the full title, which does not fit beside the icon, so the
+     row wrapped before it ever shrank — leaving the icon alone on one line
+     and the dismiss alone on another. */
+  min-width: 0;
+  flex: 1 1 0;
+}
+.cb-session-text strong {
+  font-weight: 700;
+  font-size: 0.875rem;
+  line-height: 1.3;
+  color: var(--cb-ink);
+}
+.cb-session-text span {
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--cb-ink-2);
+  /* Two lines, then ellipsis. One line loses the position on any real title;
+     unbounded lets a long title push the player down the page. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Its own row. Ordered by the DOM, not by `order` — a CSS-reordered row
+   teleports keyboard focus around the banner. */
+.cb-session-go {
+  flex: 1 0 100%;
+  /* 44px: the touch-target floor. This is the one thing on the banner
+     anybody actually wants to hit. */
+  min-height: 44px;
+  padding: 0 0.85rem;
+  border: 0;
+  border-radius: var(--cb-radius);
+  background: var(--cb-accent);
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.cb-session-go:active { transform: translateY(1px); }
+
+.cb-session-x {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--cb-radius);
+  background: transparent;
+  color: var(--cb-ink-2);
+  cursor: pointer;
+}
+.cb-session-x:hover { color: var(--cb-ink); }
+
+/* Click leaves no ring, Tab shows one. Removing the ring outright is a
+   WCAG 2.4.7 failure, so it is replaced rather than deleted. */
+.cb-session-go:focus-visible,
+.cb-session-x:focus-visible {
+  outline: 2px solid var(--cb-accent);
+  outline-offset: 2px;
+}
+
 .cb-onair {
   display: none;
   flex-direction: column;

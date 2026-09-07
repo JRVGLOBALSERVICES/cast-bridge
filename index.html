@@ -129,6 +129,31 @@
          the player IS the title, and a heading reading "Cast" above a video
          is a word doing no work. -->
     <section class="cb-view is-on" id="view-cast" tabindex="-1" aria-label="Cast">
+    <!-- ---------- The session you left running ----------
+         A BANNER, not a toast and not a modal: this is a condition that
+         persists rather than an event that passed, and it must not block
+         the app to say so. Dismissible, quiet until cleared.
+
+         It sits above the player because it is about the thing the player
+         would otherwise be showing. Below it, you would scroll past an idle
+         black rectangle to find out the film is still on.
+
+         The heading is written twice in app.js and never merged, because
+         only one of the two states is a fact this app can support: it says
+         "Still playing on <TV>" when the app was talking to the set seconds
+         ago, and "You were watching this" when it was not. -->
+    <div class="cb-session" id="resume" role="status" hidden>
+      <svg class="cb-session-ico" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="m10 8 5 3-5 3z" fill="currentColor" stroke="none"/></svg>
+      <span class="cb-session-text">
+        <strong id="resumeTitle">You were watching this</strong>
+        <span id="resumeSub"></span>
+      </span>
+      <button type="button" class="cb-session-x" id="resumeDismiss" aria-label="Forget this session">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+      <button type="button" class="cb-session-go" id="resumeGo">Pick it back up</button>
+    </div>
+
     <!-- ---------- Player ---------- -->
     <div class="cb-screen is-idle" id="screen">
       <div class="cb-screen-inner">

@@ -906,3 +906,36 @@
       written into `db/002`, and re-verified live: the id route now answers a
       clean 404 for an unknown uuid, with no session, which is what a
       television needs.
+- [x] Task 37: The session that survives the app being closed
+      (`db/003_castbridge_now_playing.sql`, `lib/nowplaying.js`,
+      `api/now-playing.js`). Rj: "can't really see stream history back even
+      when it's still streaming from the app just because close the app."
+      That was not a history bug. A Cast session lives in the SDK, which
+      lives in the page, and everything the app knew ABOUT it — the film,
+      its name, where it had got to — lived in `current` and `currentTitle`,
+      two page-scoped variables. Closing the app threw them away while the
+      television carried on playing. The SDK even rejoined the session on
+      the next open, and `showSending()` ran with nothing to say, so the
+      panel came back over a film it could not name. The identity now lives
+      in a table, heartbeat every 15s, and the last beat goes out over
+      sendBeacon because a fetch started in `pagehide` does not survive the
+      teardown.
+- [x] Task 38: Three answers, not a boolean (`lib/nowplaying.js` freshness).
+      This app cannot poll the television. All it knows is when the app last
+      spoke, and an app that stopped speaking is a phone in a pocket, not a
+      film that stopped. So: `live` (beating now, say it plainly), `maybe`
+      (offer to look, do not assert) and `ended`. The banner copy is written
+      twice and never merged — "Still playing on <TV>" against "You were
+      watching this" — because only one of the two is a fact.
+- [x] Task 39: The class-name collision, caught in the browser and not in
+      review. `.cb-resume` already existed as the resume marker on a history
+      row (`app.js`), and the new banner took the same name. The old rule
+      won `display`, so the banner computed `inline-flex` and ran 634px wide
+      inside a 358px column; worse, the new background, padding and shadow
+      were landing on every history chip. Renamed to `.cb-session`.
+- [x] Task 40: The button lost the width argument. Inline beside the text it
+      took 114px, and on a 390px phone that rendered "Bigg Boss 20 — Epi…" —
+      truncating away the episode number and the position, the two facts the
+      banner exists to carry, to protect a button whose label is guessable
+      from context. It is on its own row now, and the text is clamped to two
+      lines rather than one.

@@ -36,6 +36,7 @@ const ticketApi = require('../api/ticket.js');
 const biliApi = require('../api/bilibili.js');
 const crawlApi = require('../api/crawl.js');
 const seriesApi = require('../api/series.js');
+const nowPlayingApi = require('../api/now-playing.js');
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
@@ -64,6 +65,19 @@ const server = http.createServer(async (req, res) => {
 
   /* The crawl and the shelf. Without these a local run can find an episode
      list nowhere and remember nothing, which is most of what changed. */
+  /* The live session. Without this a local run cannot reproduce the whole
+     point of the change — that closing the app no longer loses the film. */
+  if (pathname === '/api/now-playing') {
+    req.query = Object.fromEntries(url.searchParams.entries());
+    try {
+      await nowPlayingApi(req, res);
+    } catch (e) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
   if (pathname === '/api/crawl' || pathname === '/api/series') {
     req.query = Object.fromEntries(url.searchParams.entries());
     try {

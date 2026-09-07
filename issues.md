@@ -870,3 +870,33 @@ variables set will point this app at the wrong store without saying so.
 management API, which stamps its own timestamp version rather than the `002`
 in the filename. The file is the reviewable record and is re-runnable; the
 ledger row is not named after it.
+
+## Task 37: the resume path has never been exercised against a real TV
+
+**Question:** does "Pick it back up" actually rejoin a live Chromecast?
+**What I could and could not prove:** the whole of `lib/nowplaying.js` and
+the handler's own rules are proven by 38 assertions, the upsert is proven
+directly against the live `castbridge.now_playing` table (one row for two
+writes, second replacing the first, proof row deleted), and both banner
+states are proven to render through the real code path in a browser at 390
+and 320 px. What is NOT proven is `adoptIfRejoined()`, because it needs the
+Cast SDK to hand back a live session — which needs a real Chromecast on the
+same Wi-Fi, and there is none reachable from this VPS. The three lines that
+read `session.getMediaSession().media.metadata.title` are the untested ones.
+**Worth your eye:** if reopening the app mid-film shows the banner INSTEAD of
+taking the remote, that is this gap. The fallback is safe either way — the
+banner's own button re-casts from the stored position — but the good path,
+where it silently reattaches and never shows a banner at all, is the one I
+could not watch happen.
+
+## Task 38: a heartbeat costs a write every 15 seconds
+
+**Question:** is that too much for the Supabase free tier?
+**Assumption made:** no. It is one upsert per 15s per person ACTIVELY
+CASTING, not per person signed in — `sessionBeat` returns immediately unless
+there is both a `current` and a live cast session. A three-hour film is ~720
+writes. With five accounts that is well inside the free tier, and the timer
+is cleared on SESSION_ENDED and on dismiss.
+**Worth your eye:** `BEAT_MS` in `assets/js/app.js` is the dial, and
+`FRESH_MS` in `lib/nowplaying.js` is what has to stay at least ~4x it. Raise
+one without the other and a live session starts reading as `maybe`.

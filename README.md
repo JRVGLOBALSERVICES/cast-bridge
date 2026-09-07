@@ -39,6 +39,17 @@ not by its name.
 - **Series you have opened** — the crawl is remembered per person, keyed on the
   season's address, with the episode list it found. Opening it tomorrow paints
   from that memory in one frame and re-crawls behind the list already on screen.
+- **The session survives closing the app** — a Cast session lives in the SDK,
+  which lives in the page, so everything the app knew about what was playing
+  used to die with the tab while the television carried on. What is on, what it
+  is called and where it had got to are posted to `/api/now-playing` every 15s,
+  and the last beat leaves over `sendBeacon` because a fetch started in
+  `pagehide` does not survive the teardown. Reopening rejoins the running
+  session and puts its name back on the panel; if the SDK cannot rejoin, a
+  banner offers the film back from where it stopped. The app never claims to
+  know the set it cannot poll: `live` says "Still playing on <TV>", `maybe` says
+  "You were watching this", and the two sentences are written separately on
+  purpose, because only one of them is a fact.
 - **Notifications while you are elsewhere** — cast state, upload percentage,
   scan results and anything that fails, drawn by the service worker so they
   arrive when the app is backgrounded. Nothing is drawn while the app is on
@@ -97,20 +108,22 @@ not by its name.
 
 ```
 api/     extract · scan · crawl · subs · series · auth · users · history
-         stream · probe · ticket · bilibili          (Vercel functions)
+         now-playing · stream · probe · ticket · bilibili  (Vercel functions)
 lib/     media.js  — fetch guards, extraction, probing, HLS expansion
          crawl.js  — child pages of a page: words, shape, name kinship
          subs.js   — SRT → WebVTT
+         nowplaying.js — the live session: shaping, freshness, resume point
          db.js · auth.js · users.js
 assets/  app.js  — nine screens behind a five-entry bottom bar, one job each
          qr.js   — byte-mode QR encoder, versions 1-10, level L (Bilibili)
          app.css — neumorphism, one dark surface: the on-air panel
 db/      001_castbridge_schema.sql          — users, history
          002_castbridge_subtitles_series.sql — kept subtitles, remembered series
+         003_castbridge_now_playing.sql      — the one row that says what is on
 scripts/ dev.js — local server that routes the functions like Vercel does
          stamp-build.mjs — assembles public/ and stamps sw.js BUILD
          test-all.js — runs every suite and never hides a red one
-         test-{unpack,reissue,cookies,subs,crawl}.js — 108 assertions
+         test-{unpack,reissue,cookies,subs,crawl,nowplaying}.js — 146 assertions
 sw.js    app shell, plus the notifications the page asks it to draw
 server/  stream-server.js — runs api/stream.js as a service on our own box
 deploy/  stream.jrvsystems.app.conf — the nginx vhost in front of it

@@ -1287,9 +1287,19 @@
   video.addEventListener('ended', function () {
     if (current) store.progress(current, 0, video.duration);
   });
-  window.addEventListener('pagehide', flushProgress);
+  window.addEventListener('pagehide', function () {
+    flushProgress();
+    /* The last beat before the app disappears, and the one that matters
+       most: it is the difference between coming back to where the film had
+       actually got to and coming back to where it was up to fifteen seconds
+       earlier. It goes out over sendBeacon, because a fetch started here
+       does not survive the teardown. */
+    sessionBeat({ force: true, leaving: true });
+  });
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'hidden') flushProgress();
+    if (document.visibilityState !== 'hidden') return;
+    flushProgress();
+    sessionBeat({ force: true, leaving: true });
   });
 
   /* ------------------------------------------------------------------ *
@@ -1465,12 +1475,25 @@
 
       if (e.sessionState === SS.SESSION_STARTED || e.sessionState === SS.SESSION_RESUMED) {
         logCast('Connected to ' + deviceName());
+        /* A RESUMED session is the SDK handing back a cast that was already
+           running when the app opened. It carries no title, so without the
+           stored row the panel appears over a film it cannot name — which is
+           precisely what "can't see it back after closing the app" looked
+           like from the sofa. */
+        if (e.sessionState === SS.SESSION_RESUMED && restored) adoptIfRejoined();
         showSending();
       }
       if (e.sessionState === SS.SESSION_STARTED && current) {
         video.pause();
         stallRetried = false;
-        castLoad(current);
+        /* A cast that began as "pick it back up" carries the position the
+           film had reached before the app was closed. Without this the
+           device picker silently restarts it from the beginning, which is
+           the failure the whole resume exists to prevent. */
+        var at = pendingResumeAt;
+        pendingResumeAt = null;
+        castLoad(current, at ? { at: at } : undefined);
+        startBeating();
       }
       if (e.sessionState === SS.SESSION_START_FAILED) {
         disarmStallWatch();
@@ -1482,6 +1505,9 @@
         disarmStallWatch();
         lastPlayerState = null;
         screenEl.classList.remove('is-onair');
+        /* The session is over for real. The row has to go, or the next open
+           offers to rejoin a television showing its home screen. */
+        sessionClear();
       }
     });
     castState = ctx.getCastState();
@@ -1497,6 +1523,280 @@
   function deviceName() {
     var s = castSession();
     try { return (s && s.getCastDevice().friendlyName) || 'the TV'; } catch (e) { return 'the TV'; }
+  }
+
+  /* ------------------------------------------------------------------
+   * The session that survives the app being closed.
+   *
+   * The bug, in Rj's words: "can't really see stream history back even
+   * when it's still streaming from the app just because close the app."
+   *
+   * That is what was happening, and it was not a history bug. A Cast
+   * session lives in the SDK, which lives in the page; everything the app
+   * knew ABOUT it — what is on, what it is called, where it had got to —
+   * lived in `current` and `currentTitle`, two page-scoped variables.
+   * Closing the app threw them away. The television carried on playing.
+   * The SDK even rejoined the session on the next open, and `showSending()`
+   * ran with nothing to say, so the on-air panel came back with an empty
+   * subtitle over a film that was still on the wall.
+   *
+   * So the identity of what is playing is posted to /api/now-playing,
+   * where closing a tab cannot reach it, and read back on open.
+   *
+   * What this deliberately does NOT do is claim to know the television.
+   * The set is not ours to poll. All the row proves is when the app last
+   * spoke — and an app that stopped speaking is not a film that stopped
+   * playing, it is usually a phone in a pocket. The SDK's own rejoin is
+   * the only thing here that is evidence about the TV; everything else is
+   * offered as "this is where you were", never asserted as "this is on".
+   * ------------------------------------------------------------------ */
+
+  /* Every 15s. Four beats inside the 60s the server calls fresh, so one
+     dropped beat in a lift does not end the session. */
+  var BEAT_MS = 15000;
+  var beatTimer = null;
+  var lastBeatKey = '';
+  var restored = null;        // the row read at boot, until it is used or cleared
+  /* Where a resume should start once a device has been picked. Held
+     across requestSession(), because the cast does not happen here — it
+     happens in the SESSION_STARTED handler, several seconds and one
+     device-picker later, and by then `restored` has been cleared. */
+  var pendingResumeAt = null;
+
+  function subsIdFromProxy() {
+    if (!subsProxy) return null;
+    try {
+      return new URL(subsProxy, location.origin).searchParams.get('id');
+    } catch (e) { return null; }
+  }
+
+  /* What the receiver says, not what the app hoped for. `sending` is its own
+     state on purpose: a load that was accepted and never started is this
+     app's most common failure, and a resume must be able to tell that apart
+     from a film that is genuinely on screen. */
+  function receiverState() {
+    if (!remotePlayer || !remotePlayer.isMediaLoaded) return 'sending';
+    var PS = window.cast && window.cast.framework && window.cast.framework.PlayerState;
+    if (!PS) return 'playing';
+    if (remotePlayer.playerState === PS.PLAYING) return 'playing';
+    if (remotePlayer.playerState === PS.PAUSED) return 'paused';
+    if (remotePlayer.playerState === PS.IDLE) return 'idle';
+    return 'sending';
+  }
+
+  function sessionBeat(opts) {
+    if (!signedIn || !current || !castSession()) return;
+    opts = opts || {};
+
+    var body = {
+      url: current,
+      title: currentTitle || nameOf(current),
+      device: deviceName(),
+      /* From the receiver, never from the local <video>. That element has
+         been paused at zero the whole time the film has been on the
+         television, and reading it here is how a resume restarts a film. */
+      position: (remotePlayer && remotePlayer.isMediaLoaded && remotePlayer.currentTime) || 0,
+      duration: (remotePlayer && remotePlayer.isMediaLoaded && remotePlayer.duration) || 0,
+      state: receiverState(),
+      subs_id: subsIdFromProxy(),
+      subs_name: subsName || null
+    };
+
+    /* Deliberately keyed on the film and the state, NOT on the position.
+       The receiver fires a change event roughly every second while playing,
+       so including the position here would post a beat per second for the
+       length of a film. State transitions go up immediately because they are
+       what a resume reads; the position rides the 15s timer, which passes
+       force and skips this check. */
+    var key = body.url + '|' + body.state;
+    if (!opts.force && key === lastBeatKey) return;
+    lastBeatKey = key;
+
+    var payload = JSON.stringify(body);
+
+    /* On the way out there is no time for fetch to settle — the page is
+       being torn down. sendBeacon is the only thing that survives it, and
+       it is the difference between remembering where a film got to and
+       remembering where it was fifteen seconds earlier. */
+    if (opts.leaving && navigator.sendBeacon) {
+      try {
+        navigator.sendBeacon('/api/now-playing',
+          new Blob([payload], { type: 'application/json' }));
+        return;
+      } catch (e) { /* fall through to fetch */ }
+    }
+
+    fetch('/api/now-playing', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: payload,
+      keepalive: !!opts.leaving
+    }).catch(function () { /* offline: the next beat carries it */ });
+  }
+
+  function startBeating() {
+    stopBeating();
+    sessionBeat({ force: true });
+    beatTimer = setInterval(function () { sessionBeat({ force: true }); }, BEAT_MS);
+  }
+
+  function stopBeating() {
+    if (beatTimer) { clearInterval(beatTimer); beatTimer = null; }
+    lastBeatKey = '';
+  }
+
+  /* The session ended for real — the row must go, or the next open offers to
+     rejoin a television that is showing its home screen. */
+  function sessionClear() {
+    stopBeating();
+    if (!signedIn) return;
+    fetch('/api/now-playing', { method: 'DELETE' }).catch(function () {});
+  }
+
+  /* ---- reading it back ---- */
+
+  function restoreSession() {
+    if (!signedIn) return Promise.resolve(null);
+    return fetch('/api/now-playing', { headers: { accept: 'application/json' } })
+      .then(function (r) {
+        if (r.status === 401) { handleAuthLapse(); return null; }
+        return r.json();
+      })
+      .then(function (body) {
+        if (!body || !body.ok || !body.session) { restored = null; renderResume(); return null; }
+        restored = body.session;
+
+        /* If the SDK already rejoined, the television is speaking and this
+           row is only here to supply the label the SDK does not carry.
+           Adopting it is the whole fix for the reported bug. */
+        adoptIfRejoined();
+        renderResume();
+        return restored;
+      })
+      .catch(function () { return null; });
+  }
+
+  /* The SDK rejoins on its own (autoJoinPolicy is ORIGIN_SCOPED), and when it
+     does the app has a live session it cannot name. Give it the name back. */
+  function adoptIfRejoined() {
+    var s = castSession();
+    if (!s || !restored) return false;
+
+    /* The receiver's own metadata outranks the stored row — it came from the
+       television, the row came from a phone that has been asleep. */
+    var fromTv = '';
+    var tvUrl = '';
+    try {
+      var ms = s.getMediaSession();
+      if (ms && ms.media) {
+        tvUrl = ms.media.contentId || '';
+        fromTv = (ms.media.metadata && ms.media.metadata.title) || '';
+      }
+    } catch (e) { /* the SDK is still settling */ }
+
+    current = restored.url;
+    currentTitle = fromTv || restored.title || nameOf(restored.url);
+    if (restored.subs_id) {
+      subsProxy = new URL('/api/subs?id=' + encodeURIComponent(restored.subs_id), location.origin).toString();
+      subsName = restored.subs_name || 'Subtitles';
+    }
+
+    logCast('Rejoined a session already running',
+      currentTitle + (restored.device ? ' on ' + restored.device : '') +
+      (tvUrl && tvUrl !== restored.url ? ' · the TV is playing something else' : ''));
+
+    restored = null;          // it is live now, not a resume point
+    showSending();
+    startBeating();
+    updateCastUi();
+    return true;
+  }
+
+  /* ---- the banner ----
+   *
+   * A BANNER, not a toast and not a modal: this is a condition that persists
+   * rather than an event that passed, and it must not block the app. Manual
+   * dismissal, quiet until cleared.
+   *
+   * The copy is the careful part. Two states, and they must not be written
+   * the same way, because only one of them is a fact:
+   *
+   *   live  — the app was talking to the TV seconds ago. Say it plainly.
+   *   maybe — the app stopped talking. The film is PROBABLY still on, and
+   *           saying "still playing" would be a claim this app cannot
+   *           support. So it says where you were, and offers to look.
+   */
+  function renderResume() {
+    var el = $('resume');
+    if (!el) return;
+
+    if (!restored) { el.hidden = true; return; }
+
+    var title = restored.title || nameOf(restored.url);
+    var where = restored.device || 'the TV';
+    var at = restored.position > 0 ? clock(restored.position) : '';
+
+    var head, sub, action;
+    if (restored.freshness === 'live') {
+      head = 'Still playing on ' + where;
+      sub = title + (at ? ' · ' + at + ' in' : '');
+      action = 'Take the remote';
+    } else {
+      /* Not "still playing". The app stopped talking to it and does not
+         know — offering to look is honest, asserting is not. */
+      head = 'You were watching this';
+      sub = title + (at ? ' · stopped ' + at + ' in' : '') + ' · on ' + where;
+      action = 'Pick it back up';
+    }
+
+    $('resumeTitle').textContent = head;
+    $('resumeSub').textContent = sub;
+    $('resumeGo').textContent = action;
+    el.hidden = false;
+  }
+
+  function resumeSession() {
+    if (!restored) return;
+    var row = restored;
+
+    /* Try the rejoin first: if the set is still on the session, this is a
+       reconnect and not a re-cast, and the film does not restart. */
+    if (adoptIfRejoined()) return;
+
+    current = row.url;
+    currentTitle = row.title || nameOf(row.url);
+    if (row.subs_id) {
+      subsProxy = new URL('/api/subs?id=' + encodeURIComponent(row.subs_id), location.origin).toString();
+      subsName = row.subs_name || 'Subtitles';
+    }
+    restored = null;
+    renderResume();
+
+    var s = castSession();
+    if (s) {
+      stallRetried = false;
+      castLoad(current, { at: row.resume_at });
+      startBeating();
+      return;
+    }
+
+    /* No session to rejoin. Ask for a device; the SESSION_STARTED handler
+       casts what `current` now holds, from where it left off. */
+    pendingResumeAt = row.resume_at;
+    setStatus('Pick a TV to carry on from ' + clock(row.resume_at) + '.', '');
+    try {
+      window.cast.framework.CastContext.getInstance().requestSession().catch(function () {});
+    } catch (e) {
+      setStatus('Cast is not available in this browser.', 'bad');
+    }
+  }
+
+  function dismissResume() {
+    restored = null;
+    renderResume();
+    /* Dismissing is "I am done with this", so the row goes too — otherwise
+       it comes straight back on the next open and the × means nothing. */
+    sessionClear();
   }
 
   /* The on-air panel used to appear only once loadMedia had resolved, so
@@ -1536,6 +1836,13 @@
   }
 
   $('castCancel').addEventListener('click', function () { stopCasting('you asked'); });
+
+  /* The banner's two buttons. Guarded because index.html and app.js are
+     deployed as separate files and a cached shell can be one build behind. */
+  var resumeGo = $('resumeGo');
+  if (resumeGo) resumeGo.addEventListener('click', resumeSession);
+  var resumeX = $('resumeDismiss');
+  if (resumeX) resumeX.addEventListener('click', dismissResume);
 
   /* A receiver that accepts a load and then never starts is the one failure
      that reports nothing at all: loadMedia has already resolved, so there is
@@ -1797,7 +2104,12 @@
     /* One listener rather than nine. The controller fires this for every
        property it owns, which is exactly the set the panel draws from. */
     remoteCtl.addEventListener(
-      window.cast.framework.RemotePlayerEventType.ANY_CHANGE, syncRemote);
+      window.cast.framework.RemotePlayerEventType.ANY_CHANGE, function () {
+        syncRemote();
+        /* Unforced: this fires about once a second, and sessionBeat only
+           posts when the film or the receiver's state has actually moved. */
+        sessionBeat();
+      });
 
     /* Seeking: the thumb owns the value while it is held. Redrawing from
        the TV's clock mid-drag drags the thumb back out from under it. */
@@ -3104,6 +3416,7 @@
             hideGate();
             toast({ text: 'Signed in as ' + (me ? me.username : 'you') + '.' });
             refreshHistory();
+            restoreSession();
             return;
           }
           if (pw) pw.classList.add('is-bad');
@@ -3136,6 +3449,12 @@
           me = body.user || null;
           hideGate();
           refreshHistory();
+          /* The reason this app is worth reopening mid-film. Read before the
+             Cast SDK has finished settling, deliberately: adoptIfRejoined()
+             runs again from the SESSION_RESUMED handler if the SDK hands a
+             live session back after this resolves, so whichever lands second
+             still finds the other. */
+          restoreSession();
           return;
         }
         me = null;
@@ -5067,7 +5386,7 @@
       var gated = document.body.classList.contains('is-gated');
       var work = gated
         ? reloadShell()
-        : Promise.all([refreshHistory(), isOwner() ? renderUsers() : null]);
+        : Promise.all([refreshHistory(), restoreSession(), isOwner() ? renderUsers() : null]);
 
       /* A refresh that resolves in 40ms reads as a broken button, so hold
          the ring long enough to be seen finishing. */

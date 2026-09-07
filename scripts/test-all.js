@@ -18,7 +18,8 @@ const SUITES = [
   ['reissue', 'test-reissue.js'],
   ['cookies', 'test-cookies.js'],
   ['subs', 'test-subs.js'],
-  ['crawl', 'test-crawl.js']
+  ['crawl', 'test-crawl.js'],
+  ['nowplaying', 'test-nowplaying.js']
 ];
 
 const results = [];
