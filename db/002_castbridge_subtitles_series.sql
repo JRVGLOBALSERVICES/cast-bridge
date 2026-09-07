@@ -72,3 +72,23 @@ create index        if not exists series_user_recent on castbridge.series (user_
 alter table castbridge.subtitles enable row level security;
 alter table castbridge.series    enable row level security;
 -- No policies, deliberately. Deny-all for every key except service_role.
+
+-- ---------------------------------------------------------------------------
+-- Grants
+--
+-- Not optional, and not implied by anything above. RLS being deny-all is what
+-- stops the anon key reading these; the service_role GRANT is what lets the
+-- app read them at all, and the two are different mechanisms. Creating these
+-- tables through the management API — as `postgres`, outside whatever path
+-- built 001 — left service_role with no privilege on them, and the first live
+-- request answered `permission denied for table subtitles` with a 403. That
+-- reached production; this line is why it cannot again.
+--
+-- Deliberately nothing for anon or authenticated, matching users and history:
+-- every decision about who may see which row is made in the API layer from
+-- the signed session, never by a query the browser gets to write.
+-- ---------------------------------------------------------------------------
+grant select, insert, update, delete, truncate, references, trigger
+  on castbridge.subtitles to service_role;
+grant select, insert, update, delete, truncate, references, trigger
+  on castbridge.series to service_role;

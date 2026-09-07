@@ -897,3 +897,12 @@
       the number that matters is how many suites are red, and a chain cannot
       report it. Proven by breaking two suites at once: the runner named
       both, the chain would have named one.
+- [x] Task 36: A 403 that reached production, found by checking the live route
+      rather than trusting the deploy. `permission denied for table subtitles` —
+      creating the tables through the management API, as `postgres`, left
+      `service_role` with no privilege on them, while `users` and `history`
+      have had it all along. RLS being deny-all and the service_role GRANT are
+      different mechanisms and only one of them was in the migration. Granted,
+      written into `db/002`, and re-verified live: the id route now answers a
+      clean 404 for an unknown uuid, with no session, which is what a
+      television needs.
