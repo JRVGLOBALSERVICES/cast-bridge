@@ -138,6 +138,12 @@
               <strong id="onairTitle">Playing on the TV</strong>
               <span id="onairSub">Your phone is the remote now.</span>
             </span>
+            <!-- The way out. This used to live only inside the remote, which
+                 stays hidden until the TV reports media loaded — so a TV that
+                 accepted the cast and then sat on "loading" left no way to
+                 cancel it at all. It is here now, next to the state it
+                 cancels, for as long as a session exists. -->
+            <button type="button" class="cb-stop cb-stop-inline" id="castCancel">Stop casting</button>
           </div>
 
           <!-- The remote. Hidden until the TV reports media loaded, because
@@ -191,6 +197,23 @@
         <option value="-1">Auto</option>
       </select>
     </div>
+
+    <!-- ---------- Cast log ----------
+         A television that accepts a stream and then sits on "loading" tells
+         the phone nothing by itself. Every state the sender library reports
+         is written down here in order, with the exact address handed over,
+         so a stall has an account of itself instead of a spinner. -->
+    <details class="cb-log" id="castLog" hidden>
+      <summary>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h10"/></svg>
+        <span id="castLogSummary">Cast log</span>
+      </summary>
+      <pre class="cb-log-lines" id="castLogLines" tabindex="0" aria-live="off"></pre>
+      <div class="cb-log-actions">
+        <button type="button" class="cb-log-btn" id="btnCopyLog">Copy log</button>
+        <button type="button" class="cb-log-btn" id="btnClearLog">Clear</button>
+      </div>
+    </details>
 
     <!-- ---------- Subtitles ---------- *
          A television fetches a text track itself and takes only WebVTT

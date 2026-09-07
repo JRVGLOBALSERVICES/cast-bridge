@@ -106,6 +106,16 @@
     var CAP = 200;
     var cache = null;
 
+    /* Tombstones. Removing a row here used to touch localStorage only, so
+       the server still had it and the next sync — which adds back any
+       server row the local store is missing — put it straight back. That
+       is why × looked like it did nothing. The server copy is deleted too
+       now, but a delete made offline has not reached it yet, so the url is
+       remembered as buried until the server confirms it is gone. */
+    var DEAD = 'cb:hist:dead';
+    var DEAD_CAP = 500;
+    var DEAD_MS = 90 * 24 * 60 * 60 * 1000;
+
     function blank() { return { v: 2, items: [] }; }
 
     function read() {
@@ -143,6 +153,25 @@
       try { localStorage.setItem(KEY, JSON.stringify(cache)); } catch (e) { /* quota / private mode */ }
     }
 
+    /* A tombstone that outlives every copy of the row it was hiding is just
+       a url the person can never re-add from another device, so they age
+       out — ninety days is far longer than any sync takes to settle. */
+    function readDead() {
+      var d;
+      try { d = JSON.parse(localStorage.getItem(DEAD) || '{}'); } catch (e) { return {}; }
+      if (!d || typeof d !== 'object') return {};
+      var cut = Date.now() - DEAD_MS;
+      var keys = Object.keys(d), out = {}, kept = 0;
+      for (var i = keys.length - 1; i >= 0 && kept < DEAD_CAP; i--) {
+        if (d[keys[i]] > cut) { out[keys[i]] = d[keys[i]]; kept++; }
+      }
+      return out;
+    }
+
+    function writeDead(d) {
+      try { localStorage.setItem(DEAD, JSON.stringify(d)); } catch (e) { /* quota */ }
+    }
+
     function id() {
       return 'i' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
     }
@@ -160,6 +189,9 @@
       /* Record a play. Existing entries move to the front and keep position. */
       touch: function (url, meta) {
         meta = meta || {};
+        /* Playing something again is an undelete — the tombstone has to go
+           or the next sync would drop it back out from under them. */
+        this.revive(url);
         var d = read();
         var found = null, i;
         for (i = 0; i < d.items.length; i++) {
@@ -230,6 +262,24 @@
         var d = read();
         d.items = items.slice();
         write();
+      },
+
+      isBuried: function (url) {
+        return Object.prototype.hasOwnProperty.call(readDead(), url);
+      },
+
+      bury: function (url) {
+        if (!url) return;
+        var d = readDead();
+        d[url] = Date.now();
+        writeDead(d);
+      },
+
+      revive: function (url) {
+        var d = readDead();
+        if (!Object.prototype.hasOwnProperty.call(d, url)) return;
+        delete d[url];
+        writeDead(d);
       },
 
       exportJson: function () {
@@ -458,6 +508,7 @@
   var remotePlayer = null;
   var remoteCtl = null;
   var scrubbing = false;
+  var lastPlayerState = null;
 
   /* Subtitles, as the address of our own converted copy — never the file
      the person pasted, which is almost never VTT and almost never CORS. */
@@ -554,12 +605,110 @@
    * and DASH to be served cross-origin-open, which a CDN that never
    * expected a television is not. Going through our own origin fixes both.
    */
-  function streamUrl(u) {
+  function streamUrl(u, absolute) {
     var out = '/api/stream?u=' + encodeURIComponent(u);
     if (currentFrom && /^https?:/i.test(currentFrom)) {
       out += '&r=' + encodeURIComponent(currentFrom);
     }
-    return out;
+    /* The receiver is a different device. It resolves whatever it is handed
+       against its own origin, not this page's, so a root-relative path
+       reaches nothing at all on the television — which looks exactly like
+       "it says loading and then nothing happens". The tab can use the short
+       form; anything handed to the TV has to be absolute. */
+    return absolute ? new URL(out, location.href).toString() : out;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Cast log
+   *
+   * "The TV says loading and nothing happens" is not answerable from a
+   * one-line status, because the useful part is a sequence: which address
+   * went over, what the receiver said about it, and what state it settled
+   * in. All of it is recorded here in order and can be copied out whole.
+   * ------------------------------------------------------------------ */
+
+  var castLogEl = $('castLog');
+  var castLogLines = $('castLogLines');
+  var castLogEntries = [];
+  var CAST_LOG_CAP = 120;
+
+  function stamp(ms) {
+    var d = new Date(ms);
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+
+  function castLogText() {
+    return castLogEntries.map(function (e) {
+      return stamp(e.at) + '  ' + e.line + (e.detail ? '\n          ' + e.detail : '');
+    }).join('\n');
+  }
+
+  function paintCastLog() {
+    if (!castLogEl) return;
+    var n = castLogEntries.length;
+    castLogEl.hidden = n === 0;
+    $('castLogSummary').textContent = n
+      ? 'Cast log · ' + n + (n === 1 ? ' line' : ' lines')
+      : 'Cast log';
+    castLogLines.textContent = castLogText();
+    castLogLines.scrollTop = castLogLines.scrollHeight;   // newest is the one being read
+  }
+
+  function logCast(line, detail) {
+    castLogEntries.push({
+      at: Date.now(),
+      line: String(line),
+      detail: (detail === undefined || detail === null) ? '' : String(detail)
+    });
+    if (castLogEntries.length > CAST_LOG_CAP) castLogEntries.shift();
+    paintCastLog();
+  }
+
+  function openCastLog(bad) {
+    if (!castLogEl) return;
+    castLogEl.hidden = false;
+    castLogEl.open = true;
+    castLogEl.classList.toggle('is-bad', !!bad);
+  }
+
+  /* A Cast failure arrives either as a bare error-code string or as an
+     object carrying a description — print whichever it is rather than
+     "[object Object]", which is what a bare concatenation would give. */
+  function describeCastError(err) {
+    if (!err) return 'no reason given';
+    if (typeof err === 'string') return err;
+    var bits = [];
+    if (err.code) bits.push('code ' + err.code);
+    if (err.description) bits.push(err.description);
+    if (err.details) {
+      try { bits.push(JSON.stringify(err.details)); } catch (e) { /* circular */ }
+    }
+    if (!bits.length) {
+      try { bits.push(JSON.stringify(err)); } catch (e) { bits.push(String(err)); }
+    }
+    return bits.join(' · ');
+  }
+
+  if (castLogEl) {
+    $('btnCopyLog').addEventListener('click', function () {
+      var text = castLogText();
+      if (!text) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+          function () { toast({ text: 'Cast log copied.' }); },
+          function () { toast({ text: 'Couldn\'t reach the clipboard — select the log and copy it.' }); }
+        );
+      } else {
+        toast({ text: 'Select the log above and copy it.' });
+      }
+    });
+    $('btnClearLog').addEventListener('click', function () {
+      castLogEntries = [];
+      castLogEl.classList.remove('is-bad');
+      castLogEl.open = false;
+      paintCastLog();
+    });
   }
 
   function load(rawUrl, meta) {
@@ -625,6 +774,7 @@
        scrubber) — it just stays paused. */
     if (castState === 'CONNECTED') {
       video.pause();
+      stallRetried = false;
       castLoad(u);
     } else {
       video.play().catch(function () { /* autoplay policy — the controls are right there */ });
@@ -780,6 +930,7 @@
   }
 
   function initCast() {
+    logCast('Cast sender library ready.');
     var ctx = window.cast.framework.CastContext.getInstance();
     ctx.setOptions({
       receiverApplicationId: window.chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
@@ -787,14 +938,31 @@
     });
     ctx.addEventListener(window.cast.framework.CastContextEventType.CAST_STATE_CHANGED, function (e) {
       castState = e.castState;
+      logCast('Cast state: ' + castState);
       updateCastUi();
     });
     ctx.addEventListener(window.cast.framework.CastContextEventType.SESSION_STATE_CHANGED, function (e) {
-      if (e.sessionState === window.cast.framework.SessionState.SESSION_STARTED && current) {
+      var SS = window.cast.framework.SessionState;
+      logCast('Session: ' + e.sessionState);
+
+      if (e.sessionState === SS.SESSION_STARTED || e.sessionState === SS.SESSION_RESUMED) {
+        logCast('Connected to ' + deviceName());
+        showSending();
+      }
+      if (e.sessionState === SS.SESSION_STARTED && current) {
         video.pause();
+        stallRetried = false;
         castLoad(current);
       }
-      if (e.sessionState === window.cast.framework.SessionState.SESSION_ENDED) {
+      if (e.sessionState === SS.SESSION_START_FAILED) {
+        disarmStallWatch();
+        screenEl.classList.remove('is-onair');
+        setStatus('That device refused the connection. Check it is on the same Wi\u2011Fi.', 'bad');
+        openCastLog(true);
+      }
+      if (e.sessionState === SS.SESSION_ENDED) {
+        disarmStallWatch();
+        lastPlayerState = null;
         screenEl.classList.remove('is-onair');
       }
     });
@@ -811,6 +979,99 @@
   function deviceName() {
     var s = castSession();
     try { return (s && s.getCastDevice().friendlyName) || 'the TV'; } catch (e) { return 'the TV'; }
+  }
+
+  /* The on-air panel used to appear only once loadMedia had resolved, so
+     the whole "the TV is thinking about it" window had no panel — and
+     therefore no Stop, since the only one lived inside the remote, which
+     itself stays hidden until the TV reports media loaded. A stalled cast
+     was consequently impossible to cancel from this screen. It opens on
+     connect now, and says which stage it is at. */
+  function showSending() {
+    var name = deviceName();
+    /* Rejoining a session that is already playing is not "sending" — say
+       what is actually on the screen in the other room. */
+    if (remotePlayer && remotePlayer.isMediaLoaded) {
+      $('onairTitle').textContent = 'Playing on ' + name;
+      $('onairSub').textContent = currentTitle || (current ? nameOf(current) : '');
+      screenEl.classList.add('is-onair');
+      return;
+    }
+    $('onairTitle').textContent = 'Connected to ' + name;
+    $('onairSub').textContent = current
+      ? 'Sending ' + (currentTitle || nameOf(current)) + '\u2026'
+      : 'Nothing sent yet — pick something to play.';
+    screenEl.classList.add('is-onair');
+  }
+
+  function stopCasting(why) {
+    disarmStallWatch();
+    logCast('Stop casting' + (why ? ' (' + why + ')' : '') + '.');
+    try { if (remoteCtl) remoteCtl.stop(); } catch (e) { /* nothing loaded */ }
+    var s = castSession();
+    if (s) { try { s.endSession(true); } catch (e) { /* already gone */ } }
+    lastPlayerState = null;
+    screenEl.classList.remove('is-onair');
+    setStatus('Stopped casting.', '');
+    toast({ text: 'Stopped. Tap Cast to TV to send it back.' });
+  }
+
+  $('castCancel').addEventListener('click', function () { stopCasting('you asked'); });
+
+  /* A receiver that accepts a load and then never starts is the one failure
+     that reports nothing at all: loadMedia has already resolved, so there is
+     no error to catch, and the television just holds its spinner. Give it a
+     fixed window to reach PLAYING, then say so — and, if it was fetching
+     from the host directly, put the same media through the bridge once
+     before giving up. Fifteen seconds is well past a normal start, even on
+     a cold CDN. */
+  var STALL_MS = 15000;
+  var stallTimer = null;
+  var stallRetried = false;
+
+  function disarmStallWatch() {
+    if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+  }
+
+  /* The receiver's own reason for going idle is the single most useful
+     thing it reports, and it is not on the remote player. */
+  function idleTail() {
+    try {
+      var s = castSession();
+      var ms = s && s.getMediaSession();
+      if (ms && ms.idleReason) return ' · idle reason: ' + ms.idleReason;
+    } catch (e) { /* no media session yet */ }
+    return '';
+  }
+
+  function armStallWatch(u, at, opts) {
+    disarmStallWatch();
+    stallTimer = setTimeout(function () {
+      stallTimer = null;
+      var PS = window.chrome.cast.media.PlayerState;
+      if (remotePlayer && remotePlayer.playerState === PS.PLAYING) return;
+
+      var name = deviceName();
+      logCast('Still not playing after ' + Math.round(STALL_MS / 1000) + 's',
+              'TV reports: ' + ((remotePlayer && remotePlayer.playerState) || 'no state at all') + idleTail());
+
+      if (!opts.viaProxy && !stallRetried) {
+        stallRetried = true;
+        setStatus(name + ' hasn\'t started it — sending the same file through the bridge.', '');
+        logCast('Retrying through the bridge.');
+        castLoad(u, { at: at, viaProxy: true });
+        return;
+      }
+
+      setStatus(name + ' took the link but never started playing. The cast log below has what it reported.', 'bad');
+      openCastLog(true);
+      toast({
+        text: name + ' isn\'t starting it.',
+        actionLabel: 'Stop casting',
+        onAction: function () { stopCasting('stalled'); },
+        ms: 12000
+      });
+    }, STALL_MS);
   }
 
   function castLoad(u, opts) {
@@ -834,7 +1095,7 @@
        spinner on the TV, not a fast path. A progressive mp4 has no such
        requirement, so that one is tried direct and only proxied if the
        receiver comes back unhappy. */
-    var src = adaptive || opts.viaProxy ? streamUrl(u) : u;
+    var src = adaptive || opts.viaProxy ? streamUrl(u, true) : u;
 
     var info = new M.MediaInfo(src, mime);
     info.streamType = M.StreamType.BUFFERED;
@@ -880,22 +1141,39 @@
     req.currentTime = at;
 
     var name = deviceName();
+    logCast('Loading on ' + name,
+            mime + ' · ' + (src === u ? 'direct from the host' : 'through the bridge') +
+            (at ? ' · from ' + clock(at) : ''));
+    logCast('Address handed to the TV', src);
+    if (subsProxy) logCast('With a subtitle track', subsProxy);
+
+    armStallWatch(u, at, opts);
+
     s.loadMedia(req).then(function () {
-      setStatus('Playing on ' + name + '.', 'live');
-      $('onairTitle').textContent = 'Playing on ' + name;
+      /* Accepting a load is not playing it, and the two were being said in
+         the same breath: the panel read "Playing on the TV" over a set that
+         was still showing a spinner. The claim now waits for the receiver to
+         report PLAYING, which is where it is upgraded. */
+      logCast('The TV accepted it. Waiting for it to start playing\u2026');
+      setStatus('Sent to ' + name + ' — waiting for it to start.', 'ready');
+      $('onairTitle').textContent = 'Sent to ' + name;
       $('onairSub').textContent = currentTitle || nameOf(u);
       screenEl.classList.add('is-onair');
     }, function (err) {
+      disarmStallWatch();
+      logCast('The TV refused it', describeCastError(err) + idleTail());
       /* A receiver that refuses a direct address is usually being refused
          itself — the host wants the page the media was embedded in. Give it
          one go through our origin before saying it cannot be played. */
       if (!opts.viaProxy && src === u) {
         setStatus('The host blocked ' + name + ' — routing it through the bridge.', '');
+        logCast('Retrying through the bridge.');
         castLoad(u, { at: at, viaProxy: true });
         return;
       }
       screenEl.classList.remove('is-onair');
       setStatus(name + ' couldn\'t play it (' + ((err && err.code) || 'error') + '). It needs a public https .mp4 or .m3u8 link.', 'bad');
+      openCastLog(true);
     });
   }
 
@@ -933,6 +1211,7 @@
     if (castImpossible) { handOffToChrome(); return; }
     if (!window.cast || !window.cast.framework) return;
     if (castState === 'CONNECTED') {
+      stallRetried = false;
       if (current) castLoad(current);
       else toast({ text: 'Connected — now pick something to play.' });
       return;
@@ -1006,14 +1285,7 @@
 
     /* Stopping is one tap back from where it was, so it gets distance
        from the transport rather than a dialog in front of it. */
-    $('rStop').addEventListener('click', function () {
-      if (!remoteCtl) return;
-      remoteCtl.stop();
-      var s = castSession();
-      if (s) s.endSession(true);
-      screenEl.classList.remove('is-onair');
-      toast({ text: 'Stopped. Tap Cast to TV to send it back.' });
-    });
+    $('rStop').addEventListener('click', function () { stopCasting('you asked'); });
   }
 
   function nudge(by) {
@@ -1035,6 +1307,20 @@
 
   function syncRemote() {
     if (!remotePlayer || !remoteEl) return;
+
+    /* Every state the television moves through, once each. This is the part
+       that was invisible: a receiver going BUFFERING → IDLE has failed, and
+       used to say nothing whatsoever to the phone. */
+    if (remotePlayer.playerState !== lastPlayerState) {
+      lastPlayerState = remotePlayer.playerState;
+      logCast('TV player state: ' + (lastPlayerState || 'idle') + idleTail());
+      if (lastPlayerState === window.chrome.cast.media.PlayerState.PLAYING) {
+        disarmStallWatch();
+        var playingOn = deviceName();
+        setStatus('Playing on ' + playingOn + '.', 'live');
+        $('onairTitle').textContent = 'Playing on ' + playingOn;
+      }
+    }
 
     var loaded = !!remotePlayer.isMediaLoaded && castState === 'CONNECTED';
     remoteEl.hidden = !loaded;
@@ -1242,20 +1528,91 @@
    * Hand-off — VLC and clipboard
    * ------------------------------------------------------------------ */
 
-  function handoffVlc() {
-    if (!current) return;
-    var ua = navigator.userAgent;
-    if (/android/i.test(ua)) {
-      var u = new URL(current);
-      window.location.href = 'intent://' + u.host + u.pathname + u.search +
-        '#Intent;scheme=' + u.protocol.replace(':', '') +
-        ';package=org.videolan.vlc;type=' + encodeURIComponent(mimeOf(current)) +
-        ';S.title=' + encodeURIComponent(currentTitle || nameOf(current)) + ';end';
-    } else if (/iphone|ipad|ipod/i.test(ua)) {
-      window.location.href = 'vlc-x-callback://x-callback-url/stream?url=' + encodeURIComponent(current);
+  /* A custom scheme nothing is registered for does exactly nothing: no
+     error, no navigation, no way to tell it failed. That was the whole of
+     "Open in VLC does nothing" — desktop VLC registers no vlc:// handler on
+     Windows, macOS or Linux, so the old branch below was a tap into the
+     void, and on a phone the intent is equally silent when VLC is not
+     installed. So the tap now always lands somewhere: it either leaves this
+     page, or it copies the address and says exactly where to paste it. */
+
+  function copyForVlc(why) {
+    var say = function () { toast({ text: why, ms: 9000 }); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(current).then(say, function () {
+        try { $('url').select(); } catch (e) {}
+        toast({
+          text: 'Couldn\'t reach the clipboard — the link is in the box above, copy it from there.',
+          ms: 9000
+        });
+      });
     } else {
-      window.location.href = 'vlc://' + current;
+      try { $('url').select(); } catch (e) {}
+      say();
     }
+  }
+
+  /* Try a scheme, and find out whether anything answered. Leaving the page
+     is the only signal a handler exists, so the fallback is armed first and
+     cancelled only if we actually go. */
+  function tryScheme(target, ifNothing) {
+    var left = false;
+    var onLeave = function () { left = true; };
+    window.addEventListener('pagehide', onLeave);
+    document.addEventListener('visibilitychange', onLeave);
+
+    try { window.location.href = target; } catch (e) { /* unregistered scheme */ }
+
+    setTimeout(function () {
+      window.removeEventListener('pagehide', onLeave);
+      document.removeEventListener('visibilitychange', onLeave);
+      if (left || document.visibilityState === 'hidden') return;
+      ifNothing();
+    }, 1400);
+  }
+
+  var VLC_DESKTOP = 'Link copied. In VLC: Media \u25b8 Open Network Stream (Ctrl+N), then paste it there.';
+  var VLC_MISSING = 'VLC didn\'t open — link copied instead. Paste it into VLC \u25b8 Open Network Stream. If VLC isn\'t installed, that is why.';
+
+  function handoffVlc() {
+    if (!current) {
+      toast({ text: 'Load something first, then hand it to VLC.' });
+      return;
+    }
+
+    var ua = navigator.userAgent;
+    var android = /android/i.test(ua);
+    /* An iPad on iPadOS 13+ reports itself as a Mac and is the one desktop
+       string that really does have a vlc-x-callback handler. */
+    var ios = /iphone|ipad|ipod/i.test(ua) ||
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+    if (android) {
+      var intent;
+      try {
+        var u = new URL(current);
+        intent = 'intent://' + u.host + u.pathname + u.search +
+          '#Intent;scheme=' + u.protocol.replace(':', '') +
+          ';package=org.videolan.vlc;type=' + encodeURIComponent(mimeOf(current)) +
+          ';S.title=' + encodeURIComponent(currentTitle || nameOf(current)) + ';end';
+      } catch (e) {
+        copyForVlc(VLC_DESKTOP);
+        return;
+      }
+      tryScheme(intent, function () { copyForVlc(VLC_MISSING); });
+      return;
+    }
+
+    if (ios) {
+      tryScheme(
+        'vlc-x-callback://x-callback-url/stream?url=' + encodeURIComponent(current),
+        function () { copyForVlc(VLC_MISSING); }
+      );
+      return;
+    }
+
+    /* Desktop. There is no scheme to try, so don't pretend there is. */
+    copyForVlc(VLC_DESKTOP);
   }
   $('btnVlc').addEventListener('click', handoffVlc);
 
@@ -2650,11 +3007,15 @@
       renderHistory();
       updateHistCount();
       if (!gone) return;
+      store.bury(gone.item.url);
+      forgetOnServer(gone.item.url);
       toast({
         text: 'Removed “' + (gone.item.title || nameOf(gone.item.url)) + '”.',
         actionLabel: 'Undo',
         onAction: function () {
           store.insertAt(gone.item, gone.at);
+          store.revive(gone.item.url);
+          recordPlay(gone.item.url, { title: gone.item.title, kind: gone.item.kind });
           renderHistory();
           updateHistCount();
         }
@@ -2727,12 +3088,18 @@
     var n = store.count();
     if (!n) return;
     var snapshot = store.clear();
+    snapshot.forEach(function (it) { store.bury(it.url); });
+    forgetAllOnServer();
     renderHistory();
     toast({
       text: n + (n === 1 ? ' entry cleared.' : ' entries cleared.'),
       actionLabel: 'Undo',
       onAction: function () {
         store.restore(snapshot);
+        snapshot.forEach(function (it) {
+          store.revive(it.url);
+          recordPlay(it.url, { title: it.title, kind: it.kind });
+        });
         renderHistory();
       }
     });
@@ -2897,6 +3264,31 @@
       .catch(function () { /* offline: the local copy already has it */ });
   }
 
+  /* The server is the record, so a removal has to reach it. Until it does,
+     the tombstone is what keeps the row out of the merge below — and a
+     refresh retries the delete, so one made offline settles by itself. */
+  function forgetOnServer(url) {
+    if (!signedIn || !url) return Promise.resolve(false);
+    return fetch('/api/history?url=' + encodeURIComponent(url), { method: 'DELETE' })
+      .then(function (r) {
+        if (r.status === 401) { handleAuthLapse(); return false; }
+        /* 404 is the server saying it never had it — forgotten either way. */
+        if (r.ok || r.status === 404) { store.revive(url); return true; }
+        return false;
+      })
+      .catch(function () { return false; });   // offline: the tombstone holds
+  }
+
+  function forgetAllOnServer() {
+    if (!signedIn) return Promise.resolve(false);
+    return fetch('/api/history?all=1', { method: 'DELETE' })
+      .then(function (r) {
+        if (r.status === 401) { handleAuthLapse(); return false; }
+        return r.ok;
+      })
+      .catch(function () { return false; });
+  }
+
   function refreshHistory() {
     if (!signedIn) return Promise.resolve();
 
@@ -2920,6 +3312,9 @@
            the server does not have is left alone rather than deleted: it is
            usually a play recorded while offline, waiting to go up. */
         (body.items || []).forEach(function (row) {
+          /* A row deleted here that the server has not forgotten yet must
+             not be added back. Retry the delete instead. */
+          if (store.isBuried(row.url)) { forgetOnServer(row.url); return; }
           if (!store.find(row.url)) {
             store.touch(row.url, { title: row.title || '', from: 'server' });
           }

@@ -537,3 +537,25 @@ form at `index.html:55`, which has had a spinner and a disabled state the whole
 time; the checker is pattern-matching for the string "Sending…".
 **Context you need to review:** nothing, unless you want the legal routes
 added anyway — say so and it is a small job.
+
+## 2026-09-07 — cast diagnostics
+
+**Question:** how long should the stall watchdog wait before calling a cast
+dead?
+**Assumption made:** 15 seconds to reach PLAYING, then one silent retry
+through the bridge, then a further 15 before it is called a failure — so
+30 seconds total before the red line appears.
+**Context Rj needs to review:** `assets/js/app.js`, `STALL_MS`. If the Sony
+is genuinely slow to start a large file over a weak Wi-Fi, raise it.
+
+**Question:** should the Sony's failure to start be reported as a code, or
+in words?
+**Assumption made:** both — a plain sentence in the status strip, and the
+raw receiver codes / idle reasons in the cast log underneath, which is
+collapsed until something goes wrong.
+**Context Rj needs to review:** `index.html`, `#castLog`.
+
+**Not verified here:** the cast path was driven against a stubbed receiver,
+not a real Chromecast — this VPS has no TV on its network. The relative-URL
+fix, the watchdog, the log and the cancel are all proved in a real browser;
+whether the Sony then plays the film is one tap from Rj.

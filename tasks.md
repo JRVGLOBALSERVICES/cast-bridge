@@ -592,3 +592,19 @@
       ```
 
       None clips at 390px; the longest measures 145px against a 215px cap.
+
+## 2026-09-07 — history ×, VLC, cast diagnostics, cancel
+
+- [x] History `×` and Clear now delete the server row too, with a local
+      tombstone so the sync cannot resurrect a removed entry. Proved red on
+      HEAD (deleted row returned after reload) and green on the fix.
+- [x] Open in VLC no longer taps into the void: desktop copies the address
+      with paste instructions, phones try the scheme and fall back to copy
+      when nothing answers.
+- [x] Cast log — every SDK state, the exact address handed to the TV, the
+      receiver's idle reason, copyable. Opens itself on failure.
+- [x] Fixed the receiver being handed a root-relative /api/stream path.
+- [x] Stall watchdog: 15s to reach PLAYING, one automatic retry through the
+      bridge, then a named failure instead of a spinner.
+- [x] Stop casting available for the whole session, not only once media
+      loads.

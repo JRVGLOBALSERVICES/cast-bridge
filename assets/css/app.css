@@ -334,7 +334,85 @@ summary:focus-visible {
 }
 .cb-stop:hover { color: #e6e7ee; border-color: #4a5570; }
 
+/* The same control, sitting in the head row rather than under the remote,
+   so it is reachable while the TV is still only "connecting" — which is
+   exactly when someone wants it. */
+.cb-stop-inline {
+  align-self: center;
+  margin-left: auto;
+  flex: none;
+  min-height: 38px;
+  padding: 0 0.85rem;
+  font-size: 0.75rem;
+}
+@media (max-width: 380px) {
+  .cb-onair-head { flex-wrap: wrap; }
+  .cb-stop-inline { margin-left: 0; width: 100%; }
+}
+
 .cb-onair :focus-visible { outline: 3px solid var(--cb-accent-dark); outline-offset: 2px; }
+
+/* ---------- Cast log ----------
+   Deliberately quiet: it is diagnostics, not a feature, and it must not
+   compete with the status line above it. Closed it is one line; open it is
+   a monospaced transcript that can be selected and copied whole. */
+.cb-log {
+  margin-bottom: 0.75rem;
+  border-radius: var(--cb-radius-xl);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+  padding: 0.35rem 0.85rem;
+}
+.cb-log > summary {
+  display: flex; align-items: center; gap: 0.55rem;
+  min-height: 44px;
+  font-size: 0.875rem; font-weight: 600; color: var(--cb-ink-2);
+  cursor: pointer; list-style: none;
+}
+.cb-log > summary::-webkit-details-marker { display: none; }
+.cb-log > summary svg { flex: none; color: var(--cb-ink-soft); }
+.cb-log > summary::after {
+  content: ''; margin-left: auto;
+  width: 8px; height: 8px;
+  border-right: 2px solid var(--cb-ink-soft);
+  border-bottom: 2px solid var(--cb-ink-soft);
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform 0.18s ease;
+}
+.cb-log[open] > summary::after { transform: rotate(-135deg) translate(-2px, -2px); }
+/* Not red. The status strip above is already carrying the failure, and red
+   spent in three places at once stops meaning anything — the panel opening
+   itself is the signal that it has something to say. */
+.cb-log.is-bad > summary { color: var(--cb-ink); }
+.cb-log-lines {
+  margin: 0 0 0.55rem;
+  max-height: 15rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.6rem 0.7rem;
+  border-radius: var(--cb-radius);
+  background: #22262e;
+  color: #c8d0dd;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.6875rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+.cb-log-lines:focus-visible { outline: 3px solid var(--cb-accent-dark); outline-offset: 2px; }
+.cb-log-actions { display: flex; gap: 0.5rem; padding-bottom: 0.6rem; }
+.cb-log-btn {
+  min-height: 44px; padding: 0 1rem;
+  border: 1px solid var(--cb-line); border-radius: var(--cb-radius);
+  background: transparent; color: var(--cb-ink-2);
+  font-size: 0.8125rem; font-weight: 600; cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.cb-log-btn:hover { color: var(--cb-ink); border-color: var(--cb-ink-soft); }
+.cb-log-btn:focus-visible { outline: 3px solid var(--cb-accent-dark); outline-offset: 2px; }
 
 /* ---------- Subtitles ---------- */
 .cb-subs {

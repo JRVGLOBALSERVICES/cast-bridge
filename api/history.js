@@ -4,7 +4,13 @@
  *   GET    /api/history?scope=all      -> owner only: everyone's, with names
  *   POST   /api/history                -> { url, title, kind } records one
  *   DELETE /api/history?id=<uuid>      -> removes one of yours
+ *   DELETE /api/history?url=<address>  -> removes one of yours, found by url
  *   DELETE /api/history?all=1          -> clears yours
+ *
+ * The url form exists because the browser's own history cache keys on the
+ * address, not on this table's uuid — a row it learned about offline has no
+ * server id to send. Deleting by url is scoped to the caller exactly as the
+ * id form is, so it widens nothing.
  *
  * The isolation rule lives here and only here: a normal user's query is
  * always pinned to their own id, taken from the signed session, never from
@@ -136,6 +142,16 @@ module.exports = async function handler(req, res) {
         res.end(JSON.stringify({ ok: true, cleared: true }));
         return;
       }
+      if (q.url) {
+        const gone = await db.remove(
+          'history?user_id=eq.' + enc(me.id) + '&url=eq.' + enc(String(q.url)) + '&select=id'
+        );
+        if (!gone || !gone.length) return fail(res, 404, 'That item is not in your history.');
+        res.statusCode = 200;
+        res.end(JSON.stringify({ ok: true, deleted: gone.length }));
+        return;
+      }
+
       if (!q.id) return fail(res, 400, 'Which item?');
 
       /* The user_id filter is the authorisation. Without it, an id from
