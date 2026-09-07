@@ -12,7 +12,9 @@
    * Helpers
    * ------------------------------------------------------------------ */
 
-  var MEDIA_EXT = /\.(m3u8|mpd|mp4|m4v|webm|mkv|mov|mp3|m4a|aac|ogg|opus|flac|wav)(\?|#|$)/i;
+  /* Same list the scanner uses. Where the two drift, an address the server
+     resolves happily is one the Link box sends the long way round. */
+  var MEDIA_EXT = /\.(m3u8|mpd|mp4|m4v|webm|mkv|mov|ogv|mp3|m4a|aac|ogg|opus|flac|wav)(\?|#|$)/i;
 
   function mimeOf(u) {
     var p = String(u).split('?')[0].split('#')[0].toLowerCase();
@@ -24,7 +26,7 @@
     if (/\.(mp3)$/.test(p)) return 'audio/mpeg';
     if (/\.(m4a|aac)$/.test(p)) return 'audio/mp4';
     if (/\.opus$/.test(p)) return 'audio/ogg';
-    if (/\.ogg$/.test(p)) return 'video/ogg';
+    if (/\.(ogg|ogv)$/.test(p)) return 'video/ogg';
     if (/\.(flac)$/.test(p)) return 'audio/flac';
     if (/\.(wav)$/.test(p)) return 'audio/wav';
     return 'video/mp4';
@@ -755,11 +757,98 @@
   }
 
   var playInFlight = false;
+
+  /* Is this an address the player can be handed as-is?
+   *
+   * Deliberately narrow: a media extension, or a share link whose direct
+   * form is a fixed rewrite. Everything else goes to the scanner — which
+   * includes the signed CDN links that carry no extension. That costs them
+   * one round trip, and buys the guarantee that a name is never the reason
+   * an address is refused: /api/extract identifies those by what the server
+   * actually answers with and hands the file straight back as a single hit,
+   * which then plays. Guessing "page" from a bare path would break exactly
+   * the addresses that are hardest to come by. */
+  function looksDirect(u) {
+    return MEDIA_EXT.test(u) || resolveShare(u) !== u;
+  }
+
+  /* An address the player can't take is not a mistake to report. It is a
+   * page, and the scanner reads pages — so read it. One hit plays on the
+   * spot; anything else hands over to Browse, which already has the words
+   * for a wall, an empty page, and a deep scan worth running. */
+  function resolveThenPlay(rawUrl) {
+    var u = String(rawUrl || '').trim();
+    if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+    if (scanInFlight) return;
+
+    var btn = $('btnPlay');
+    scanInFlight = true;
+    playInFlight = true;
+    busy(btn, true);
+    fieldError($('url'), $('urlError'), null);
+
+    fetch('/api/extract?url=' + encodeURIComponent(u), { headers: { accept: 'application/json' } })
+      .then(function (r) {
+        return r.json().then(function (body) { return { status: r.status, body: body }; });
+      })
+      .then(function (res) {
+        if (res.status === 401) { handleAuthLapse(); return; }
+        var body = res.body || {};
+
+        /* Handing off means Browse has to look like it was the tab asked:
+           its field carries the address, so a retry there retries the same
+           thing rather than the last thing it scanned. */
+        var handOff = function (render) {
+          lastScanUrl = u;
+          $('pageUrl').value = u;
+          $('browseHint').hidden = true;
+          showTab('browse');
+          render();
+        };
+
+        if (body.walled) { handOff(function () { renderWalled(body); }); return; }
+
+        if (res.status !== 200 || body.ok !== true) {
+          if (body.canDeepScan) { handOff(function () { renderDeepOffer(body, u); }); return; }
+          fieldError($('url'), $('urlError'),
+            body.error || 'That address couldn\'t be read.');
+          return;
+        }
+
+        var media = body.media || [];
+
+        /* One result is not a choice, and rendering it as a list to be
+           picked from is a tap that says nothing. */
+        if (media.length === 1) {
+          var only = media[0];
+          load(only.url, {
+            title: only.label || body.title || nameOf(only.url),
+            from: body.direct ? '' : body.finalUrl
+          });
+          $('linkHint').hidden = true;
+          if (!body.direct) toast({ text: 'That was a page — playing the video on it.' });
+          return;
+        }
+
+        handOff(function () { renderScan(body); });
+      })
+      .catch(function () {
+        fieldError($('url'), $('urlError'), 'No connection to the scanner.');
+      })
+      .then(function () {
+        busy(btn, false);
+        scanInFlight = false;
+        playInFlight = false;
+      });
+  }
+
   $('linkForm').addEventListener('submit', function (e) {
     e.preventDefault();
     if (playInFlight) return;
 
-    var walled = walledName($('url').value);
+    var raw = String($('url').value || '').trim();
+
+    var walled = walledName(raw);
     if (walled) {
       fieldError($('url'), $('urlError'),
         walled === 'YouTube'
@@ -768,11 +857,18 @@
       return;
     }
 
+    /* Only an address that is already an address gets sent anywhere. A typo
+       still earns the same message it always did, from load(). */
+    if (isHttp(raw) && !looksDirect(raw)) {
+      resolveThenPlay(raw);
+      return;
+    }
+
     var btn = $('btnPlay');
     playInFlight = true;
     busy(btn, true);
 
-    var ok = load($('url').value);
+    var ok = load(raw);
     if (ok) $('linkHint').hidden = true;
 
     /* Loading is synchronous from here; release on the next frame so the

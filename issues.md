@@ -274,3 +274,29 @@ handing back web pages dressed as videos. It also means the probe cannot be
 turned into a general "fetch me that" tool by pointing it at a page. The
 existing address checks still apply to it: every hop is re-checked, so it
 cannot be used to reach anything on a private network.
+
+## Task 28: a page whose first video is not its main one
+
+**Not a question — a consequence Rj should know about.** When the Link box
+sends a page to the scanner and the scanner returns exactly one media hit,
+that hit plays without asking. When it returns several, Browse opens and the
+choice is Rj's. So a page carrying a single 30-second promo and nothing else
+will play the promo, confidently, because one result genuinely is the only
+result. This is the same first-pass-wins condition already logged under Task
+27, seen from the Link tab instead of Browse.
+
+**Context Rj needs to review:** `assets/js/app.js`, `resolveThenPlay`, the
+`media.length === 1` branch. Flipping it to always show the list would cost
+a tap on every good page to protect against the rare bad one — say the word
+if you would rather have the tap.
+
+## Task 28: the extra round trip, and who pays it
+
+**Not a question.** An address with no media extension now costs one call to
+`/api/extract` (measured 250-900ms against real hosts) before it plays, where
+before it went straight to the player. That is the price of never refusing a
+signed CDN link on the strength of its name. An address that names itself —
+`.mp4`, `.m3u8`, a Drive or Dropbox share — is unaffected and makes no
+request at all; verified in the browser with a fetch counter.
+
+**Context Rj needs to review:** `assets/js/app.js`, `looksDirect`.

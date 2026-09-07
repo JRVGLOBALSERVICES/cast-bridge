@@ -236,3 +236,44 @@
       end-to-end runs of the real handler — a wrapper page resolving through
       its embed host, a player config resolving by probe, and three
       regressions plus the empty case all unchanged. 28/28.
+
+- [x] Task 28: The Link box takes a page, not just a file. Rj circled the paste
+      field and the Play button next to it. Pasting a page address there used
+      to become a broken `<video>` — the app knew the scanner existed and made
+      the person go find it on another tab. It doesn't any more.
+
+      Play now decides. A media extension or a Drive / Dropbox / Cloudinary
+      share link goes straight to the player, exactly as before and with no
+      extra request. Anything else is read by `/api/extract` first: one video
+      on the page plays on the spot, several hand over to Browse with the
+      address carried across so a retry there retries the same thing, and a
+      page with nothing on it lands on the deep-scan offer rather than a
+      field error saying the address is wrong.
+
+      The test is deliberately narrow, and that is the point. A signed CDN
+      link carries no extension, so guessing "page" from a bare path would
+      break exactly the addresses hardest to come by. Those go to the
+      scanner, which identifies them by what the server answers with and
+      hands the file back as one hit — which then plays.
+
+      Two server gaps that closed with it, both reachable only now that the
+      Link box routes here. An mp4 labelled `application/octet-stream` — how
+      a great many CDNs label one — used to dead-end on "that address is a
+      file, not a page or a video"; it is probed by its bytes now. And a
+      signed HLS manifest served as `text/plain` was being parsed as HTML,
+      which found nothing and reported "no video on that page" about an
+      address that IS the video.
+
+      `.ogv` was missing from the client-side extension list while the server
+      had it, so an Ogg video took the long way round. One list, both sides.
+
+      Verified: 11 unit assertions on the routing test; 6 live end-to-end
+      runs of the real handler (extensionless HLS as text/plain, mp4 and HLS
+      master by extension, a real page with 4 hits, an empty page offering
+      the deep scan, an image refused); 4 local-server runs for the two
+      content-type branches the live web can't be made to serve on demand;
+      and 6 driven in a real browser at 412x915 — a one-video page playing on
+      the Link tab, a three-video page handed to Browse, an empty page
+      landing on the deep-scan offer, an extensionless octet-stream link
+      playing, and two regressions (a direct .mp4 and a Netflix link) both
+      answering with zero calls to the scanner. 27/27.

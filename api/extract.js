@@ -14,7 +14,7 @@
 const {
   MAX_RESULTS, MEDIA_EXT, safeFetch, readCapped, kindOf, labelFor, extract,
   expandHlsMaster, walledService, walledMessage,
-  normalizeShare, collectFrames, collectCandidates, probeAll, readFrames
+  normalizeShare, collectFrames, collectCandidates, probeMedia, probeAll, readFrames
 } = require('../lib/media');
 const auth = require('../lib/auth');
 
@@ -77,17 +77,15 @@ module.exports = async function handler(req, res) {
     const type = (pageRes.headers.get('content-type') || '').toLowerCase();
 
     /* The address was the media itself — hand it straight back. */
-    if (!type.includes('html') && (type.startsWith('video/') || type.startsWith('audio/') ||
-        type.includes('mpegurl') || type.includes('dash+xml') ||
-        MEDIA_EXT.test(finalUrl))) {
+    const answerDirect = async (url, kind) => {
       let media = [{
-        url: finalUrl,
-        kind: kindOf(finalUrl),
-        label: labelFor(finalUrl),
+        url,
+        kind: kind || kindOf(url),
+        label: labelFor(url),
         detail: 'direct file'
       }];
       if (media[0].kind === 'HLS') {
-        const variants = await expandHlsMaster(finalUrl);
+        const variants = await expandHlsMaster(url);
         const known = new Set(media.map((x) => x.url));
         variants.forEach((v) => {
           if (!known.has(v.url)) { media.push(v); known.add(v.url); }
@@ -95,13 +93,29 @@ module.exports = async function handler(req, res) {
       }
       res.statusCode = 200;
       res.end(JSON.stringify({
-        ok: true, finalUrl, title: labelFor(finalUrl), poster: null,
+        ok: true, finalUrl: url, title: labelFor(url), poster: null,
         media: media.slice(0, MAX_RESULTS), direct: true
       }));
+    };
+
+    if (!type.includes('html') && (type.startsWith('video/') || type.startsWith('audio/') ||
+        type.includes('mpegurl') || type.includes('dash+xml') ||
+        MEDIA_EXT.test(finalUrl))) {
+      await answerDirect(finalUrl);
       return;
     }
 
     if (!type.includes('html') && !type.includes('xml') && !type.includes('text')) {
+      /* Neither a page nor a type that names itself media — but octet-stream
+         is how a great many CDNs label an mp4, and a signed link carries no
+         extension to fall back on. Refusing on the label alone would turn
+         the addresses hardest to come by into the ones that don't work, so
+         ask the bytes first. */
+      const hit = await probeMedia(finalUrl);
+      if (hit) {
+        await answerDirect(hit.url, hit.kind);
+        return;
+      }
       res.statusCode = 200;
       res.end(JSON.stringify({
         ok: false,
@@ -111,6 +125,17 @@ module.exports = async function handler(req, res) {
     }
 
     const html = await readCapped(pageRes);
+
+    /* Served as text, but it is a manifest rather than a page. A signed
+       manifest carries no extension to give it away, and parsing one as
+       HTML finds nothing — which comes back as "no video on that page"
+       about an address that IS the video. */
+    if (/^\s*#EXTM3U/.test(html)) { await answerDirect(finalUrl, 'HLS'); return; }
+    if (/<MPD[\s>]/i.test(html.slice(0, 2000)) && /urn:mpeg:dash/i.test(html)) {
+      await answerDirect(finalUrl, 'DASH');
+      return;
+    }
+
     const parsed = extract(html, finalUrl);
     let via = null;
 
