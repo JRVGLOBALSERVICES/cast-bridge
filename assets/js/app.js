@@ -617,8 +617,8 @@
          being made is "a page has this", which is true at this line. */
       ack();
       for (var i = 0; i < listeners.length; i++) {
-        try { listeners[i](d.action, d.tag, { replayed: Boolean(d.replayed) }); }
-        catch (err) { /* keep going */ }
+        try { listeners[i](d.action, d.tag, { replayed: Boolean(d.replayed), id: d.id || null }); }
+        catch (err) { /* one listener falling over must not stop the rest */ }
       }
     }
 
@@ -661,11 +661,38 @@
       try { w.postMessage({ type: 'GET_PENDING_ACTION' }, [ch.port2]); } catch (e) {}
     }
 
+    /* What the page managed to DO with a tap, told to the worker so the two
+       halves of one tap end up on one line. "It arrived" and "it worked"
+       are different claims and only the second one answers the question a
+       person asks when a button appears dead. */
+    function result(id, outcome) {
+      if (!id) return;
+      post({ type: 'NOTIFY_ACTION_RESULT', id: id, outcome: outcome });
+    }
+
+    /* The last few taps, for the sentence under the Notifications switch. */
+    function taps(cb) {
+      if (!('serviceWorker' in navigator)) { cb([]); return; }
+      var ch;
+      try { ch = new MessageChannel(); } catch (e) { cb([]); return; }
+      var answered = false;
+      ch.port1.onmessage = function (ev) {
+        var d = ev.data || {};
+        if (d.type !== 'ACTION_LOG') return;
+        answered = true;
+        cb(d.list || []);
+      };
+      var w = (reg && reg.active) || navigator.serviceWorker.controller;
+      if (!w) { cb([]); return; }
+      try { w.postMessage({ type: 'GET_ACTION_LOG' }, [ch.port2]); } catch (e) { cb([]); return; }
+      setTimeout(function () { if (!answered) cb([]); }, 1200);
+    }
+
     return {
       setReg: setReg, state: state, on: on, ask: ask, off: setOff,
       show: show, update: update, close: close, clearAll: clearAll,
       onAction: onAction, onChange: onChange, standalone: standalone,
-      drainPending: drainPending
+      drainPending: drainPending, result: result, taps: taps
     };
   })();
 
@@ -708,6 +735,74 @@
 
     notify.onChange(paint);
     paint(notify.state());
+
+    /* What became of the last tap in the shade.
+     *
+     * A Pause that does nothing can fail in three places that cannot see
+     * each other: the worker never delivered it, the page took it and did
+     * nothing, or the television refused. None of that is visible from a
+     * handset, and describing the symptom out loud has already cost three
+     * attempts at the wrong fix. So the app says which one it was.
+     *
+     * One sentence, and only when there has been a tap — a diagnostic
+     * nobody needs is clutter, and this screen is a settings screen. */
+    var tapsEl = $('notifyTaps');
+    var TAPPED = { toggle: 'Pause', stop: 'Stop', cancel: 'Cancel' };
+
+    function tapSentence(e) {
+      var what = TAPPED[e.action] || 'a button';
+      var when = ago(e.at);
+      var tail;
+
+      if (e.route === 'written-down' && !e.woke) {
+        tail = 'nothing could be woken to perform it';
+      } else if (e.route === 'written-down') {
+        tail = e.outcome === 'performed'
+          ? 'no page was awake, so the app was opened and it was done'
+          : e.outcome === 'no-session'
+            ? 'the app was opened, but the television could not be reached'
+            : e.outcome === 'refused'
+              ? 'the app was opened and the television refused it'
+              : 'the app was opened and never performed it';
+      } else {
+        tail = e.outcome === 'performed'
+          ? 'the app did it'
+          : e.outcome === 'no-session'
+            ? 'the app had it, but the television could not be reached'
+            : e.outcome === 'refused'
+              ? 'the television refused it'
+              : 'the app took it and never said what it did';
+      }
+      /* "The shade" is what a developer calls it. The person reading this
+         tapped a button on a notification. */
+      return 'You tapped ' + what + ' ' + when + '. ' +
+        tail.charAt(0).toUpperCase() + tail.slice(1) + '.';
+    }
+
+    function paintTaps() {
+      if (!tapsEl) return;
+      notify.taps(function (list) {
+        var e = list && list[0];
+        if (!e || !e.at) { tapsEl.hidden = true; return; }
+        tapsEl.textContent = tapSentence(e);
+        tapsEl.hidden = false;
+      });
+    }
+
+    paintTaps();
+    /* Refreshed when the row is actually looked at, which needs no
+       knowledge of how views are switched — and a stale sentence on a
+       screen nobody is on costs nothing to leave alone. */
+    if (tapsEl && window.IntersectionObserver) {
+      new IntersectionObserver(function (entries) {
+        for (var i = 0; i < entries.length; i++) {
+          if (entries[i].isIntersecting) { paintTaps(); return; }
+        }
+      }).observe(tapsEl.parentNode);
+    }
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) paintTaps();
+    });
 
     row.addEventListener('click', function () {
       var state = notify.state();
@@ -2643,63 +2738,93 @@
     return castState === 'CONNECTED' && remoteCtl && remotePlayer && remotePlayer.isMediaLoaded;
   }
 
-  /* A tap that had to open the app first arrives before the Cast SDK has
-     rejoined the session — the television is still playing, this app just
-     does not have the remote back yet. So a replayed tap waits for it
-     rather than acting immediately, and if the session never comes back it
-     says so instead of quietly doing the same thing to the phone. That
-     substitution is the one to avoid: tapping Pause in the shade and having
-     the film start playing out loud in your pocket. */
-  function withCast(replayed, act) {
-    if (castReady()) { act(); return; }
-    if (!replayed) { act(); return; }
+  /* Wait for the remote, or give up and say so — never a third thing. The
+     rule, and why the version that fell back to this phone's own <video>
+     was the whole of "the button does nothing", is in castaction.js. */
+  var castWait = (window.CBCastAction || { create: function () { return null; } })
+    .create({ setInterval: setInterval, clearInterval: clearInterval });
 
-    var waited = 0;
-    var tick = setInterval(function () {
-      if (castReady()) { clearInterval(tick); act(); return; }
-      waited += 250;
-      if (waited < 8000) return;
-      clearInterval(tick);
-      notify.close('cast');
-      toast({ text: 'That film is no longer on a television this phone can see.' });
-    }, 250);
+  function withCast(tap, act) {
+    /* Guarded because index.html and the assets are deployed as separate
+       files and a cached shell can be one build behind — the same guard the
+       resume banner's buttons carry. Acting on the television without the
+       wait is still better than a button that throws. */
+    if (!castWait) { if (castReady()) act(); return; }
+
+    castWait.wait(tap, castReady, act, function () {
+      castActionFailed(tap, 'no-session',
+        'That film is no longer on a television this phone can see.');
+    });
+  }
+
+  /* Failure said in the shade, because the shade is where the person is.
+     The whole premise of these buttons is that the app is in the background,
+     so a failure that only raises a toast is a failure nobody is ever told
+     about — the film keeps playing and the phone keeps its own counsel.
+     The notification is rewritten in place, keeps its tag so it replaces
+     rather than stacks, and drops its buttons: there is nothing left for
+     them to act on. `urgent` is what lets it make a sound, which is the one
+     case this app allows one. */
+  function castActionFailed(tap, outcome, sentence) {
+    notify.result(tap.id, outcome);
+    notify.show('cast', {
+      title: 'That did not reach the television',
+      body: sentence,
+      actions: [],
+      ongoing: false,
+      urgent: true
+    });
+    toast({ text: sentence });
   }
 
   notify.onAction(function (action, tag, how) {
-    var replayed = Boolean(how && how.replayed);
+    /* Carried through every branch rather than held in a shared variable:
+       withCast()'s timer answers long after this handler has returned, and
+       a second tap arriving in that gap would otherwise take the answer
+       meant for the first. */
+    var tap = { id: (how && how.id) || null, replayed: Boolean(how && how.replayed) };
 
     if (tag === 'upload' && action === 'cancel') {
       /* An upload does not survive the app being closed, so a cancel that
          arrives after a restart has nothing to cancel — and saying
          "stopped" about something that stopped on its own is a lie. */
       if (uploadXhr) uploadXhr.abort();
+      notify.result(tap.id, uploadXhr ? 'performed' : 'nothing-to-do');
       notify.close('upload');
       return;
     }
     if (tag !== 'cast') return;
 
     if (action === 'stop') {
-      withCast(replayed, function () {
-        if (castReady()) stopCasting('from the notification');
+      withCast(tap, function () {
+        try { stopCasting('from the notification'); }
+        catch (e) {
+          castActionFailed(tap, 'refused',
+            'The television would not let go. Open the app and stop it there.');
+          return;
+        }
+        notify.result(tap.id, 'performed');
         notify.close('cast');
       });
       return;
     }
     if (action !== 'toggle') return;
 
-    withCast(replayed, function () {
-      /* Casting: the television owns the position, so the phone asks it.
-         Not casting: this element is the thing making the sound. */
-      if (castReady()) {
-        remoteCtl.playOrPause();
-        /* Redraw with the button's new word rather than waiting for the
-           TV's next ANY_CHANGE — a Pause that still says "Pause"
-           afterwards reads as a tap that did nothing. */
-        setTimeout(syncRemote, 0);
+    withCast(tap, function () {
+      /* The television owns the position, so the phone asks it — and a
+         throw here used to be swallowed by the caller and told to nobody,
+         which is the same dead button by another road. */
+      try { remoteCtl.playOrPause(); }
+      catch (e) {
+        castActionFailed(tap, 'refused',
+          'The television would not take that. Open the app and try there.');
         return;
       }
-      if (video.paused) video.play().catch(function () { /* policy */ });
-      else video.pause();
+      notify.result(tap.id, 'performed');
+      /* Redraw with the button's new word rather than waiting for the TV's
+         next ANY_CHANGE — a Pause that still says "Pause" afterwards reads
+         as a tap that did nothing. */
+      setTimeout(syncRemote, 0);
     });
   });
 

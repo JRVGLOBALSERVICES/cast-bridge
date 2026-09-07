@@ -505,6 +505,219 @@ check('still answers what build is installed', async () => {
   assert.ok(out[0] && out[0].build, 'the footer reads this');
 });
 
+/* ------------------------------------------------------------------ *
+ * assets/js/castaction.js — what a shade button is allowed to act on
+ *
+ * The fault this file exists for: the `cast` notification is only ever
+ * drawn about a television, and its buttons used to fall back to this
+ * phone's own <video> whenever the Cast session was not ready at the
+ * instant of the tap. That element is hidden, empty and already paused
+ * while a film is on the television, so the tap was silent, the shade
+ * never changed its word, and it read as a dead button.
+ * ------------------------------------------------------------------ */
+
+const CBCastAction = require('../assets/js/castaction.js');
+
+/* A clock this test drives by hand, so an 8-second budget costs no
+   wall-clock seconds and the assertions are about the rule, not timing. */
+function fakeClock() {
+  let now = 0;
+  const timers = [];
+  return {
+    setInterval(fn, ms) { const t = { fn, ms, next: now + ms, live: true }; timers.push(t); return t; },
+    clearInterval(t) { if (t) t.live = false; },
+    advance(ms) {
+      const until = now + ms;
+      let guard = 0;
+      while (now < until && guard++ < 10000) {
+        const due = timers.filter((t) => t.live && t.next <= until)
+          .sort((a, b) => a.next - b.next)[0];
+        if (!due) break;
+        now = due.next;
+        due.next = now + due.ms;
+        due.fn();
+      }
+      now = until;
+    }
+  };
+}
+
+function waiter(clock) {
+  return CBCastAction.create({
+    setInterval: clock.setInterval, clearInterval: clock.clearInterval
+  });
+}
+
+group('castaction — a tap waits for the television, and nothing else');
+
+check('acts at once when the remote is already there', () => {
+  const clock = fakeClock();
+  const seen = [];
+  waiter(clock).wait({ replayed: false }, () => true,
+    () => seen.push('act'), () => seen.push('gave-up'));
+  assert.deepStrictEqual(seen, ['act']);
+});
+
+check('an ordinary tap with no session WAITS — it does not act', () => {
+  /* The regression. The old rule was `if (!replayed) act()`, which took the
+     ordinary live-page tap straight past the guard to the wrong device —
+     and `ready()` is false for a moment on every thaw, which is exactly
+     when a shade tap arrives. */
+  const clock = fakeClock();
+  const seen = [];
+  waiter(clock).wait({ replayed: false }, () => false,
+    () => seen.push('act'), () => seen.push('gave-up'));
+  assert.deepStrictEqual(seen, [], 'nothing may happen while the remote is missing');
+});
+
+check('acts as soon as the session turns up', () => {
+  const clock = fakeClock();
+  const seen = [];
+  let ready = false;
+  waiter(clock).wait({ replayed: false }, () => ready,
+    () => seen.push('act'), () => seen.push('gave-up'));
+  clock.advance(500);
+  assert.deepStrictEqual(seen, [], 'still nothing at half a second');
+  ready = true;
+  clock.advance(250);
+  assert.deepStrictEqual(seen, ['act']);
+});
+
+check('gives up after the live budget, and says so instead of acting', () => {
+  const clock = fakeClock();
+  const seen = [];
+  waiter(clock).wait({ replayed: false }, () => false,
+    () => seen.push('act'), () => seen.push('gave-up'));
+  clock.advance(CBCastAction.LIVE - CBCastAction.STEP);
+  assert.deepStrictEqual(seen, [], 'not before the budget is spent');
+  clock.advance(CBCastAction.STEP);
+  assert.deepStrictEqual(seen, ['gave-up']);
+});
+
+check('a replayed tap is given longer, because it is waiting on a rejoin', () => {
+  const clock = fakeClock();
+  const seen = [];
+  waiter(clock).wait({ replayed: true }, () => false,
+    () => seen.push('act'), () => seen.push('gave-up'));
+  clock.advance(CBCastAction.LIVE + CBCastAction.STEP);
+  assert.deepStrictEqual(seen, [], 'the live budget must not end a rejoin');
+  clock.advance(CBCastAction.REJOIN);
+  assert.deepStrictEqual(seen, ['gave-up']);
+});
+
+check('never both, and never twice', () => {
+  const clock = fakeClock();
+  const seen = [];
+  let ready = false;
+  waiter(clock).wait({ replayed: false }, () => ready,
+    () => seen.push('act'), () => seen.push('gave-up'));
+  ready = true;
+  clock.advance(CBCastAction.LIVE * 4);
+  assert.deepStrictEqual(seen, ['act'], 'one tap is one outcome');
+});
+
+check('the timer is stopped, not left running', () => {
+  const clock = fakeClock();
+  let asked = 0;
+  let ready = false;
+  waiter(clock).wait({ replayed: false }, () => { asked += 1; return ready; },
+    () => {}, () => {});
+  ready = true;
+  clock.advance(CBCastAction.STEP);
+  const settled = asked;
+  clock.advance(CBCastAction.LIVE * 4);
+  assert.strictEqual(asked, settled, 'a finished wait must stop asking');
+});
+
+group('sw — what became of the last tap');
+
+check('a tap a page performed is written down as such', async () => {
+  const w = loadWorker();
+  w.addClient('live');
+  await w.click({ action: 'toggle' }).settled;
+  const log = (await w.send({ type: 'GET_ACTION_LOG' }))[0].list;
+  assert.strictEqual(log.length, 1);
+  assert.strictEqual(log[0].action, 'toggle');
+  assert.strictEqual(log[0].route, 'page');
+  assert.ok(log[0].at, 'without a time it cannot be said how long ago');
+});
+
+check('a tap nobody answered records that the app had to be woken', async () => {
+  const w = loadWorker();
+  w.addClient('frozen');
+  await w.click({ action: 'stop' }).settled;
+  const log = (await w.send({ type: 'GET_ACTION_LOG' }))[0].list;
+  assert.strictEqual(log[0].route, 'written-down');
+  assert.strictEqual(log[0].woke, true);
+  assert.strictEqual(log[0].id, w.pending().id, 'one tap, one line');
+});
+
+check('nothing to wake is recorded differently from something woken', async () => {
+  const w = loadWorker();
+  await w.click({ action: 'toggle' }).settled;   // no clients at all
+  const log = (await w.send({ type: 'GET_ACTION_LOG' }))[0].list;
+  assert.strictEqual(log[0].route, 'written-down');
+  assert.strictEqual(log[0].woke, true, 'openWindow answered, so something came up');
+});
+
+check('the page\'s answer lands on the same line, matched by id', async () => {
+  const w = loadWorker();
+  w.addClient('live');
+  await w.click({ action: 'toggle' }).settled;
+  const id = (await w.send({ type: 'GET_ACTION_LOG' }))[0].list[0].id;
+  await w.send({ type: 'NOTIFY_ACTION_RESULT', id, outcome: 'performed' });
+  const log = (await w.send({ type: 'GET_ACTION_LOG' }))[0].list;
+  assert.strictEqual(log.length, 1, 'an answer is not a second tap');
+  assert.strictEqual(log[0].outcome, 'performed');
+});
+
+check('the first answer wins — a replay does not overwrite it', async () => {
+  /* A frozen page thaws and performs its queued copy as well as the
+     written-down one. Both report. The tap had one outcome. */
+  const w = loadWorker();
+  w.addClient('live');
+  await w.click({ action: 'toggle' }).settled;
+  const id = (await w.send({ type: 'GET_ACTION_LOG' }))[0].list[0].id;
+  await w.send({ type: 'NOTIFY_ACTION_RESULT', id, outcome: 'no-session' });
+  await w.send({ type: 'NOTIFY_ACTION_RESULT', id, outcome: 'performed' });
+  const log = (await w.send({ type: 'GET_ACTION_LOG' }))[0].list;
+  assert.strictEqual(log[0].outcome, 'no-session');
+});
+
+check('an answer to a tap that is not there changes nothing', async () => {
+  const w = loadWorker();
+  await w.send({ type: 'NOTIFY_ACTION_RESULT', id: 'never-happened', outcome: 'performed' });
+  const log = (await w.send({ type: 'GET_ACTION_LOG' }))[0].list;
+  assert.strictEqual(log.length, 0);
+});
+
+check('newest first, and it does not grow forever', async () => {
+  const w = loadWorker();
+  for (let i = 0; i < 15; i++) await w.click({ action: 'toggle' }).settled;
+  const log = (await w.send({ type: 'GET_ACTION_LOG' }))[0].list;
+  assert.strictEqual(log.length, 12, 'a phone does not need a fortnight of these');
+  assert.ok(log[0].at >= log[log.length - 1].at, 'the last tap is the one being asked about');
+});
+
+check('asking before there has been a tap answers with nothing', async () => {
+  const w = loadWorker();
+  const out = await w.send({ type: 'GET_ACTION_LOG' });
+  assert.strictEqual(out[0].list.length, 0);
+});
+
+check('a frozen page is given up on quickly enough to still open a window', async () => {
+  /* Chrome allows a notificationclick a limited window in which a worker
+     may focus or open one, and every millisecond spent waiting on a page
+     that will never answer is spent out of it. */
+  const w = loadWorker();
+  w.addClient('frozen');
+  const t0 = Date.now();
+  await w.click({ action: 'toggle' }).settled;
+  const spent = Date.now() - t0;
+  assert.ok(spent < 1000, 'waited ' + spent + 'ms before bringing the app up');
+  assert.strictEqual(w.log.focused.length, 1);
+});
+
 (async () => {
   console.log('\nnotify — the cover, the tap, and who performs it');
   for (const step of queue) await step();

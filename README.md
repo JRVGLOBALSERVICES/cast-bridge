@@ -134,6 +134,8 @@ lib/     media.js  — fetch guards, extraction, probing, HLS expansion
 assets/  app.js  — nine screens behind a five-entry bottom bar, one job each
          artwork.js — which picture the shade and the lock screen show,
                       and the second attempt when a site refuses the first
+         castaction.js — what a button on a notification is allowed to act
+                      on: the television, or nothing
          qr.js   — byte-mode QR encoder, versions 1-10, level L (Bilibili)
          app.css — neumorphism, one dark surface: the on-air panel
 db/      001_castbridge_schema.sql          — users, history
@@ -143,7 +145,7 @@ scripts/ dev.js — local server that routes the functions like Vercel does
          stamp-build.mjs — assembles public/ and stamps sw.js BUILD
          test-all.js — runs every suite and never hides a red one
          test-{unpack,reissue,cookies,subs,crawl,nowplaying,notify}.js
-                       — 178 assertions
+                       — 194 assertions
 sw.js    app shell, plus the notifications the page asks it to draw
 server/  stream-server.js — runs api/stream.js as a service on our own box
 deploy/  stream.jrvsystems.app.conf — the nginx vhost in front of it

@@ -989,3 +989,44 @@ true reading of what that host served OUR scanner, which is not the same
 thing as what it serves your browser. Sites that gate on a real person do
 exactly this. I have not investigated which it is for that host and I am not
 going to.
+
+## Task 52: which of the two faults was actually yours
+
+**Question:** was the dead button the delivery (worker → page) or the action
+(page → television)?
+**Assumption made:** the action. The delivery path was rewritten last turn and
+its 48 assertions still pass, but the handler at the end of it could only ever
+have worked while the Cast session was ready at the exact instant of the tap —
+and on a phone it usually is not, because Android freezes a backgrounded PWA
+and the SDK re-syncs `isMediaLoaded` on thaw. Every tap that arrived in that
+gap was applied to the phone's own hidden `<video>`: silent, invisible, and
+indistinguishable from a tap that never arrived.
+**Worth your eye:** I could not press a real button to prove it. What I did
+prove is that the rule that governs it now fails on the old behaviour — four
+assertions go red when the `if (!replayed) act()` line is put back.
+
+## Task 55: a diagnostic on a settings screen
+
+**Question:** does a line reporting on the last button tap belong in a
+settings screen, or is it debug output leaking into the product?
+**Assumption made:** it belongs. A person whose Pause did nothing is owed the
+difference between "the app never got it" and "the television has been
+switched off" — those need different actions from them, and neither is
+guessable from a phone. It is one sentence, in plain English, hidden entirely
+until there has been a tap.
+**Worth your eye:** the trace lives in the build's own cache, so installing an
+update clears it. That is deliberate — a trace from a build that is no longer
+installed explains nothing — but it does mean you cannot tap Pause, update,
+and then go looking.
+
+## Task 54: the ack budget is a judgement, not a measurement
+
+**Question:** how long may the worker wait for a frozen page before it gives
+up and opens the app?
+**Assumption made:** 600ms, down from 1500ms. A live page answers in
+single-digit milliseconds, so the only thing the extra 900ms bought was a
+longer wait on a page that was never going to answer — spent out of the
+allowance Chrome gives a notificationclick to focus or open a window.
+**Worth your eye:** I have not measured Chrome's actual allowance on your
+handset, and I am not claiming 1500ms exceeded it. This is hardening against
+a plausible cause, not a diagnosed one. The diagnosed one is Task 52.

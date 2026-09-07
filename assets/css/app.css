@@ -1066,6 +1066,18 @@ body.is-gated .cb-nav { display: none; }
 }
 .cb-setsaved.is-bad { color: var(--cb-bad); }
 
+/* A report about what happened, not more description of the setting — so it
+   sits across a boundary rather than tucked under the note at the 0.2rem
+   step the other lines share. */
+.cb-settap {
+  margin: 0.85rem 0 0;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--cb-line);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--cb-ink-2);
+}
+
 /* 44px of touch target, which is the whole button — the track inside it is
    smaller on purpose so the control reads as a switch and still takes a
    thumb anywhere near it. */

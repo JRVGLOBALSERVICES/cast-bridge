@@ -1006,3 +1006,23 @@
       button. Two different groups with no gap between them, and a soft edge
       inside somebody else's 46px touch target. 1.75rem, which is the step
       this sheet already uses for a group boundary.
+- [x] Task 52: The buttons acted on the wrong device. The `cast` notification
+      is only ever drawn about a television — reportCast() has four callers
+      and all four are cast events — but its toggle fell back to this phone's
+      hidden `<video>` whenever the Cast session was not ready at the instant
+      of the tap, and `withCast` let an ordinary (non-replayed) tap straight
+      past the guard. `castReady()` is false for a moment on every thaw, which
+      is exactly when a shade tap arrives. Now `assets/js/castaction.js`: wait
+      for the remote, or give up and say so, never a third thing.
+- [x] Task 53: A failure said nothing to anyone. A throw from `playOrPause` was
+      swallowed by the listener loop, and the give-up path raised a toast into
+      a page nobody is looking at. Both now rewrite the notification in place,
+      which is the surface the person is actually on.
+- [x] Task 54: The ack budget was 1500ms before the app could be brought up.
+      Chrome allows a notificationclick a limited window in which a worker may
+      focus or open one; that is now 600ms, gated by a test that fails if the
+      whole delivery takes a second.
+- [x] Task 55: Three turns of guessing at a dead button, so the app now says
+      what became of the last tap. The worker writes down the road each tap
+      took, the page writes down what it managed to do, and one sentence under
+      the Notifications switch names which of the three places it died in.

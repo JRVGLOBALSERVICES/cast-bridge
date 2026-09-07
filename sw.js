@@ -16,6 +16,7 @@ const SHELL = [
   '/assets/css/neumorphism.css',
   '/assets/css/app.css',
   '/assets/js/artwork.js',
+  '/assets/js/castaction.js',
   '/assets/js/qr.js',
   '/assets/js/app.js',
   '/assets/icon.svg',
@@ -143,8 +144,17 @@ async function focusApp(url) {
  * Every tap carries an id and the page refuses an id twice, because the
  * frozen page WILL thaw and process its queued copy as well. */
 const ACTION_TTL = 90000;            // older than this and it is not what they meant
-const ACK_MS = 1500;                 // a live page answers in single-digit ms
+/* A live page answers in single-digit milliseconds, so this only ever
+   governs how long a FROZEN one is waited on before the app is brought up.
+   It was 1500. Chrome grants a notificationclick a limited window in which
+   a worker is allowed to focus or open a window, and every millisecond spent
+   waiting on a page that is never going to answer is spent out of that
+   allowance. Short enough to leave it intact, long enough that a page merely
+   busy with a repaint is not given up on. */
+const ACK_MS = 600;
 const PENDING_KEY = '/__pending-action';
+const LOG_KEY = '/__action-log';
+const LOG_MAX = 12;
 
 let seq = 0;
 function actionId() {
@@ -181,6 +191,52 @@ async function clearPending(id) {
   if (job && job.id !== id) await writePending(job);     // not the one acknowledged
 }
 
+/* What happened to the last few taps.
+ *
+ * A shade button that does nothing is the hardest kind of fault to see:
+ * it happens on a handset, in another app, with no console attached, and
+ * every party to it — the worker, the page, the television — can fail
+ * silently and separately. Guessing at which one from a description has
+ * already cost three attempts.
+ *
+ * So each tap writes down the road it took, the page writes down what it
+ * managed to do with it, and the Notifications setting says the answer in
+ * one sentence. It is a user-facing line, not a debug dump: "the app had
+ * it, but the television could not be reached" is the difference between
+ * a broken app and a television that has been switched off, and the person
+ * holding the phone is owed that either way.
+ *
+ * It lives in CACHE, so an update clears it. That is the right trade — a
+ * trace from a build that is no longer installed explains nothing. */
+async function trace(entry) {
+  try {
+    const c = await caches.open(CACHE);
+    const hit = await c.match(LOG_KEY);
+    const list = hit ? await hit.json() : [];
+    list.unshift(entry);
+    await c.put(new Request(LOG_KEY),
+      new Response(JSON.stringify(list.slice(0, LOG_MAX)),
+        { headers: { 'content-type': 'application/json' } }));
+  } catch (e) { /* a trace that cannot be written must never break the tap */ }
+}
+
+/* The page reporting back on a tap the worker had already logged. Matched
+   by id rather than appended, so one tap is one line however many roads it
+   travelled down. */
+async function traceResult(id, outcome) {
+  try {
+    const c = await caches.open(CACHE);
+    const hit = await c.match(LOG_KEY);
+    if (!hit) return;
+    const list = await hit.json();
+    const row = list.find((e) => e && e.id === id);
+    if (!row || row.outcome) return;          // first answer wins; a replay is not a second tap
+    row.outcome = outcome;
+    await c.put(new Request(LOG_KEY),
+      new Response(JSON.stringify(list), { headers: { 'content-type': 'application/json' } }));
+  } catch (e) { /* as above */ }
+}
+
 /* One client, one channel, one answer. Resolves false on silence rather
    than hanging, because silence is the case this exists to handle. */
 function askClient(client, msg) {
@@ -207,12 +263,17 @@ async function deliverAction(action, tag, data) {
   const acked = all.length
     ? (await Promise.all(all.map((c) => askClient(c, msg)))).some(Boolean)
     : false;
-  if (acked) return;
+  if (acked) {
+    await trace({ id: msg.id, at: Date.now(), action, tag, route: 'page', woke: false });
+    return;
+  }
 
-  /* Nobody performed it. Write it down and bring the app up — on boot it
-     asks for this and runs it against a live Cast session. */
+  /* Nobody answered. Write it down and bring the app up — on boot, and on
+     every return to the foreground, it asks for this and runs it against a
+     live Cast session. */
   await writePending({ id: msg.id, action, tag, data, at: Date.now() });
-  await focusApp(data && data.url);
+  const win = await focusApp(data && data.url);
+  await trace({ id: msg.id, at: Date.now(), action, tag, route: 'written-down', woke: Boolean(win) });
 }
 
 self.addEventListener('notificationclick', (e) => {
@@ -276,6 +337,22 @@ self.addEventListener('message', (e) => {
      one must not fire a second time. */
   if (data.type === 'NOTIFY_ACTION_ACK') {
     e.waitUntil ? e.waitUntil(clearPending(data.id)) : clearPending(data.id);
+    return;
+  }
+  /* The page saying what it actually managed to do with a tap — which is a
+     different question from whether it received one, and the only question
+     worth asking when a button appears to do nothing. */
+  if (data.type === 'NOTIFY_ACTION_RESULT') {
+    const p = traceResult(data.id, data.outcome);
+    if (e.waitUntil) e.waitUntil(p);
+    return;
+  }
+  if (data.type === 'GET_ACTION_LOG') {
+    caches.open(CACHE)
+      .then((c) => c.match(LOG_KEY))
+      .then((hit) => (hit ? hit.json() : []))
+      .then((list) => reply({ type: 'ACTION_LOG', list: list || [] }))
+      .catch(() => reply({ type: 'ACTION_LOG', list: [] }));
     return;
   }
   /* Asked on boot: "was a button tapped while I was not running?" */

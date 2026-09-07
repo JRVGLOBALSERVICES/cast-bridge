@@ -558,6 +558,12 @@
         <p class="cb-setv" id="notifyNote">Casting, upload progress and anything
           that goes wrong, while you are in another app.</p>
         <p class="cb-setsaved" id="notifySaved" role="status" hidden></p>
+        <!-- What became of the last button tapped on a notification. Hidden
+             until there has been one. A dead Pause can fail in three separate
+             places (the worker, this page, the television), none of which can
+             be seen from a handset, so the answer is said here in one
+             sentence rather than left to be guessed at. -->
+        <p class="cb-settap" id="notifyTaps" hidden></p>
       </div>
 
       <div class="cb-menu">
@@ -730,6 +736,7 @@
      opened and a deferred script that is not there yet is a panel that
      silently draws nothing. -->
 <script src="assets/js/artwork.js" defer></script>
+<script src="assets/js/castaction.js" defer></script>
 <script src="assets/js/qr.js" defer></script>
 <script src="assets/js/app.js" defer></script>
 <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1" defer></script>
