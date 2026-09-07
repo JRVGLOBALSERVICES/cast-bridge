@@ -705,3 +705,41 @@ behind it with a Menu button back. Nine across a 390px screen would be 43px per
 target with the labels unreadable.
 **Context you need to review:** the More screen. If you want Library out of the
 bar and something else in, it is one line in `NAV_VIEWS` plus the markup.
+
+## Bilibili: I could not reproduce "invalid QR code" from here
+
+**Question:** the Bilibili app told you the code was invalid. Which code — the
+one on screen at the time, or a screenshot taken earlier?
+
+**Assumption made:** the code was older than the panel let on. That is the one
+cause I could measure: Bilibili's key outlives the three minutes the panel gave
+it, and the panel's own countdown had no relationship to Bilibili's. Everything
+else checks out — the symbol is byte-identical to a reference encoder, a
+screenshot of the running app decodes to the live URL, and the key it decodes to
+polls as unscanned at Bilibili. I have no Bilibili account here, so the one step
+I cannot perform is the scan itself.
+
+**Context you need to review:** if it still says invalid on a code that is fresh
+on the screen, the next suspect is the account, not the picture — Bilibili's
+risk control has already been refusing this server elsewhere (`lib/bilibili`
+documents the 412s). In that case use **Paste a sign-in instead**, which has no
+camera and no key in it, and tell me — that would be evidence I cannot get on
+my own.
+
+## Bilibili: a pasted session is a real credential in a textarea
+
+**Question:** is asking for SESSDATA acceptable?
+
+**Assumption made:** yes, because the QR flow already ends with the same three
+cookies in the same signed HttpOnly jar — pasting changes how they arrive, not
+what is kept or where. The field is `autocomplete="off"`, it is emptied the
+moment the session is accepted, and only SESSDATA, bili_jct and DedeUserID are
+read out of whatever is pasted; a full `document.cookie` dump from bilibili.com
+carries a dozen tracking values and none of them are stored. The server asks
+Bilibili to confirm the session before writing anything.
+
+**Context you need to review:** `lib/bilibili.js parseCookieText`, and the
+`paste` branch of `api/bilibili.js`. The one thing to be aware of is that
+SESSDATA is a full account credential — a person you hand it to is signed in as
+you until you sign out on bilibili.com. Do not paste someone else's.
+

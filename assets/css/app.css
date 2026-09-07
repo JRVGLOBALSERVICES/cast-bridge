@@ -2306,6 +2306,33 @@ body.is-gated { overflow: hidden; }
   color: var(--cb-ink-2);
 }
 .cb-bili-small { font-size: 0.75rem; }
+
+/* Somewhere to paste a sign-in. Folded shut, because the QR is the ordinary
+   way in and this is the way in when there is only one phone in the room —
+   an alternative offered, not a form to fill in first. */
+.cb-bili-paste { margin-top: 1rem; }
+.cb-bili-paste > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.5rem 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--cb-ink-2);
+}
+.cb-bili-paste > summary::-webkit-details-marker { display: none; }
+.cb-bili-paste > summary::after { content: " ›"; }
+.cb-bili-paste[open] > summary::after { content: " ⌄"; }
+
+/* Monospace and wrapped: a SESSDATA is sixty characters of percent-encoded
+   noise, and it has to be readable enough to see whether it arrived whole. */
+.cb-bili-cookie {
+  margin-bottom: 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  resize: vertical;
+  overflow-wrap: anywhere;
+}
 .cb-bili-body .btn,
 .cb-bili-body a.btn {
   display: inline-flex;

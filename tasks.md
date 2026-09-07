@@ -768,3 +768,47 @@
       page.
 - [x] `hallmark` vibe-check: **0 critical**, and the multiple-H1 finding is
       pre-existing (2 at HEAD, 2 now — the gate mark and the wordmark).
+
+## 2026-09-07 — "Bilibili shows invalid qr code, sign in url has nowhere to be pasted"
+
+- [x] Proved the drawn code is not the fault. `assets/js/qr.js` was compared
+      module-for-module against the `qrcode` reference library on Bilibili's own
+      sign-in URL: **0 differences in 1681 modules**, and jsQR reads both. Then
+      the stronger test — a **screenshot of the real app at 390x844 was decoded**
+      and gave back `…scan-web?…qrcode_key=08c62038…&from=`, the exact address
+      the server had just been handed.
+- [x] Found what does go wrong: the key expires. A key generated here still
+      polled `86101 未扫码` at ten minutes and came back `86038 二维码已失效` by
+      fifteen. The panel gave up at **three** and painted "That sign-in code
+      expired", so a code could be gone from the screen while Bilibili still
+      wanted it — and a code held past its life reads as invalid at the scanner.
+      Bilibili is now the only thing that decides; a lapsed code is replaced in
+      place, up to three times, with a line saying so. Proven by making one poll
+      answer `expired`: the note appeared and the drawn code changed.
+- [x] Stopped the panel repainting every two seconds. It re-rendered on every
+      poll, which redrew the QR forty times a minute and would have wiped
+      anything half-typed below it. Painting is now on state change: text typed
+      into the paste box survived seven seconds of polling.
+- [x] **Save this code** — the same modules to a canvas, shared where a share
+      sheet exists and downloaded where it does not. The blob the real button
+      produced was captured out of the page and decoded: **588x588, 11.8 KB, the
+      live key**. That is the one-phone route.
+- [x] **Paste a sign-in instead** — `POST /api/bilibili?action=paste`.
+      `parseCookieText` reads SESSDATA, bili_jct and DedeUserID out of anything
+      that contains them (a `document.cookie` dump, one pair, three lines, or a
+      bare SESSDATA) and drops the rest. The server asks Bilibili who it belongs
+      to before keeping any of it. 9 handler assertions pass, including: a dead
+      session is refused **and not stored**, the jar seals and unseals, a
+      tampered jar is thrown away, and nothing outside the three names survives.
+- [x] Deleted the false instruction. "Copy the address and open it in Bilibili"
+      sent people to a dead end — the Bilibili app has no address bar, which is
+      exactly what Rj hit.
+- [x] RJ-Design-Skill §input-and-forms §1-2 on the new field: submit disabled
+      while empty, checked on blur, and live only **after** it has errored, with
+      the correction confirmed rather than met with silence. Verified in the
+      browser: disabled → enabled → `alert` on blur → `status: That looks like a
+      session.` → disabled again when cleared.
+- [x] `hallmark` vibe-check: **0 critical**. No new finding on the two files
+      touched — the em-dash gate reports README, index.html, issues.md and
+      tasks.md at exactly the counts they had at HEAD.
+

@@ -5205,6 +5205,187 @@
     return svg;
   }
 
+  /* The same code as a PNG, because a QR needs two devices and a person
+     often has one. Saved to the phone's own photos it can be fed to
+     Bilibili's scanner from the album, which is the only route that works
+     when the screen showing the code and the camera reading it are the
+     same piece of glass. Twelve pixels a module: big enough that a scanner
+     reading a screenshot has no trouble, small enough to stay under a
+     couple of hundred kilobytes. */
+  function qrCanvas(text, scale) {
+    var q = window.CBQR.encode(text);
+    var quiet = 4;
+    var s = scale || 12;
+    var span = (q.size + quiet * 2) * s;
+    var c = document.createElement('canvas');
+    c.width = span;
+    c.height = span;
+    var g = c.getContext('2d');
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, span, span);
+    g.fillStyle = '#000000';
+    for (var r = 0; r < q.size; r++) {
+      for (var col = 0; col < q.size; col++) {
+        if (q.modules[r * q.size + col]) {
+          g.fillRect((col + quiet) * s, (r + quiet) * s, s, s);
+        }
+      }
+    }
+    return c;
+  }
+
+  /* Share sheet where there is one, a download where there is not. On a
+     phone the share sheet is the thing that reaches the photo library;
+     a download lands in Files, where Bilibili's album picker cannot see
+     it. So share is tried first and the download is the fallback. */
+  function saveQrImage(text) {
+    var canvas;
+    try {
+      canvas = qrCanvas(text);
+    } catch (e) {
+      toast({ text: 'Couldn’t draw that code as an image.' });
+      return;
+    }
+    canvas.toBlob(function (blob) {
+      if (!blob) { toast({ text: 'Couldn’t save that code.' }); return; }
+      var name = 'bilibili-sign-in.png';
+
+      if (window.File && navigator.canShare) {
+        var file = new File([blob], name, { type: 'image/png' });
+        if (navigator.canShare({ files: [file] })) {
+          navigator.share({ files: [file], title: 'Bilibili sign-in code' })
+            .catch(function () { /* dismissing the sheet is not an error */ });
+          return;
+        }
+      }
+
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+      toast({ text: 'Saved the code.' });
+    }, 'image/png');
+  }
+
+  /* Somewhere to paste a sign-in.
+   *
+   * Rj's words: the sign-in address has nowhere to be pasted. He is right —
+   * the Bilibili app has no address bar, so an address copied out of this
+   * panel had no destination. This is the destination: a session copied out
+   * of a browser that is already signed in. It goes to the server, which
+   * asks Bilibili who it belongs to before keeping any of it. */
+  function biliPasteForm(parent) {
+    var box = document.createElement('details');
+    box.className = 'cb-bili-paste';
+
+    var head = document.createElement('summary');
+    head.textContent = 'Paste a sign-in instead';
+    box.appendChild(head);
+
+    biliSay(box, 'On a computer, sign in at bilibili.com, open the developer ' +
+      'tools → Application → Cookies, and copy SESSDATA. Paste it here — the ' +
+      'whole cookie line is fine, only SESSDATA, bili_jct and DedeUserID are ' +
+      'read out of it.', 'cb-bili-small');
+
+    var field = document.createElement('textarea');
+    field.className = 'cb-input cb-bili-cookie';
+    field.rows = 3;
+    field.placeholder = 'SESSDATA=…; bili_jct=…; DedeUserID=…';
+    field.setAttribute('aria-label', 'Bilibili session cookie');
+    field.autocapitalize = 'off';
+    field.autocomplete = 'off';
+    field.spellcheck = false;
+    box.appendChild(field);
+
+    var note = document.createElement('p');
+    note.className = 'cb-bili-small';
+    note.hidden = true;
+
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'btn btn-primary btn-sm';
+    go.textContent = 'Use this sign-in';
+    go.disabled = true;
+
+    /* Checked when the field is left, and live only once it has already
+       said something is wrong — the same ladder the rest of the app's
+       fields climb. Judging a cookie on every keystroke would call a
+       half-pasted SESSDATA wrong while it is still arriving. */
+    var live = false;
+
+    function looksLikeSession(t) {
+      return /SESSDATA\s*[=:]/i.test(t) || (t.match(/%2C/gi) || []).length >= 2;
+    }
+
+    /* Interrupting for a refusal, polite for a confirmation — the same line
+       carries both, so the role moves with the message rather than
+       shouting every time the field starts to look right. */
+    function say(text, bad) {
+      note.className = bad ? 'cb-pick-error' : 'cb-bili-small';
+      note.setAttribute('role', bad ? 'alert' : 'status');
+      note.textContent = text;
+      note.hidden = false;
+    }
+
+    field.addEventListener('input', function () {
+      go.disabled = !field.value.trim();
+      if (!live) return;
+      /* Confirm right, not only wrong: silence after a correction reads as
+         still-wrong. */
+      if (looksLikeSession(field.value)) say('That looks like a session.', false);
+      else say('Still no SESSDATA in that.', true);
+    });
+
+    field.addEventListener('blur', function () {
+      var t = field.value.trim();
+      if (!t || looksLikeSession(t)) return;
+      live = true;
+      say('No SESSDATA in that. It is the long value that starts with letters ' +
+        'and has %2C in it twice.', true);
+    });
+
+    go.addEventListener('click', function () {
+      var text = field.value.trim();
+      if (!text) { field.focus(); return; }
+      go.disabled = true;
+      note.hidden = true;
+      fetch('/api/bilibili?action=paste', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cookie: text })
+      })
+        .then(function (r) { return r.json().then(function (b) { return { s: r.status, b: b }; }); })
+        .then(function (res) {
+          if (res.s === 401) { handleAuthLapse(); return; }
+          if (!res.b || !res.b.ok) {
+            go.disabled = false;
+            live = true;
+            say((res.b && res.b.error) || 'That sign-in was refused.', true);
+            return;
+          }
+          /* Cleared before anything else: a session sitting in a textarea
+             is a session sitting in the DOM. */
+          field.value = '';
+          stopBiliPoll();
+          renderBili({ signedIn: true, name: res.b.name, vip: res.b.vip });
+          toast({ text: 'Signed in to Bilibili as ' + res.b.name + '.' });
+        })
+        .catch(function () {
+          go.disabled = false;
+          live = true;
+          say('No connection to the sign-in service.', true);
+        });
+    });
+
+    box.appendChild(go);
+    box.appendChild(note);
+    parent.appendChild(box);
+  }
+
   var biliPoll = null;
 
   function stopBiliPoll() {
@@ -5281,6 +5462,8 @@
     }
 
     if (state.waiting) {
+      if (state.note) biliSay(body, state.note, 'cb-bili-small');
+
       var line = biliSay(body, state.waiting === 'scanned'
         ? 'Scanned. Now confirm it in the Bilibili app.'
         : 'Point the Bilibili app’s scanner at this code.');
@@ -5308,24 +5491,22 @@
       }
       body.appendChild(frame);
 
-      biliSay(body, 'Open Bilibili on a phone → the scan button, top left of ' +
-        'Home → point it here. If this IS that phone, copy the address below ' +
-        'and open it in Bilibili.', 'cb-bili-small');
+      biliSay(body, 'On a second phone: open Bilibili → the scan button, top ' +
+        'left of Home → point it here.', 'cb-bili-small');
 
-      var copy = document.createElement('button');
-      copy.type = 'button';
-      copy.className = 'cb-linkbtn';
-      copy.textContent = 'Copy the sign-in address';
-      copy.addEventListener('click', function () {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(state.url).then(function () {
-            toast({ text: 'Copied.' });
-          }, function () {
-            toast({ text: 'Couldn’t reach the clipboard.' });
-          });
-        }
-      });
-      body.appendChild(copy);
+      /* What used to stand here was an offer to copy the address and open it
+         in Bilibili. There is nowhere in the Bilibili app to open an address
+         — it has no address bar — so that advice sent people to a dead end.
+         The two routes below are the ones that finish. */
+      biliSay(body, 'Only one phone? Save the code to your photos, then in ' +
+        'Bilibili’s scanner tap the album button and pick it.', 'cb-bili-small');
+
+      var save = document.createElement('button');
+      save.type = 'button';
+      save.className = 'btn btn-sm';
+      save.textContent = 'Save this code';
+      save.addEventListener('click', function () { saveQrImage(state.url); });
+      body.appendChild(save);
 
       var stop = document.createElement('button');
       stop.type = 'button';
@@ -5333,6 +5514,7 @@
       stop.textContent = 'Cancel';
       stop.addEventListener('click', function () { stopBiliPoll(); renderBili({ signedIn: false }); });
       body.appendChild(stop);
+      biliPasteForm(body);
       return;
     }
 
@@ -5344,8 +5526,9 @@
     go.type = 'button';
     go.className = 'btn btn-primary btn-sm';
     go.textContent = 'Sign in to Bilibili';
-    go.addEventListener('click', startBiliLogin);
+    go.addEventListener('click', function () { startBiliLogin(); });
     body.appendChild(go);
+    biliPasteForm(body);
 
     if (state.error) {
       var err = biliSay(body, state.error, 'cb-pick-error');
@@ -5353,7 +5536,22 @@
     }
   }
 
-  function startBiliLogin() {
+  /* How many lapsed codes are replaced without being asked. Bilibili's key
+     is good for something over ten minutes — measured, not assumed: one
+     generated here still polled as unscanned at ten and came back
+     二维码已失效 by fifteen. This panel used to give up on it at three, wipe
+     the code off the screen and say it had expired, which is both wrong and
+     the likeliest reason a code ever read as invalid at the scanner: it was
+     older than the panel had any way of knowing. Bilibili is now the only
+     thing that decides a code is dead, and when it does, the code is
+     replaced where it stands. */
+  var BILI_REPLACEMENTS = 3;
+
+  /* A ceiling anyway, so a panel left open overnight is not asking Bilibili
+     a question every two seconds until morning. */
+  var BILI_CODE_CEILING_MS = 20 * 60 * 1000;
+
+  function startBiliLogin(replaced, note) {
     stopBiliPoll();
     renderBili({ loading: true });
 
@@ -5367,17 +5565,25 @@
         }
         var key = res.b.key;
         var url = res.b.url;
-        renderBili({ waiting: 'waiting', url: url });
+        var shown = null;
 
-        /* Bilibili's key lives about three minutes. Polling past that is
-           asking a question whose answer stopped changing, so it stops
-           itself and says the code expired rather than spinning. */
-        var until = Date.now() + 180000;
+        /* Painted when the state changes and not on every poll. The old
+           code re-rendered the whole panel every two seconds, which redrew
+           the QR forty times a minute for no reason — and would wipe out
+           anything half-typed into the paste box below it. */
+        function paint(state) {
+          if (state === shown) return;
+          shown = state;
+          renderBili({ waiting: state, url: url, note: note });
+        }
+        paint('waiting');
+
+        var until = Date.now() + BILI_CODE_CEILING_MS;
 
         biliPoll = setInterval(function () {
           if (Date.now() > until) {
             stopBiliPoll();
-            renderBili({ error: 'That sign-in code expired. Start another.' });
+            renderBili({ error: 'That sign-in has been sitting here twenty minutes. Start another.' });
             return;
           }
           fetch('/api/bilibili?action=poll&key=' + encodeURIComponent(key))
@@ -5396,10 +5602,16 @@
               }
               if (b.state === 'expired') {
                 stopBiliPoll();
-                renderBili({ error: 'That sign-in code expired. Start another.' });
+                var n = (replaced || 0) + 1;
+                if (n > BILI_REPLACEMENTS) {
+                  renderBili({ error: 'Bilibili keeps letting these codes lapse before ' +
+                    'anything scans them. Start another when you have the phone in hand.' });
+                  return;
+                }
+                startBiliLogin(n, 'That code lapsed before it was scanned — here is a fresh one.');
                 return;
               }
-              renderBili({ waiting: b.state, url: url });
+              paint(b.state);
             })
             .catch(function () { /* one missed poll is not a failure */ });
         }, 2000);

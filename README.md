@@ -39,7 +39,14 @@ not by its name.
   re-date and delete.
 - **Bilibili** — QR sign-in, with the code **drawn in the app**
   (`assets/js/qr.js`). What Bilibili's API returns is the payload of a QR, not a
-  page: offered as a link it opens a scan page that does nothing.
+  page: offered as a link it opens a scan page that does nothing. Two things
+  follow from a QR needing two devices. **Save this code** writes it out as a
+  PNG, so one phone can hand it to Bilibili's own scanner from its album; and
+  **Paste a sign-in instead** takes a session copied out of any signed-in
+  browser (`SESSDATA`), which is the route with no camera in it at all. A code
+  Bilibili lets lapse is replaced where it stands rather than being wiped off
+  the screen — the panel used to give up after three minutes on a key that is
+  good for something over ten.
 - `?u=<encoded-url>` — deep-link straight into the player.
 
 ## What a browser cannot do, and this is honest about
