@@ -151,11 +151,21 @@ async function collect(page, target) {
     });
   };
 
-  for (const frame of page.frames()) {
-    try {
-      await frame.evaluate(poke);
-    } catch (e) { /* detached, cross-origin-locked, or hostile — keep going */ }
-  }
+  const pokeEveryFrame = async () => {
+    for (const frame of page.frames()) {
+      try {
+        await frame.evaluate(poke);
+      } catch (e) { /* detached, cross-origin-locked, or hostile — keep going */ }
+    }
+  };
+
+  /* Twice, with a gap. An embed usually builds its own inner frame only after
+     it boots, so the frame holding the actual play control does not exist yet
+     during the first pass — poking once means poking everything except the
+     one that matters. */
+  await pokeEveryFrame();
+  await new Promise((r) => setTimeout(r, FRAME_BOOT_MS));
+  await pokeEveryFrame();
 
   await new Promise((r) => setTimeout(r, SETTLE_MS));
 
