@@ -335,12 +335,42 @@
   var TABS = ['link', 'browse', 'history', 'users'];
   var activeTab = 'link';
   var scrollMemory = {};
+  var indicatorPlaced = false;
 
+  /* The pill is drawn from measurements, so it is only ever as right as the
+     last thing that measured it. It used to be measured on a tab click and on
+     a window resize and nowhere else, which left it wrong in both of the
+     states the app actually opens in.
+
+     Cold, nothing had measured it: no width, no offset, so the Link tab
+     opened looking unselected. And signing in as the owner reveals the People
+     tab, which re-flexes four tabs into the space of three WITHOUT changing
+     the strip's own size — so a pill placed while there were three kept that
+     width and spilled a third of the way onto Browse. Measured at 412px:
+     Link became 22..114, the pill stayed 22..145.
+
+     So place it at first paint, and re-place it whenever the strip moves
+     under it, whatever the cause. */
   function moveIndicator() {
     var btn = $('tab-' + activeTab);
     var ind = $('tabIndicator');
-    if (!btn || !ind) return;
-    ind.style.width = btn.offsetWidth + 'px';
+    if (!btn || !ind || btn.hidden) return;
+    var w = btn.offsetWidth;
+    if (!w) return;          /* not laid out yet — an observer will call back */
+
+    /* The first placement is where the pill IS, not somewhere it travelled
+       from. Letting it slide in from the left edge is the same wrong-tab
+       flash, just in motion. */
+    if (!indicatorPlaced) {
+      ind.style.transition = 'none';
+      ind.style.width = w + 'px';
+      ind.style.transform = 'translateX(' + btn.offsetLeft + 'px)';
+      void ind.offsetWidth;  /* commit before the transition comes back */
+      ind.style.transition = '';
+      indicatorPlaced = true;
+      return;
+    }
+    ind.style.width = w + 'px';
     ind.style.transform = 'translateX(' + btn.offsetLeft + 'px)';
   }
 
@@ -385,6 +415,21 @@
   });
 
   window.addEventListener('resize', moveIndicator);
+
+  /* A window resize is not the only thing that moves these buttons. The strip
+     re-flexes when the owner's People tab appears, and every button changes
+     width when the webfont replaces the fallback — neither raises a resize.
+     Watch the buttons themselves. Only the buttons: the pill is absolutely
+     positioned, so resizing it cannot feed back into what we observe. */
+  if (window.ResizeObserver) {
+    var stripWatch = new ResizeObserver(function () { moveIndicator(); });
+    stripWatch.observe($('tab-link').parentNode);
+    TABS.forEach(function (t) { var b = $('tab-' + t); if (b) stripWatch.observe(b); });
+  }
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(moveIndicator).catch(function () {});
+  }
+  moveIndicator();
 
   /* ------------------------------------------------------------------ *
    * Player
@@ -617,11 +662,112 @@
    * Google Cast
    * ------------------------------------------------------------------ */
 
+  /* Set once the sender library has told us this browser will never cast.
+     Firefox is the whole of this case: Google ships the Cast sender SDK for
+     Chrome and Edge only, so there is no Chromecast from Firefox at all —
+     not a gap in this app, and not something a page can work around. */
+  var castImpossible = false;
+
   window.__onGCastApiAvailable = function (ok) {
     if (ok) { initCast(); return; }
+
+    /* What used to happen here: the status line said "casting needs Chrome"
+       and updateCastUi() disabled the Cast button. On the idle screen that
+       button is the ONLY one on show, so Firefox opened the app on a single
+       dead control — which reads as the app being broken rather than as one
+       feature being somewhere else. Give the button a job it can do. */
     setPill('no cast', '');
-    setStatus('Casting needs Chrome — on Android, or Chrome on a computer.', '');
+
+    /* Chrome and Edge both define window.chrome and both can cast, so a false
+       here from one of them is the SDK having a bad start, not the wrong
+       browser — and turning Chrome's own button into "Open in Chrome" would be
+       nonsense. Only offer the handoff where there is somewhere to hand off
+       TO. */
+    if (window.chrome) {
+      setStatus('Cast didn\'t start up. Reload the page, and check the TV is on ' +
+                'the same Wi\u2011Fi.', '');
+      return;
+    }
+
+    castImpossible = true;
+    setStatus('Firefox can\'t reach a Chromecast — only Chrome carries Google\'s ' +
+              'cast support. Everything else here works; Open in Chrome hands ' +
+              'this over with the link already loaded.', '');
+    offerChromeHandoff();
   };
+
+  /* The same app, in the browser that can finish the job — carrying whatever
+     is loaded, so nothing has to be pasted twice. */
+  function chromeHandoffUrl() {
+    var base = location.origin + location.pathname;
+    return current ? base + '?u=' + encodeURIComponent(current) : base;
+  }
+
+  function offerChromeHandoff() {
+    var btn = $('btnCast');
+    if (!btn) return;
+    btn.disabled = false;
+    btn.classList.add('is-handoff');
+    var launcher = btn.querySelector('google-cast-launcher');
+    if (launcher) launcher.hidden = true;
+    if (!btn.querySelector('.cb-handoff-icon')) {
+      var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'cb-handoff-icon');
+      svg.setAttribute('width', '17'); svg.setAttribute('height', '17');
+      svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('fill', 'none');
+      svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '1.8');
+      svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round');
+      svg.setAttribute('aria-hidden', 'true');
+      svg.innerHTML = '<path d="M15 3h6v6"/><path d="M10 14 21 3"/>' +
+                      '<path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>';
+      btn.insertBefore(svg, btn.firstChild);
+    }
+    btn.querySelector('span').textContent = 'Open in Chrome';
+  }
+
+  /* Android lets one browser hand a URL to a named other one. Everywhere else
+     there is no such handoff, so the honest move is to put the address on the
+     clipboard and say where to paste it — never to claim a jump that will not
+     happen. */
+  function handOffToChrome() {
+    var target = chromeHandoffUrl();
+
+    function copyInstead(why) {
+      var say = function () { toast({ text: why, ms: 7000 }); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(target).then(say, function () {
+          toast({ text: 'Couldn\'t reach the clipboard. The address is in the box above.', ms: 7000 });
+        });
+      } else say();
+    }
+
+    if (!/Android/i.test(navigator.userAgent)) {
+      copyInstead('Link copied. Open Chrome and paste it there — this page, ready to cast.');
+      return;
+    }
+
+    /* If Chrome is not installed the intent does nothing at all: no error, no
+       navigation. So arm the fallback first and cancel it only if we actually
+       leave, rather than leaving a tap that silently did nothing. */
+    var left = false;
+    var onLeave = function () { left = true; };
+    window.addEventListener('pagehide', onLeave);
+    document.addEventListener('visibilitychange', onLeave);
+
+    var noScheme = target.replace(/^https?:\/\//, '');
+    try {
+      location.href = 'intent://' + noScheme +
+        '#Intent;scheme=' + location.protocol.replace(':', '') +
+        ';package=com.android.chrome;end';
+    } catch (e) { left = false; }
+
+    setTimeout(function () {
+      window.removeEventListener('pagehide', onLeave);
+      document.removeEventListener('visibilitychange', onLeave);
+      if (left || document.visibilityState === 'hidden') return;
+      copyInstead('Chrome didn\'t open — link copied instead. Paste it into Chrome.');
+    }, 1400);
+  }
 
   function initCast() {
     var ctx = window.cast.framework.CastContext.getInstance();
@@ -745,6 +891,9 @@
 
   function updateCastUi() {
     var btn = $('btnCast');
+    /* Settled: this browser cannot cast, and the button is now the way out
+       of that rather than a casualty of it. Leave it alone. */
+    if (castImpossible) { offerChromeHandoff(); return; }
     if (!window.cast || !window.cast.framework) { btn.disabled = true; return; }
 
     var map = {
@@ -771,6 +920,7 @@
   }
 
   $('btnCast').addEventListener('click', function () {
+    if (castImpossible) { handOffToChrome(); return; }
     if (!window.cast || !window.cast.framework) return;
     if (castState === 'CONNECTED') {
       if (current) castLoad(current);
@@ -1386,6 +1536,10 @@
     if (adminTab) adminTab.hidden = !isOwner();
     var allToggle = $('histScopeRow');
     if (allToggle) allToggle.hidden = !isOwner();
+
+    /* Revealing People re-flexes the strip. The observer would catch it a
+       frame later; a frame of the pill on the wrong tab is the whole bug. */
+    moveIndicator();
   }
 
   /* A 401 from anywhere means the session lapsed while the tab sat open.

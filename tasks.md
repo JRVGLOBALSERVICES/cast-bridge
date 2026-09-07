@@ -459,3 +459,82 @@
         stream";
       - 8 playlist-rewrite assertions on keys, maps, renditions, relative
         and absolute segments, and `METHOD=NONE`.
+
+## 2026-09-07 — Rj: the tab pill lands on Browse; and Firefox
+
+- [x] Task 32: The selected-tab pill on first load. Root cause found by
+      measurement, not by eye. `moveIndicator()` ran on a tab click and on a
+      window resize and nowhere else, which left it wrong in both of the
+      states the app actually opens in:
+
+      - **Cold, nothing had ever measured it.** At 412px the pill was `w=0`
+        at `x=16` — no width, no offset, so the Link tab opened looking
+        unselected.
+      - **Signing in as the owner reveals the People tab**, re-flexing four
+        tabs into the space of three *without changing the strip's own size*,
+        so a pill placed while there were three kept that width:
+
+        ```
+        People hidden (3 tabs):  Link 22..145   PILL 22..145   ✓
+        People shown  (4 tabs):  Link 22..114   PILL 22..145   ✗
+                                 Browse 114..206      ← the pill covers all of
+                                                        Link and 31px of Browse
+        ```
+
+      Fixed in `assets/js/app.js`: place the pill at first paint (with the
+      transition suppressed for that one placement, so it does not slide in
+      from the left edge), re-place it from a `ResizeObserver` on the strip
+      and on every button — the two things that move them, the People tab
+      appearing and the webfont replacing the fallback, raise no resize event
+      — and call it synchronously from `reflectIdentity()` so there is not
+      even the one frame the observer would take.
+
+      Verified at 412x915 in Chrome and in Firefox: pill `22..145` on a cold
+      load with no resize, and `22..114` within a frame of People appearing.
+      Both exactly Link.
+
+- [x] Task 33: "Why doesn't this app work on Firefox?" — measured in a real
+      Firefox 155, not guessed. **It does work. One thing doesn't, and it
+      cannot be made to.**
+
+      Zero page errors, zero failed requests, zero console errors. The gate
+      renders, the tab strip is correct, the service worker registers and
+      goes active, `document.fonts`, `ResizeObserver`, `inert`, `:has()`,
+      clipboard, `URLSearchParams` and `AbortSignal.timeout` all present.
+      Firefox has no native HLS (`canPlayType` → `""`) but `MediaSource` is
+      there and `Hls.isSupported()` is true, so hls.js carries it; mp4 is
+      `probably`. The range sliders already carry `::-moz-range-*` rules.
+
+      The one gap: **`window.cast` and `window.chrome` are both undefined.**
+      Google ships the Cast sender SDK for Chrome and Edge only, so there is
+      no Chromecast from Firefox at all. Not this app's bug and not fixable
+      from a page.
+
+      What WAS this app's bug: the sender library calls
+      `__onGCastApiAvailable(false)`, and the old handler put a line in the
+      status card and let `updateCastUi()` disable the Cast button. On the
+      idle screen `#main:has(#screen.is-idle) .cb-actions .btn:not(#btnCast)`
+      hides every other action — so Firefox opened the app on exactly one
+      control, and that control was dead. That reads as the app being broken
+      rather than as one feature living somewhere else.
+
+      Now the button has a job it can do: **Open in Chrome**, carrying
+      whatever is loaded as `?u=<link>` so nothing is pasted twice. On
+      Android it fires an `intent://…;package=com.android.chrome;end`;
+      everywhere else — and on Android if Chrome is not installed, which the
+      intent signals by doing nothing at all — it copies the address and says
+      where to paste it.
+
+      Guarded so Chrome never sees it: Chrome and Edge both define
+      `window.chrome`, so a `false` from one of them is the SDK starting
+      badly, not the wrong browser, and it keeps the old disabled button with
+      a reload message instead.
+
+      Verified side by side at 412x915, same build, same run:
+
+      ```
+      Firefox 155  window.chrome undefined → "Open in Chrome", enabled,
+                   tap copies + toasts, 0 errors
+      Chrome       window.chrome object    → "Cast to TV", the normal cast
+                   state machine, untouched
+      ```

@@ -485,3 +485,29 @@ run the proxy on the VPS instead, where bandwidth is not metered per GB.
 whose segment paths are relative will not play through the bridge. Nothing
 we have hit uses one. Rewriting it means reconstructing its BaseURL tree,
 which is a real piece of work for a format we have not needed yet.
+
+## Task 33: Firefox will never cast, and that is Google's call
+
+**Not a question — the answer to Rj's, written down so it is not
+re-investigated a fourth time.**
+
+The Google Cast sender SDK (`gstatic.com/cv/js/sender/v1/cast_sender.js`)
+only exposes `window.cast` / `window.chrome.cast` in Chrome and Edge. In
+Firefox it loads and calls `__onGCastApiAvailable(false)`. There is no
+polyfill: Cast discovery is mDNS on the local network plus a private
+transport, neither of which a web page can reach. Firefox has no Remote
+Playback API either (`'remote' in video` → false), so there is no second
+route.
+
+So "make casting work in Firefox" is not a task anyone can complete. The
+task that exists — done — is making Firefox honest about it and useful
+anyway: everything except casting works there, and the primary button now
+hands the loaded link to Chrome instead of sitting dead.
+
+**Assumption made:** the Android `intent://` handoff is implemented but is
+**not verified on a device** — there is no Android here. It is the
+documented scheme and Firefox Android honours it, but if it does nothing on
+Rj's phone the fallback still fires after 1.4s and copies the link, so the
+tap is never silent. Worth one real test on his phone.
+
+**Context Rj needs to review:** `assets/js/app.js`, `handOffToChrome()`.
