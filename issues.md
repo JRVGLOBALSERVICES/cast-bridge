@@ -559,3 +559,30 @@ collapsed until something goes wrong.
 not a real Chromecast — this VPS has no TV on its network. The relative-URL
 fix, the watchdog, the log and the cancel are all proved in a real browser;
 whether the Sony then plays the film is one tap from Rj.
+
+## Screen recording: the capture itself is unverified on this box
+
+**Question:** does `getDisplayMedia` → `MediaRecorder` → upload actually produce a
+playable file end to end?
+
+**What was verified:** the panel renders the right steps for iPhone, Android,
+desktop Chromium and Firefox (four UA runs); the recorder button appears only
+where `getDisplayMedia` and `MediaRecorder` both exist; a refused permission
+returns the panel to rest with no error message; the stop path and the hand-off
+into `playLocalFile` are wired.
+
+**What was NOT verified:** a real recording. Headless Chrome refuses screen
+capture outright, and under Xvfb the picker is auto-accepted but the capture
+fails with `NotReadableError: Could not start video source` — there is no real
+framebuffer to capture on this VPS. So the happy path from first frame to a
+`.webm` on the stream host has never been seen run.
+
+**Assumption made:** shipped it. The failure modes all land in the same handler
+and end with the panel back at rest, so the worst case is a button that does
+nothing visible rather than a broken app. It is desktop-only by feature
+detection — Chrome for Android has no `getDisplayMedia` — so it will not appear
+on Rj's phone at all.
+
+**Context Rj needs to review:** `assets/js/app.js`, `startScreenRecording`. Try it
+once on the desktop: Record the screen → Stop and send → the player should load
+a `screen-<timestamp>.webm` and the panel under it should offer Send to the TV.

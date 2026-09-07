@@ -2006,3 +2006,43 @@ body.is-gated { overflow: hidden; }
   padding-top: 0.75rem;
   border-top: 1px solid var(--cb-line);
 }
+
+/* ---------- Put this screen on the TV ---------- */
+.cb-screen-body { padding: 0.25rem 0 0.9rem; }
+.cb-screen-lead,
+.cb-screen-note,
+.cb-screen-alt {
+  margin: 0 0 0.6rem;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--cb-ink-2);
+}
+.cb-screen-alt { color: var(--cb-ink); font-weight: 600; }
+.cb-screen-steps {
+  margin: 0 0 0.6rem;
+  padding-left: 1.15rem;
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  color: var(--cb-ink);
+}
+.cb-screen-steps li { margin-bottom: 0.25rem; }
+.cb-screen-rule {
+  border: 0;
+  border-top: 1px solid var(--cb-line);
+  margin: 0.9rem 0;
+}
+.cb-screen-live {
+  margin: 0 0 0.6rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--cb-ink);
+  font-variant-numeric: tabular-nums;
+}
+.cb-screen-body .btn {
+  text-transform: none;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  min-height: 2.5rem;
+  padding-left: 0.9rem;
+  padding-right: 0.9rem;
+}

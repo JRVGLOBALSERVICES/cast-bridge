@@ -4379,6 +4379,258 @@
     if ($('hostPanel').open) renderHost();
   });
 
+  /* ------------------------------------------------------------------ *
+   * Putting this screen on the television
+   *
+   * The live version cannot be built here, and the reason is structural
+   * rather than a missing feature:
+   *
+   *   - The Cast sender API takes a MediaInfo whose contentId is an ADDRESS.
+   *     There is no overload that accepts a MediaStream. Chrome's own
+   *     ⋮ → Cast → Cast screen is a browser feature driven by Media Router,
+   *     not an API a page is given.
+   *   - The Presentation API does exist and Chrome implements it, but it
+   *     presents a URL on a receiver app registered with Google. That is
+   *     showing a different page on the television, not mirroring this one.
+   *   - getDisplayMedia can capture the screen, and nothing can then send
+   *     that stream to a Chromecast. Encoding it and streaming it via a
+   *     server is seconds of latency and a different product.
+   *
+   * So the panel does the two honest things. It gives the exact route for
+   * the device actually in the hand — not a list of four platforms to read
+   * past — and where the browser can capture at all, it offers the one
+   * adjacent thing that IS possible: record the screen, send the recording
+   * to the stream host, play it on the television. Not live, and it says so
+   * in those words rather than in a footnote.
+   * ------------------------------------------------------------------ */
+
+  function screenRoute() {
+    var ua = navigator.userAgent || '';
+    var ios = /iPhone|iPad|iPod/i.test(ua) ||
+      (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+    var android = /Android/i.test(ua);
+    var chromium = Boolean(window.chrome) && !/Firefox/i.test(ua);
+
+    if (ios) {
+      return {
+        what: 'iPhone or iPad',
+        steps: [
+          'Swipe down from the top-right corner for Control Centre.',
+          'Tap Screen Mirroring.',
+          'Pick your Apple TV.'
+        ],
+        note: 'This mirrors to Apple TV and to AirPlay 2 televisions. A ' +
+              'Chromecast is not reachable this way — nothing on iOS mirrors ' +
+              'to one without the maker’s own app.'
+      };
+    }
+    if (android) {
+      return {
+        what: 'Android',
+        steps: [
+          'Open Chrome’s own menu — the three dots, top right.',
+          'Tap Cast.',
+          'Tap Sources, then Cast screen.',
+          'Pick the television.'
+        ],
+        note: 'Some phones put the same thing in Quick Settings as Screen ' +
+              'cast or Smart View. Both drive the television directly; ' +
+              'neither goes through this page.'
+      };
+    }
+    if (chromium) {
+      return {
+        what: 'a computer',
+        steps: [
+          'Open Chrome’s own menu — the three dots, top right.',
+          'Tap Cast, then Sources.',
+          'Choose Cast tab for this page, or Cast desktop for everything.',
+          'Pick the television.'
+        ],
+        note: 'Cast tab sends this page and its sound. Cast desktop sends ' +
+              'the whole screen and is the one to use for another app.'
+      };
+    }
+    return {
+      what: 'this browser',
+      steps: [
+        'Use the operating system rather than the browser: Windows has ' +
+          'Win+K, macOS has Screen Mirroring in Control Centre, and most ' +
+          'Android phones have Screen cast in Quick Settings.'
+      ],
+      note: 'Firefox carries no cast support of any kind — that is Google ' +
+            'shipping the sender SDK for Chrome and Edge only.'
+    };
+  }
+
+  /* Chrome and Edge on the desktop only. Android Chrome does not implement
+     getDisplayMedia at all, which is worth knowing before promising it. */
+  function canCaptureScreen() {
+    return Boolean(navigator.mediaDevices &&
+      navigator.mediaDevices.getDisplayMedia &&
+      window.MediaRecorder);
+  }
+
+  var recorder = null;
+  var recChunks = [];
+  var recStream = null;
+
+  function renderScreenPanel(state) {
+    var body = $('screenBody');
+    if (!body) return;
+    body.textContent = '';
+    state = state || {};
+
+    var route = screenRoute();
+
+    var lead = document.createElement('p');
+    lead.className = 'cb-screen-lead';
+    lead.textContent = 'A web page cannot mirror a screen to a television. ' +
+      'The Cast API takes an address for the TV to fetch, never a live ' +
+      'picture — so this is the television’s own route, on ' + route.what + '.';
+    body.appendChild(lead);
+
+    var ol = document.createElement('ol');
+    ol.className = 'cb-screen-steps';
+    route.steps.forEach(function (t) {
+      var li = document.createElement('li');
+      li.textContent = t;
+      ol.appendChild(li);
+    });
+    body.appendChild(ol);
+
+    var note = document.createElement('p');
+    note.className = 'cb-screen-note';
+    note.textContent = route.note;
+    body.appendChild(note);
+
+    if (!canCaptureScreen()) return;
+
+    var rule = document.createElement('hr');
+    rule.className = 'cb-screen-rule';
+    body.appendChild(rule);
+
+    var h = document.createElement('p');
+    h.className = 'cb-screen-alt';
+    h.textContent = 'What this page CAN do: record the screen, then play the ' +
+      'recording on the television. Not live — it goes up when you stop.';
+    body.appendChild(h);
+
+    if (state.recording) {
+      var live = document.createElement('p');
+      live.className = 'cb-screen-live';
+      live.textContent = 'Recording — ' + fmtLength(state.seconds || 0) +
+        (state.bytes ? ' · ' + fmtSize(state.bytes) : '');
+      body.appendChild(live);
+
+      var stop = document.createElement('button');
+      stop.type = 'button';
+      stop.className = 'btn btn-secondary btn-sm';
+      stop.textContent = 'Stop and send to the TV';
+      stop.addEventListener('click', stopScreenRecording);
+      body.appendChild(stop);
+      return;
+    }
+
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'btn btn-primary btn-sm';
+    go.textContent = 'Record the screen';
+    go.addEventListener('click', startScreenRecording);
+    body.appendChild(go);
+
+    if (state.error) {
+      var err = document.createElement('p');
+      err.className = 'cb-pick-error';
+      err.setAttribute('role', 'alert');
+      err.textContent = state.error;
+      body.appendChild(err);
+    }
+  }
+
+  function startScreenRecording() {
+    if (recorder) return;
+    navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+      .then(function (stream) {
+        recStream = stream;
+        recChunks = [];
+        var bytes = 0;
+        var started = Date.now();
+
+        /* webm/vp8 is the one thing every Chromium build can record and
+           every Chromecast can play. Asking for something better and
+           falling back is how a recording ends up in a container the
+           television refuses at the last step. */
+        var mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+          .filter(function (m) { return window.MediaRecorder.isTypeSupported(m); })[0] || '';
+
+        recorder = new window.MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+        recorder.addEventListener('dataavailable', function (e) {
+          if (!e.data || !e.data.size) return;
+          recChunks.push(e.data);
+          bytes += e.data.size;
+        });
+
+        var tick = setInterval(function () {
+          if (!recorder) { clearInterval(tick); return; }
+          renderScreenPanel({
+            recording: true,
+            seconds: (Date.now() - started) / 1000,
+            bytes: bytes
+          });
+        }, 1000);
+
+        /* Stopping the share from the browser's own bar, rather than from
+           the button here, must end the recording too — otherwise the panel
+           counts up against a stream that has already gone. */
+        stream.getVideoTracks().forEach(function (t) {
+          t.addEventListener('ended', stopScreenRecording);
+        });
+
+        recorder.addEventListener('stop', function () {
+          clearInterval(tick);
+          var blob = new Blob(recChunks, { type: mime || 'video/webm' });
+          recChunks = [];
+          if (recStream) {
+            recStream.getTracks().forEach(function (t) { t.stop(); });
+            recStream = null;
+          }
+          recorder = null;
+          renderScreenPanel({});
+          if (!blob.size) {
+            renderScreenPanel({ error: 'Nothing was recorded.' });
+            return;
+          }
+          /* Straight into the same path a picked file takes — one upload,
+             one progress bar, one place it lands. */
+          var name = 'screen-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.webm';
+          playLocalFile(new File([blob], name, { type: blob.type }));
+          toast({ text: 'Recorded. Tap Send to the TV under the player.' });
+        });
+
+        recorder.start(1000);
+        renderScreenPanel({ recording: true, seconds: 0, bytes: 0 });
+      })
+      .catch(function (e) {
+        /* A refused permission prompt is a choice, not a fault, and does not
+           get an error message. */
+        if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) {
+          renderScreenPanel({});
+          return;
+        }
+        renderScreenPanel({ error: 'This browser would not share the screen.' });
+      });
+  }
+
+  function stopScreenRecording() {
+    if (!recorder) return;
+    try { recorder.stop(); } catch (e) { /* already stopping */ }
+  }
+
+  $('screenPanel').addEventListener('toggle', function () {
+    if ($('screenPanel').open && !recorder) renderScreenPanel({});
+  });
+
   /* The door goes up before anything else is usable. The gate is unhidden in
      the markup and the body starts .is-gated, so the app is never painted to
      someone who has not signed in; checkSession() takes it down. */

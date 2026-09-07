@@ -243,6 +243,21 @@
       <button type="button" class="cb-subs-off" id="subsOff" hidden>Turn subtitles off</button>
     </details>
 
+    <!-- ---------- The screen itself ----------
+         The one thing on this page that is genuinely not possible, plus the
+         one adjacent thing that is. Steps are filled in by app.js for the
+         device actually holding the phone, not listed for all four. -->
+    <details class="cb-log cb-screen" id="screenPanel">
+      <summary>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/>
+        </svg>
+        <span>Put this screen on the TV</span>
+      </summary>
+      <div class="cb-screen-body" id="screenBody"></div>
+    </details>
+
     <!-- ---------- Stream host ----------
          Owner only. The box that carries the film is the one thing in this
          app with a running cost and a finite disk, so both are readable
@@ -453,9 +468,9 @@
         <dt>Roku, Fire TV</dt>
         <dd>Neither speaks Cast, and no browser can reach them — they need each maker's own app. <b>Open in VLC</b> is the way across: VLC finds them on the Wi‑Fi and this hands it the link.</dd>
         <dt>Mirroring the whole phone screen</dt>
-        <dd>Not something a website can do — no browser exposes the screen to a TV. On Android use Chrome's own menu → <b>Cast</b> → <i>Cast screen</i>; on a Samsung, Smart View.</dd>
+        <dd>Still not something a website can do, and the reason is worth knowing: the Cast API takes an <i>address</i> for the TV to fetch, never a live picture. <b>Put this screen on the TV</b> above has the exact steps for whatever you are holding.</dd>
         <dt>A video already on the phone</dt>
-        <dd>The TV fetches over the network and cannot reach the phone's storage, so a file picked here would have nowhere to be fetched from. Send it with VLC, or put it somewhere with a link and paste that.</dd>
+        <dd><b>Choose a video on this phone</b> plays it here straight away. The TV still cannot reach the phone's storage, so sending it copies the file to the stream host first and gives the TV an address there — deleted again within a day.</dd>
         <dt>Subtitles</dt>
         <dd>Paste an <b>.srt</b> or <b>.vtt</b> link under <b>Subtitles</b>. SRT is converted for you — the TV only accepts VTT. Adding one mid-film reloads it and picks up where it was.</dd>
         <dt>A stream that plays here but not on the TV</dt>
