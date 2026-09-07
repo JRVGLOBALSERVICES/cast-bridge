@@ -146,6 +146,23 @@ git -C /opt/cast-stream pull && pm2 restart cast-stream
 curl -s https://stream.jrvsystems.app/healthz
 ```
 
+First time on a box:
+
+```
+git clone …/cast-bridge.git /opt/cast-stream        # no npm install — the
+                                                    # stream path uses only
+                                                    # node's own modules
+mkdir -p /var/lib/cast-stream
+cd /opt/cast-stream && PORT=7801 STREAM_RANGE_WINDOW_MB=64 \
+  STREAM_STATE_DIR=/var/lib/cast-stream \
+  pm2 start server/stream-server.js --name cast-stream --time
+pm2 install pm2-logrotate && pm2 set pm2-logrotate:max_size 20M
+pm2 save
+```
+
+The logrotate line is not optional: the service logs one line per range
+request, and a film is thousands of them.
+
 The nginx vhost is scoped to `/api/stream` and `/healthz` and 404s everything
 else, on purpose: it is a new public hostname on a box that also runs the bridge
 and its admin console. `proxy_buffering off` is load-bearing — with buffering on,
