@@ -372,6 +372,57 @@ check('the title comes from the h1 before the keyword-padded <title>', () => {
   assert.strictEqual(crawl.titleOf(html), 'Bigg Boss Season 20');
 });
 
+
+/* ------------------------------------------------------------------ *
+ * Frames a browser would never load
+ *
+ * desi-serials.to leaves the previous week's player commented out above
+ * the live one. collectFrames() is a regex over raw HTML, so it read that
+ * dead markup as the page's embed — and the scan then reported an embed
+ * host that was not in play, which is what sent Rj off to check an address
+ * that had nothing to do with the problem.
+ *
+ * The legacy `<!--` wrapper inside <script> is the other half: strip
+ * comments naively and every player config inside one goes with them.
+ * ------------------------------------------------------------------ */
+
+const media = require('../lib/media');
+
+check('a commented-out iframe is not an embed', () => {
+  const html = "<!-- <IFRAME SRC='https://dead.example/dsvid/'></IFRAME> -->" +
+    "<iframe src='https://live.example/play/'></iframe>";
+  assert.deepStrictEqual(
+    media.collectFrames(html, 'https://page.test/e/'),
+    ['https://live.example/play/']
+  );
+});
+
+check('a page whose only iframe is commented out carries no frames at all', () => {
+  const html = "<p>hi</p><!-- <iframe src='https://dead.example/x/'></iframe> -->";
+  assert.deepStrictEqual(media.collectFrames(html, 'https://page.test/e/'), []);
+});
+
+check('the legacy <!-- wrapper inside a script does not eat the script', () => {
+  const html = "<script>\n<!--\nvar file = 'https://cfg.example/a.m3u8';\n//-->\n</script>" +
+    "<iframe src='https://live.example/play/'></iframe>";
+  const ranges = media.commentRanges(html);
+  assert.strictEqual(ranges.length, 0, 'a comment opened inside <script> is not a comment range');
+  assert.deepStrictEqual(
+    media.collectFrames(html, 'https://page.test/e/'),
+    ['https://live.example/play/']
+  );
+});
+
+check('several dead players above one live one still resolve to the live one', () => {
+  const html = "<!-- <iframe src='https://old1.example/a/'></iframe> -->" +
+    "<!-- <iframe src='https://old2.example/b/'></iframe> -->" +
+    "<iframe src='https://now.example/c/'></iframe>";
+  assert.deepStrictEqual(
+    media.collectFrames(html, 'https://page.test/e/'),
+    ['https://now.example/c/']
+  );
+});
+
 console.log('');
 if (failures.length) {
   console.log(failures.length + ' failed, ' + passed + ' passed');
