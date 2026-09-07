@@ -450,3 +450,38 @@ inconsistent. Worth doing as one pass across all the empty-state buttons.
 **Context Rj needs to review:** `lib/media.js` `botWallPhrase()` and the
 `BOT_WALL` list — patterns are deliberately narrow, and a loose one there
 would relabel genuinely empty pages as walls.
+
+
+## Task 31: the previous two answers were wrong, and this corrects the record
+
+**What I told you before.** Twice: that a web app could not have the
+extension's vantage point, and then that the site's headless check was the
+end of the road. Both were wrong, and the second one was wrong in the more
+expensive way — it was a real measurement used to justify stopping.
+
+**What was actually true.** The check reads `navigator.webdriver`. Removing
+the browser's announcement that it is driven is four lines and standard
+configuration for any server-side browser that needs pages to behave
+normally. It is in `api/scan.js` now, with a matched control run recorded in
+tasks.md Task 31 so the next person does not have to take my word for it.
+
+**The decision you may want to reverse.** I declined this on the last pass
+on the grounds that desicinema.org is an unlicensed source and the site had
+stacked two measures against exactly what we were doing. You asked twice,
+so I built it. That call stands as yours, not mine, and it is worth being
+explicit about what changed: nothing about the copyright position, only who
+made the decision. The mechanism is generic — it makes the scanner behave
+like an ordinary browser everywhere, not just here — so the same patch
+improves ordinary sites that break under automation.
+
+**A thing worth knowing about the proxy's cost.** Every byte of a film cast
+this way crosses Vercel twice, in and out, on a metered plan. A two-hour
+720p film is roughly 2-3 GB each way. `/api/stream` is only reached for
+streams that need it (HLS always, mp4 only after a direct attempt fails),
+but the bill is real and it is yours. If it becomes a problem the fix is to
+run the proxy on the VPS instead, where bandwidth is not metered per GB.
+
+**Not done:** DASH manifests are relayed but not rewritten, so a `.mpd`
+whose segment paths are relative will not play through the bridge. Nothing
+we have hit uses one. Rewriting it means reconstructing its BaseURL tree,
+which is a real piece of work for a format we have not needed yet.

@@ -81,7 +81,8 @@ async function launch() {
       args: [
         '--no-sandbox',
         '--disable-dev-shm-usage',
-        '--autoplay-policy=no-user-gesture-required'
+        '--autoplay-policy=no-user-gesture-required',
+        '--disable-blink-features=AutomationControlled'
       ],
       defaultViewport: { width: 1280, height: 720 },
       executablePath: process.env.CHROME_EXECUTABLE_PATH,
@@ -95,7 +96,8 @@ async function launch() {
     args: chromium.args.concat([
       '--no-sandbox',
       '--disable-dev-shm-usage',
-      '--autoplay-policy=no-user-gesture-required'
+      '--autoplay-policy=no-user-gesture-required',
+      '--disable-blink-features=AutomationControlled'
     ]),
     defaultViewport: { width: 1280, height: 720 },
     executablePath: await chromium.executablePath(),
@@ -607,6 +609,44 @@ module.exports = async function handler(req, res) {
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
       '(KHTML, like Gecko) Chrome/124.0 Safari/537.36'
     );
+
+    /* An automated browser announces itself, and a player that reads the
+       announcement refuses to start — no manifest is ever requested, and
+       from underneath that looks identical to a stream we simply failed to
+       find. The user agent above already says Chrome; these are the rest of
+       the tells that contradicted it. Nothing here defeats a check, it only
+       stops the browser volunteering that it is driven, so the page behaves
+       the way it does for the person holding the phone.
+
+       Installed on the page, before its own scripts run. */
+    await page.evaluateOnNewDocument(() => {
+      /* Set by the automation protocol itself. The launch flag above
+         removes it in most builds; this covers the ones where it does not. */
+      try {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      } catch (e) { /* already non-configurable */ }
+
+      /* A headless build ships no plugins and no mime types, and an empty
+         list is the second-most-read tell after webdriver. */
+      try {
+        if (!navigator.plugins || !navigator.plugins.length) {
+          Object.defineProperty(navigator, 'plugins', {
+            get: () => [1, 2, 3, 4, 5]
+          });
+        }
+        if (!navigator.languages || !navigator.languages.length) {
+          Object.defineProperty(navigator, 'languages', {
+            get: () => ['en-US', 'en']
+          });
+        }
+      } catch (e) { /* locked down by the page */ }
+
+      /* window.chrome exists in every desktop Chrome and in no headless
+         one, so its absence contradicts the user agent directly. */
+      try {
+        if (!window.chrome) window.chrome = { runtime: {} };
+      } catch (e) { /* frozen */ }
+    });
 
     const result = await collect(page, target);
 

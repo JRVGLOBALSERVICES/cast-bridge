@@ -399,7 +399,12 @@
 
   var current = null;      // the media URL now loaded
   var currentTitle = '';
+  /* The page the media was playing on. Hosts that check a referer want
+     this one, not ours, and it is what /api/stream forwards on our behalf. */
+  var currentFrom = '';
   var hls = null;
+  /* One proxy retry per load, or a stream that is genuinely gone loops. */
+  var hlsProxied = false;
   var castState = 'NO_DEVICES_AVAILABLE';
   var lastSaved = 0;
 
@@ -435,6 +440,73 @@
     qualitySel.innerHTML = '<option value="-1">Auto</option>';
   }
 
+  /* Attach hls.js to an address. Separate from load() because a stream the
+     host refuses is retried here against the same media through our own
+     origin, and that retry has to run the identical setup. */
+  function playHls(src) {
+    hls = new window.Hls({
+      startLevel: -1, capLevelToPlayerSize: false,
+      maxBufferLength: 60, maxMaxBufferLength: 120, backBufferLength: 30,
+      abrEwmaDefaultEstimate: 5e6, lowLatencyMode: false
+    });
+    hls.loadSource(src);
+    hls.attachMedia(video);
+    hls.on(window.Hls.Events.MANIFEST_PARSED, function (_, data) {
+      if (data.levels && data.levels.length > 1) {
+        data.levels.map(function (l, i) { return { i: i, h: l.height, b: l.bitrate }; })
+          .sort(function (a, b) { return b.h - a.h; })
+          .forEach(function (l) {
+            var o = document.createElement('option');
+            o.value = l.i;
+            o.textContent = l.h ? l.h + 'p' : Math.round(l.b / 1000) + 'k';
+            qualitySel.appendChild(o);
+          });
+        qualitySel.hidden = false;
+      }
+    });
+    hls.on(window.Hls.Events.ERROR, function (_, data) {
+      if (!data.fatal) return;
+      if (data.type === window.Hls.ErrorTypes.NETWORK_ERROR) {
+        /* Almost always the host refusing a request that does not carry
+           the page it was embedded in, or simply sending no cross-origin
+           header. Both are what /api/stream is for, so try that before
+           telling anyone it cannot be played — one retry only, or a
+           stream that is genuinely gone loops here forever. */
+        if (!hlsProxied) {
+          hlsProxied = true;
+          setStatus('The host blocked that fetch — routing it through the bridge.', '');
+          teardownHls();
+          playHls(streamUrl(current));
+          return;
+        }
+        setStatus('This stream won\'t open in a browser tab — the server blocks it. The TV can still fetch it directly.', 'bad');
+        toast({
+          text: 'Blocked here, but Cast and VLC fetch it themselves.',
+          actionLabel: 'Open in VLC',
+          onAction: handoffVlc
+        });
+      } else {
+        setStatus('Stream error: ' + data.details, 'bad');
+      }
+    });
+  }
+
+  /* The same address, fetched by us on the television's behalf.
+   *
+   * Two things stop a receiver reading a CDN address directly, and neither
+   * is about how the address was found: the host serves segments only to a
+   * request carrying the page they were embedded in, and Cast requires HLS
+   * and DASH to be served cross-origin-open, which a CDN that never
+   * expected a television is not. Going through our own origin fixes both.
+   */
+  function streamUrl(u) {
+    var out = '/api/stream?u=' + encodeURIComponent(u);
+    if (currentFrom && /^https?:/i.test(currentFrom)) {
+      out += '&r=' + encodeURIComponent(currentFrom);
+    }
+    return out;
+  }
+
   function load(rawUrl, meta) {
     meta = meta || {};
     var u = String(rawUrl || '').trim();
@@ -448,6 +520,8 @@
     u = resolveShare(u);
     current = u;
     currentTitle = meta.title || nameOf(u);
+    currentFrom = meta.from || '';
+    hlsProxied = false;
     $('url').value = u;
 
     teardownHls();
@@ -455,39 +529,7 @@
     screenEl.classList.add('is-live');
 
     if (mimeOf(u) === 'application/x-mpegURL' && window.Hls && window.Hls.isSupported()) {
-      hls = new window.Hls({
-        startLevel: -1, capLevelToPlayerSize: false,
-        maxBufferLength: 60, maxMaxBufferLength: 120, backBufferLength: 30,
-        abrEwmaDefaultEstimate: 5e6, lowLatencyMode: false
-      });
-      hls.loadSource(u);
-      hls.attachMedia(video);
-      hls.on(window.Hls.Events.MANIFEST_PARSED, function (_, data) {
-        if (data.levels && data.levels.length > 1) {
-          data.levels.map(function (l, i) { return { i: i, h: l.height, b: l.bitrate }; })
-            .sort(function (a, b) { return b.h - a.h; })
-            .forEach(function (l) {
-              var o = document.createElement('option');
-              o.value = l.i;
-              o.textContent = l.h ? l.h + 'p' : Math.round(l.b / 1000) + 'k';
-              qualitySel.appendChild(o);
-            });
-          qualitySel.hidden = false;
-        }
-      });
-      hls.on(window.Hls.Events.ERROR, function (_, data) {
-        if (!data.fatal) return;
-        if (data.type === window.Hls.ErrorTypes.NETWORK_ERROR) {
-          setStatus('This stream won\'t open in a browser tab — the server blocks it. The TV can still fetch it directly.', 'bad');
-          toast({
-            text: 'Blocked here, but Cast and VLC fetch it themselves.',
-            actionLabel: 'Open in VLC',
-            onAction: handoffVlc
-          });
-        } else {
-          setStatus('Stream error: ' + data.details, 'bad');
-        }
-      });
+      playHls(u);
     } else {
       video.src = u;
     }
@@ -621,9 +663,26 @@
     opts = opts || {};
     var M = window.chrome.cast.media;
 
-    var info = new M.MediaInfo(u, mimeOf(u));
+    var mime = mimeOf(u);
+    /* HLS only. A DASH manifest's segment paths are relative to where the
+       manifest itself was served, and serving it from /api/stream?u=... 
+      resolves them against our query string rather than the CDN — so
+       proxying one eagerly would break a stream that might have worked.
+       DASH takes the direct-then-retry path below with everything else. */
+    var adaptive = mime === 'application/x-mpegURL';
+
+    /* Cast's own media documentation requires HLS and DASH to be served
+       cross-origin-open, and a CDN that never expected a television is not.
+       So an adaptive stream goes through our origin from the start rather
+       than failing once and being retried — a direct attempt here is a
+       spinner on the TV, not a fast path. A progressive mp4 has no such
+       requirement, so that one is tried direct and only proxied if the
+       receiver comes back unhappy. */
+    var src = adaptive || opts.viaProxy ? streamUrl(u) : u;
+
+    var info = new M.MediaInfo(src, mime);
     info.streamType = M.StreamType.BUFFERED;
-    if (mimeOf(u) === 'application/x-mpegURL') {
+    if (mime === 'application/x-mpegURL') {
       info.hlsSegmentFormat = M.HlsSegmentFormat.TS;
       info.hlsVideoSegmentFormat = M.HlsVideoSegmentFormat.MPEG2_TS;
     }
@@ -671,6 +730,14 @@
       $('onairSub').textContent = currentTitle || nameOf(u);
       screenEl.classList.add('is-onair');
     }, function (err) {
+      /* A receiver that refuses a direct address is usually being refused
+         itself — the host wants the page the media was embedded in. Give it
+         one go through our origin before saying it cannot be played. */
+      if (!opts.viaProxy && src === u) {
+        setStatus('The host blocked ' + name + ' — routing it through the bridge.', '');
+        castLoad(u, { at: at, viaProxy: true });
+        return;
+      }
       screenEl.classList.remove('is-onair');
       setStatus(name + ' couldn\'t play it (' + ((err && err.code) || 'error') + '). It needs a public https .mp4 or .m3u8 link.', 'bad');
     });

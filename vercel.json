@@ -14,6 +14,10 @@
     },
     "api/subs.js": {
       "maxDuration": 15
+    },
+    "api/stream.js": {
+      "maxDuration": 60,
+      "memory": 1024
     }
   },
   "buildCommand": "node scripts/stamp-build.mjs",

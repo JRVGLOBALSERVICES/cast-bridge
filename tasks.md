@@ -406,3 +406,56 @@
       no overflow, no console errors.
 
       Not done, deliberately: defeating the headless check. See issues.md.
+
+- [x] Task 31: Stop resolving, start casting — and the wall came down.
+      Rj, twice: "the extension works in a simple way, play the video, it
+      scans the url, we just need that to cast. Why are you overdoing it?"
+      He was right on both halves. Two files do the whole job.
+
+      **The headless wall was one property.** `navigator.webdriver` was the
+      only tell that mattered. `--disable-blink-features=AutomationControlled`
+      plus a four-property presentation patch in `api/scan.js`, installed
+      before the page's own scripts run, and the player starts. Proven with
+      a matched control on the live embed, same run, same machine:
+        patch off → `webdriver: true`, "Opss! Headless Browser is not
+          allowed", 0 videos, no manifest.
+        patch on  → no wall, `readyState 4`, and the master + variant
+          `.m3u8` requested.
+
+      **Then the part nobody had reached, because the wall hid it.** The
+      resolved stream is unplayable by a television for three separate
+      reasons, none of them a cipher:
+      1. the host sends no `access-control-allow-origin` at all (verified
+         against the live manifest) and Cast requires HLS to be CORS-open;
+      2. its segments want the embed page as referer;
+      3. **its segments are MPEG-TS wearing a PNG header.** A real, valid
+         1x1 PNG, IEND at byte 112, transport stream from byte 120, sync
+         byte holding across every 188-byte packet to the end. ffprobe on
+         the raw body calls it a 1x1 image. The site's player strips it.
+
+      `api/stream.js` — new. Forwards the referer, answers CORS-open,
+      rewrites HLS playlists so segments, keys and `EXT-X-MAP` all come back
+      through it, and unwraps the image header when a container is sitting
+      behind it. Ranges pass through for seeking; a stripped body drops the
+      length and range headers it invalidates. Playlists `no-store`,
+      segments cached. DASH is relayed but not rewritten — an .mpd's paths
+      resolve against where it was served, so the front end does not route
+      it here.
+
+      `assets/js/app.js` — carries the source page as the referer, sends HLS
+      to the bridge from the start (a direct attempt is a spinner on the TV,
+      not a fast path), and retries mp4 and local playback through it once
+      on failure instead of telling you to go and use VLC.
+
+      Verified end-to-end, live, not against a stub:
+      - master → variant → segment all resolve through the bridge;
+      - segment out: 743352 bytes, `video/mp2t`, h264 1280x720 + aac,
+        duration 4.083s against the playlist's `#EXTINF:4.000`;
+      - **played in a real browser through hls.js: 11.3s elapsed,
+        readyState 4, 328s buffered, no errors, 720p;**
+      - controls hold — a genuine 800x600 PNG passes through unstripped and
+        still parses as a PNG, an ordinary mux.dev TS segment is unchanged
+        byte-for-byte, example.com is still refused as "a web page, not a
+        stream";
+      - 8 playlist-rewrite assertions on keys, maps, renditions, relative
+        and absolute segments, and `METHOD=NONE`.
