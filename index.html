@@ -280,7 +280,23 @@
         </div>
         <p class="cb-fielderror" id="subsError" role="alert"></p>
       </form>
+
+      <!-- A file, not a link.
+           The address field above can only be satisfied by a subtitle that
+           is already on the web, and almost none of them are: what people
+           have is a .srt next to a downloaded film, or one a friend sent.
+           It is converted and kept at an address of its own, because a
+           television fetches its track itself and cannot be handed a file. -->
+      <p class="cb-subs-or">or</p>
+      <input type="file" id="subsFile" accept=".srt,.vtt,text/vtt,application/x-subrip,text/plain" hidden>
+      <button type="button" class="btn btn-secondary btn-block btn-sm" id="btnSubsFile">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+        <span class="cb-label">Upload an .srt from this phone</span>
+        <span class="cb-spin" aria-hidden="true"></span>
+      </button>
+
       <p class="cb-subs-note" id="subsNote">SRT is converted for you. On the TV this reloads the video and picks it back up where it was.</p>
+      <p class="cb-subs-note cb-subs-warn" id="subsKeepNote" hidden></p>
       <button type="button" class="cb-subs-off" id="subsOff" hidden>Turn subtitles off</button>
     </details>
 
@@ -376,6 +392,19 @@
         <p class="cb-viewsub">Open a page here and keep the video off it.</p>
       </div>
         <form id="browseForm" novalidate>
+          <!-- Two ways in, one address field, and this comes BEFORE the
+               button because it decides what the button does. Underneath it
+               the screen read: address, [Episodes], then the switch that
+               had already changed that word: the decision printed after
+               the action it governs. -->
+          <div class="cb-scoperow cb-findrow">
+            <span class="cb-scoperow-label">Find</span>
+            <div class="cb-segment" role="group" aria-label="What to look for on that page">
+              <button type="button" class="cb-segment-btn is-on" id="modePage" aria-pressed="true">The video</button>
+              <button type="button" class="cb-segment-btn" id="modeEpisodes" aria-pressed="false">Its episodes</button>
+            </div>
+          </div>
+
           <div class="input-group">
             <label class="cb-sronly" for="pageUrl">Page address</label>
             <input class="form-control form-control-lg" id="pageUrl" type="url" inputmode="url"
@@ -388,14 +417,29 @@
               </button>
             </div>
           </div>
+
           <p class="cb-fielderror" id="pageError" role="alert"></p>
         </form>
 
         <div id="browseResult"></div>
 
+        <!-- Series you have opened before. Painted from what the last crawl
+             found, then refreshed behind it. See renderSeriesList(). -->
+        <section class="cb-serieshist" id="seriesBox" hidden aria-labelledby="seriesTitle">
+          <div class="cb-serieshead">
+            <h3 class="cb-seriestitle" id="seriesTitle">Series you have opened</h3>
+            <button type="button" class="cb-linkbtn" id="btnSeriesClear">Clear</button>
+          </div>
+          <div class="cb-list list-group" id="seriesList"></div>
+          <p class="cb-fielderror" id="seriesError" role="alert"></p>
+        </section>
+
         <div class="cb-empty mt-3" id="browseHint">
           <h3>Open a page, keep the video</h3>
           <p>Cast Bridge loads the page, reads what media is on it, and lists every stream it finds so you can send one straight to the TV.</p>
+          <p>Paste a season page and switch to <b>Its episodes</b> instead: it reads the
+            episode list off the page, remembers it, and every episode is one tap from
+            the television. It is still here tomorrow.</p>
         </div>
     </section>
 
@@ -469,6 +513,28 @@
       <div class="cb-viewhead">
         <h2 class="cb-viewtitle" id="title-more">More</h2>
       </div>
+
+      <!-- ---------- Notifications ----------
+           A light preference, so it applies on the tap and confirms inline
+           rather than sitting behind a Save button. The note underneath is
+           written by app.js and is the only place the five real states are
+           told apart: asked, on, off, blocked by the browser, or an iPhone
+           in a Safari tab where the feature does not exist until the app is
+           on the Home Screen. -->
+      <div class="cb-settings">
+        <div class="cb-setrow">
+          <span class="cb-setk" id="notifyLabel">Notify me in the background</span>
+          <button type="button" class="cb-switch" id="notifyToggle" role="switch"
+                  aria-checked="false" aria-labelledby="notifyLabel"
+                  aria-describedby="notifyNote">
+            <span class="cb-switch-track" aria-hidden="true"><span class="cb-switch-thumb"></span></span>
+          </button>
+        </div>
+        <p class="cb-setv" id="notifyNote">Casting, upload progress and anything
+          that goes wrong, while you are in another app.</p>
+        <p class="cb-setsaved" id="notifySaved" role="status" hidden></p>
+      </div>
+
       <div class="cb-menu">
         <button type="button" class="cb-menurow" data-view="bilibili">
           <span class="cb-menuk">

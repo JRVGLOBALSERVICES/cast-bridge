@@ -80,12 +80,90 @@ self.addEventListener('fetch', (e) => {
   );
 });
 
+/* ------------------------------------------------------------------ *
+ * Notifications
+ *
+ * Everything here is a LOCAL notification: the page asks the worker to
+ * draw one, and the worker hands a tap back to the page. There is no push
+ * server and no subscription, on purpose — a bridge between a phone and a
+ * television has nothing to say when the phone is not running, and asking
+ * for push permission to say nothing is how an app earns a permanent
+ * "Blocked" in the browser's settings.
+ *
+ * The worker draws them rather than the page because a page that has been
+ * backgrounded is exactly when they matter, and because `Notification`
+ * actions — the Pause and Stop buttons in the shade — only exist on a
+ * worker registration. `window.Notification` cannot carry them.
+ * ------------------------------------------------------------------ */
+
+/* A tap anywhere on the notification means "show me". Focus the copy that
+   is already open rather than opening a second one — two Cast Bridges
+   fighting over one Cast session is a worse bug than the one being
+   reported. */
+async function focusApp(url) {
+  const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  for (const c of all) {
+    if ('focus' in c) {
+      if (url && 'navigate' in c) { try { await c.navigate(url); } catch (e) { /* cross-origin or gone */ } }
+      return c.focus();
+    }
+  }
+  if (self.clients.openWindow) return self.clients.openWindow(url || '/');
+  return null;
+}
+
+self.addEventListener('notificationclick', (e) => {
+  const data = e.notification.data || {};
+  const action = e.action || '';
+
+  /* A control button acts on the running app, so it must not close the
+     notification first — the page updates it a moment later with the new
+     state, and a closed notification cannot be updated, it can only be
+     replaced with a second one that slides in from the top. */
+  if (action) {
+    e.waitUntil((async () => {
+      const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const c of all) c.postMessage({ type: 'NOTIFY_ACTION', action, tag: e.notification.tag, data });
+      /* Nothing is listening. The buttons are lies without a page behind
+         them, so open one — it will pick up where the session left off. */
+      if (!all.length) await focusApp(data.url);
+    })());
+    return;
+  }
+
+  e.notification.close();
+  e.waitUntil(focusApp(data.url));
+});
+
+/* A notification the person swiped away is a preference, not an accident.
+   The page hears about it so it stops re-drawing the same one on the next
+   progress tick. */
+self.addEventListener('notificationclose', (e) => {
+  e.waitUntil((async () => {
+    const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of all) c.postMessage({ type: 'NOTIFY_CLOSED', tag: e.notification.tag });
+  })());
+});
+
 /* The page asks what build is actually being served. Without this the footer
    can only report what was deployed, which is the number that was never in
    doubt — the useful one is what this installed copy is running. */
 self.addEventListener('message', (e) => {
   const data = e.data || {};
   if (data.type === 'SKIP_WAITING') { self.skipWaiting(); return; }
+  /* Draw, update or clear one. Kept deliberately dumb: the page decides
+     what to say and when, because the page is the only thing that knows
+     whether the television is buffering or the upload is at 40%. */
+  if (data.type === 'NOTIFY_SHOW') {
+    const o = data.options || {};
+    self.registration.showNotification(data.title || 'Cast Bridge', o);
+    return;
+  }
+  if (data.type === 'NOTIFY_CLOSE') {
+    self.registration.getNotifications({ tag: data.tag })
+      .then((list) => list.forEach((n) => n.close()));
+    return;
+  }
   if (data.type === 'GET_BUILD') {
     const reply = { build: BUILD };
     if (e.ports && e.ports[0]) e.ports[0].postMessage(reply);

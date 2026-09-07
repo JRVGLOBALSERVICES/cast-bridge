@@ -840,3 +840,60 @@
 - [x] Task 27: The stream host's CORS allowlist widened to the new origins —
       without it, upload and Library would have broken the moment the app moved
       to its own domain.
+
+
+## Round 7 — 2026-09-07 (Rj: background notifications, media control, SRT upload, a crawler, series history)
+
+- [x] Task 28: Background notifications. Local notifications drawn by the
+      service worker, never by the page, because a backgrounded page is
+      exactly when they matter and because Android's action buttons only
+      exist on a worker registration. Three rules govern the whole module:
+      nothing is drawn while the app is on screen, one tag per subject so the
+      upload is one notification that changes rather than twenty-four, and a
+      control button is only attached when there is something running to act
+      on. Covers cast state, upload percentage, deep-scan results and
+      failures.
+- [x] Task 29: A real Notifications switch in More, telling five states
+      apart: asked, on, off, blocked by the browser, and an iPhone in a Safari
+      tab where the feature does not exist until the app is on the Home
+      Screen. `blocked` is the one that matters — this app cannot undo a
+      refusal, and the row says where the setting actually lives instead of
+      offering a switch that silently does nothing.
+- [x] Task 30: Media Session. Lock-screen title, artwork, scrubber and
+      transport keys, routed to the television while a session is live.
+      Documented boundary: the OS widget only exists while this tab is
+      producing audio, so once a film is on the TV the local element is
+      paused on purpose and the widget goes away. That case is what the
+      cast notification's Pause/Stop buttons are for. Two surfaces, one per
+      situation, neither pretending to cover the other.
+- [x] Task 31: `.srt` upload. A file on the phone has no address, and a
+      television can only be handed one — so "paste the address of your
+      subtitles" was an instruction most subtitle files can never satisfy.
+      The file is converted to WebVTT and kept at an address of its own
+      (`POST /api/subs`, `GET /api/subs?id=`). Encoding is detected rather
+      than assumed: strict UTF-8 first, Windows-1252 on the throw, because a
+      Malay or Spanish .srt is very often the latter and decoding it as UTF-8
+      replaces every accented character with a diamond.
+- [x] Task 32: The crawler (`lib/crawl.js`, `api/crawl.js`). Three signals,
+      all true of pages in general rather than of one theme: the words in the
+      address and the link text, the SHAPE of the address with its digits
+      removed, and name kinship with the page it was found on. Kinship is the
+      one that earns its place — on the real page it cut seventeen candidate
+      "seasons", sixteen of them other programmes from a sidebar rail, down
+      to the one that belonged.
+- [x] Task 33: The one hop. Rj's exact URL carries no episode links at all;
+      it links to a season page, and THAT page carries them. So a page that
+      yields no episodes but a small number of seasons named after it has
+      those read too — at most three, because a series with twenty seasons is
+      twenty fetches inside one request a phone is waiting on, and the right
+      answer there is to hand back the twenty and let a person point at one.
+- [x] Task 34: Series history (`api/series.js`, castbridge.series). One row
+      per person per address, upserted, so a second look at the same season
+      is the same row rather than a fourth copy of the same show. The episode
+      list is stored, so opening it tomorrow paints in one frame and
+      re-crawls behind the list already on screen.
+- [x] Task 35: `scripts/test-all.js` replaced the `&&` test chain. A
+      fail-fast chain stops at the first red and hides every suite after it;
+      the number that matters is how many suites are red, and a chain cannot
+      report it. Proven by breaking two suites at once: the runner named
+      both, the chain would have named one.

@@ -13,7 +13,7 @@
       "maxDuration": 10
     },
     "api/subs.js": {
-      "maxDuration": 15
+      "maxDuration": 20
     },
     "api/stream.js": {
       "maxDuration": 60,
@@ -27,6 +27,13 @@
       "maxDuration": 15
     },
     "api/ticket.js": {
+      "maxDuration": 10
+    },
+    "api/crawl.js": {
+      "maxDuration": 30,
+      "memory": 1024
+    },
+    "api/series.js": {
       "maxDuration": 10
     }
   },

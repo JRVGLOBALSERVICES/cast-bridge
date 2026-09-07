@@ -792,3 +792,81 @@ The earlier note here said a sitemap was skipped because the deployed domain
 was unknown. It is now `cast.jrvsystems.app`. Still skipped — it is a private,
 password-gated utility with one route, and `robots.txt` already tells crawlers
 to stay out. Ask and it is a two-line file.
+
+## Task 28: notifications are local, and there is no push
+
+There is no push server and no subscription, deliberately. A bridge between a
+phone and a television has nothing to say when the phone is not running, and
+asking for push permission in order to say nothing is how an app earns a
+permanent "Blocked". Everything is `registration.showNotification` driven by
+the running page.
+**What this costs:** if the app is fully closed — not backgrounded, closed —
+an upload cannot continue and nothing is reported, because there is no page to
+report it. Tell me if you want a finished upload to notify a closed app and I
+will wire real Web Push; it needs VAPID keys and a subscription table.
+
+## Task 30: the lock-screen widget disappears while casting, and that is the platform
+
+**Question:** should the Media Session widget stay on the lock screen while a
+film is on the television?
+**Assumption made:** it cannot, so the notification carries the controls
+instead. The OS draws that widget from the audio the tab is producing, and
+while casting the local element is paused on purpose — two soundtracks a few
+seconds apart in one room. No amount of metadata makes Android draw it.
+**Context you need to review:** `mediaSession` in `assets/js/app.js`. If you
+would rather the phone kept playing silently to hold the widget, that is a
+muted local playback and a battery cost, and I did not assume you wanted it.
+
+## Task 31: a kept subtitle is reachable by anyone with its id
+
+Same bargain the Library makes, for the same reason: the thing fetching the
+track is a Chromecast, which carries no session and cannot be made to. The id
+is a random uuid, there is no listing endpoint, and nothing lets you walk from
+one to the next — but the address IS the credential, and the screen says so in
+those words. Kept 30 days, swept when the next upload happens and enforced
+again on read.
+
+## Task 32: `/series/bigg-boss` comes back in the seasons list
+
+It is the page's own parent, not a child of it. I left it: tapping it lands on
+the series page, which then offers the season, so it leads somewhere useful
+rather than nowhere. Say the word and I will exclude a link whose address is a
+prefix of the page's own.
+
+## Task 32: what the crawler cannot do
+
+- **A page that builds its list in JavaScript.** The crawl is a fetch and a
+  parse, like `/api/extract` — it never runs the page. Rj's site happened to
+  put the list in the delivered HTML one hop down, which is why the follow
+  works; a site that renders episodes purely client-side will come back empty
+  and say so. `/api/scan` runs a real browser but looks for MEDIA, not links.
+  Making it also report anchors is the fix if you hit that.
+- **Pagination.** A season split across "Page 1 / 2 / 3" returns only the
+  page you gave it. Not attempted; say if you want it.
+- **Verified against two real sites**, desicinema.org (two different shows,
+  two different slug shapes) and a Wikipedia episode list, plus 31 synthetic
+  cases. Wikipedia is what found four genuine defects — see the four
+  regression tests named after it in `scripts/test-crawl.js`.
+
+## Task 34: no live end-to-end test of /api/series from here
+
+**Question:** does the shelf work against the real database?
+**What I could and could not prove:** the upsert semantics are proven directly
+against the live `castbridge.series` table — same row id, title and episode
+list replaced, exactly one row — and the proof row was deleted afterwards. The
+HANDLER was not exercised over HTTP, because signing in locally needs
+`CAST_SUPABASE_SERVICE_KEY` and the Vercel API returns every value as
+ciphertext.
+**Worth your eye:** running `node scripts/dev.js` from this machine silently
+inherited `SUPABASE_URL` for a DIFFERENT project (`qvnqfvlkaliydqtwptpv`, not
+cast-bridge's `ifbebbjpvrhbvfngydnr`), because `lib/db.js` falls back to the
+bare `SUPABASE_*` names. I killed it and re-ran with those stripped, so
+nothing touched a foreign database — but a local run on any machine with those
+variables set will point this app at the wrong store without saying so.
+
+## Task 35: the migration ledger version will not match the filename
+
+`db/002_castbridge_subtitles_series.sql` was applied through the Supabase
+management API, which stamps its own timestamp version rather than the `002`
+in the filename. The file is the reviewable record and is re-runnable; the
+ledger row is not named after it.

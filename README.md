@@ -20,9 +20,35 @@ not by its name.
   Android or desktop Chrome; no other browser has the API.
 - **The remote** — once it is on the TV: position with a live scrubber, ±10s,
   play/pause, volume, mute and stop, all reported back by the receiver.
-- **Subtitles** — paste an `.srt` or `.vtt` link. `/api/subs` converts it to
-  WebVTT and re-serves it cross-origin-open, because that is the only thing a
-  Cast receiver will fetch. The same copy captions the phone.
+- **Subtitles, from a link or from the phone** — paste an `.srt`/`.vtt` address
+  and `/api/subs` converts it to WebVTT and re-serves it cross-origin-open,
+  because that is the only thing a Cast receiver will fetch. Or upload the file
+  itself: a subtitle sitting in a phone's Downloads folder has no address, and a
+  television can only be handed one, so `POST /api/subs` converts it and keeps it
+  at `/api/subs?id=<uuid>` for 30 days. Encoding is detected rather than assumed
+  — strict UTF-8 first, Windows-1252 on the throw, because a Malay or Spanish
+  `.srt` is very often the latter. The same copy captions the phone.
+- **Episodes off a season page** — `/api/crawl` reports the CHILD PAGES of an
+  address rather than the media on it; picking one hands it to `/api/extract`
+  and the scanner is unchanged. Three signals, none of them a per-site rule: the
+  words in the address and link text, the shape of the address with its digits
+  removed, and name kinship with the page it was found on. A page with no
+  episodes but a few seasons named after it has up to three of those read too,
+  because the season index that motivated this carries no episode links at all
+  — they live one hop down. Verified against two real sites and 31 cases.
+- **Series you have opened** — the crawl is remembered per person, keyed on the
+  season's address, with the episode list it found. Opening it tomorrow paints
+  from that memory in one frame and re-crawls behind the list already on screen.
+- **Notifications while you are elsewhere** — cast state, upload percentage,
+  scan results and anything that fails, drawn by the service worker so they
+  arrive when the app is backgrounded. Nothing is drawn while the app is on
+  screen; one tag per subject, so the upload is one notification that changes
+  rather than twenty-four. Pause and Stop ride on the cast one. Off by default
+  and asked for from the Notifications row in More, never on boot.
+- **Lock-screen controls** — Media Session: title, artwork, scrubber and the
+  transport keys, including headphone and car-stereo buttons. It exists while
+  this tab is playing audio, which means it goes away once a film is on the
+  television — that case is what the cast notification's buttons are for.
 - **AirPlay** — Remote Playback API, where the browser has it (Safari, iOS).
 - **Open in VLC** — hands the link to VLC on the phone (Android intent, iOS
   x-callback). This is the route to Samsung, LG, Roku and Fire TV, which no
@@ -70,16 +96,22 @@ not by its name.
 ## Layout
 
 ```
-api/     extract · scan · subs · auth · users · history   (Vercel functions)
+api/     extract · scan · crawl · subs · series · auth · users · history
+         stream · probe · ticket · bilibili          (Vercel functions)
 lib/     media.js  — fetch guards, extraction, probing, HLS expansion
+         crawl.js  — child pages of a page: words, shape, name kinship
          subs.js   — SRT → WebVTT
          db.js · auth.js · users.js
 assets/  app.js  — nine screens behind a five-entry bottom bar, one job each
          qr.js   — byte-mode QR encoder, versions 1-10, level L (Bilibili)
          app.css — neumorphism, one dark surface: the on-air panel
-db/      001_castbridge_schema.sql
+db/      001_castbridge_schema.sql          — users, history
+         002_castbridge_subtitles_series.sql — kept subtitles, remembered series
 scripts/ dev.js — local server that routes the functions like Vercel does
          stamp-build.mjs — assembles public/ and stamps sw.js BUILD
+         test-all.js — runs every suite and never hides a red one
+         test-{unpack,reissue,cookies,subs,crawl}.js — 108 assertions
+sw.js    app shell, plus the notifications the page asks it to draw
 server/  stream-server.js — runs api/stream.js as a service on our own box
 deploy/  stream.jrvsystems.app.conf — the nginx vhost in front of it
 ```

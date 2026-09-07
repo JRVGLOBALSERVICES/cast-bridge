@@ -347,6 +347,277 @@
      The old behaviour was to hide the label and show the ring alone, which
      on a filled button is a blue rectangle with a speck in it and reads as
      nothing having happened. A word is the part of this a person sees. */
+  /* ------------------------------------------------------------------ *
+   * Notifications — what the phone says while you are not looking at it
+   *
+   * The whole point of this app is that you start something and then go and
+   * do something else: an upload runs for four minutes, a television takes
+   * fifteen seconds to admit it cannot play a file, a scan opens a page in a
+   * real browser somewhere else. Every one of those used to report into a
+   * screen nobody was looking at, and the phone said nothing at all.
+   *
+   * Three rules, and they are the whole design:
+   *
+   *   1. NOTHING IS DRAWN WHILE THE APP IS ON SCREEN. A notification for
+   *      something already visible two inches away is noise, and it is how
+   *      an app teaches someone to turn notifications off. Every state is
+   *      held here and painted only once `document.hidden` goes true; coming
+   *      back to the app clears them, because you are now looking at the
+   *      real thing.
+   *   2. ONE TAG PER SUBJECT. The upload is one notification that changes
+   *      from 4% to 96%, not twenty-four notifications. A television is one
+   *      notification that moves from "sending" to "playing" to "it refused
+   *      it". Same tag, replaced in place, so the shade never fills up.
+   *   3. A BUTTON THAT DOES NOTHING IS WORSE THAN NO BUTTON. Pause and Stop
+   *      are only attached when there is genuinely something running to act
+   *      on, and the tap is handed back to this page to perform — see the
+   *      NOTIFY_ACTION handler at the bottom of this module.
+   *
+   * Permission is asked for from the Notifications row in More and never on
+   * boot. A permission prompt at second one, before the app has done
+   * anything worth being told about, is refused — and a refusal in a
+   * browser is permanent from our side.
+   * ------------------------------------------------------------------ */
+
+  var notify = (function () {
+    var PREF_KEY = 'cb.notify';
+    var reg = null;
+    var wanted = {};      // tag -> the notification that SHOULD be up
+    var painted = {};     // tag -> is up right now
+    var swiped = {};      // tag -> the person dismissed it; stop redrawing
+    var listeners = [];
+    var changed = [];
+
+    function readPref() {
+      try { return localStorage.getItem(PREF_KEY); } catch (e) { return null; }
+    }
+    function writePref(v) {
+      try { localStorage.setItem(PREF_KEY, v); } catch (e) { /* private mode */ }
+    }
+
+    /* An installed copy, by any of the three spellings the platforms use. */
+    function standalone() {
+      if (navigator.standalone === true) return true;                 // iOS Safari
+      try {
+        return window.matchMedia('(display-mode: standalone)').matches ||
+               window.matchMedia('(display-mode: minimal-ui)').matches;
+      } catch (e) { return false; }
+    }
+
+    function apple() {
+      return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+             (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    }
+
+    /* Why this is not simply "does Notification exist".
+     *
+     * On iOS, web notifications arrived in 16.4 and ONLY inside a copy added
+     * to the Home Screen — in a Safari tab the constructor is not defined at
+     * all. So the honest answer for an iPhone in a browser tab is not "your
+     * phone can't do this", it is "add it to your Home Screen and it can",
+     * and those are different sentences that lead to different actions. */
+    function support() {
+      if (!('serviceWorker' in navigator)) return 'none';
+      if (!('Notification' in window)) return apple() && !standalone() ? 'needs-install' : 'none';
+      return 'ok';
+    }
+
+    function permission() {
+      try { return Notification.permission; } catch (e) { return 'default'; }
+    }
+
+    /* One word for the settings row and the code to both read from. */
+    function state() {
+      var s = support();
+      if (s !== 'ok') return s;                       // 'none' | 'needs-install'
+      var p = permission();
+      if (p === 'denied') return 'blocked';           // only the browser can undo this
+      if (p !== 'granted') return 'ask';
+      return readPref() === '0' ? 'off' : 'on';
+    }
+
+    function on() { return state() === 'on'; }
+
+    function announce() {
+      for (var i = 0; i < changed.length; i++) {
+        try { changed[i](state()); } catch (e) { /* a listener must not stop the rest */ }
+      }
+    }
+
+    /* Must be called from a tap. Browsers refuse a permission prompt that
+       did not come from a gesture, silently, which reads as a broken
+       switch. */
+    function ask() {
+      if (support() !== 'ok') return Promise.resolve(state());
+      if (permission() === 'granted') { writePref('1'); announce(); return Promise.resolve(state()); }
+      var p;
+      try { p = Notification.requestPermission(); } catch (e) { p = null; }
+      /* Safari answered this with a callback for years and still may. */
+      if (!p || typeof p.then !== 'function') {
+        p = new Promise(function (done) {
+          try { Notification.requestPermission(done); } catch (e) { done(permission()); }
+        });
+      }
+      return p.then(function (result) {
+        if (result === 'granted') writePref('1');
+        announce();
+        return state();
+      });
+    }
+
+    function setOff() { writePref('0'); clearAll(); announce(); }
+
+    function setReg(r) { reg = r; paint(); }
+
+    function post(msg) {
+      var w = (reg && (reg.active || reg.waiting)) || navigator.serviceWorker.controller;
+      if (!w) return false;
+      w.postMessage(msg);
+      return true;
+    }
+
+    /* What one notification looks like on the shade. `renotify` with a tag
+       is what makes an UPDATE silent instead of a fresh buzz per percent —
+       without it the progress notification vibrates twenty times. */
+    function options(n) {
+      var o = {
+        body: n.body || '',
+        tag: n.tag,
+        icon: '/assets/icon-192.png',
+        badge: '/assets/icon-192.png',
+        silent: n.urgent ? false : true,
+        renotify: false,
+        requireInteraction: Boolean(n.ongoing),
+        data: { url: n.url || '/', tag: n.tag }
+      };
+      if (n.actions && n.actions.length) o.actions = n.actions.slice(0, 2);
+      return o;
+    }
+
+    /* The reconciler. Everything else in this module just changes `wanted`
+       and calls this — which is why there is exactly one place that decides
+       whether a notification is allowed to be on screen. */
+    function paint() {
+      var visible = !document.hidden;
+      for (var tag in wanted) {
+        if (!Object.prototype.hasOwnProperty.call(wanted, tag)) continue;
+        var n = wanted[tag];
+        var should = !visible && on() && !swiped[tag];
+        if (should) {
+          post({ type: 'NOTIFY_SHOW', title: n.title, options: options(n) });
+          painted[tag] = true;
+        } else if (painted[tag]) {
+          post({ type: 'NOTIFY_CLOSE', tag: tag });
+          painted[tag] = false;
+        }
+      }
+    }
+
+    function show(tag, n) {
+      n = n || {};
+      n.tag = tag;
+      wanted[tag] = n;
+      paint();
+    }
+
+    function close(tag) {
+      delete wanted[tag];
+      delete swiped[tag];
+      if (painted[tag]) post({ type: 'NOTIFY_CLOSE', tag: tag });
+      delete painted[tag];
+    }
+
+    function clearAll() {
+      for (var tag in wanted) {
+        if (Object.prototype.hasOwnProperty.call(wanted, tag)) close(tag);
+      }
+    }
+
+    function onAction(fn) { listeners.push(fn); }
+    function onChange(fn) { changed.push(fn); }
+
+    document.addEventListener('visibilitychange', paint);
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', function (e) {
+        var d = e.data || {};
+        if (d.type === 'NOTIFY_CLOSED') {
+          swiped[d.tag] = true;
+          painted[d.tag] = false;
+          return;
+        }
+        if (d.type !== 'NOTIFY_ACTION') return;
+        for (var i = 0; i < listeners.length; i++) {
+          try { listeners[i](d.action, d.tag); } catch (err) { /* keep going */ }
+        }
+      });
+    }
+
+    return {
+      setReg: setReg, state: state, on: on, ask: ask, off: setOff,
+      show: show, close: close, clearAll: clearAll,
+      onAction: onAction, onChange: onChange, standalone: standalone
+    };
+  })();
+
+  /* The Notifications row in More.
+   *
+   * Five states, five sentences. The one that matters most is `blocked`:
+   * once a browser has been told no, this app cannot ask again — the switch
+   * is dead and the only true thing to say is where the setting lives. A
+   * toggle that silently does nothing there is the worst version of this
+   * screen, and it is the version almost every web app ships. */
+  (function wireNotifySetting() {
+    var row = $('notifyToggle');
+    if (!row) return;
+    var note = $('notifyNote');
+    var saved = $('notifySaved');
+
+    var COPY = {
+      on: 'Casting, upload progress and anything that goes wrong, while you are in another app.',
+      off: 'Turned off. Nothing will be said while you are in another app.',
+      ask: 'Casting, upload progress and anything that goes wrong, while you are in another app. Tap to allow it.',
+      blocked: 'Your browser is blocking notifications for this site. This switch cannot undo that — ' +
+               'it has to be changed in the browser\'s own settings for this address, under Notifications.',
+      'needs-install': 'On an iPhone this only exists in the copy added to the Home Screen. ' +
+                       'Share → Add to Home Screen, then open Cast Bridge from there.',
+      none: 'This browser has no notifications to give.'
+    };
+
+    function say(text, bad) {
+      saved.textContent = text;
+      saved.classList.toggle('is-bad', Boolean(bad));
+      saved.hidden = !text;
+    }
+
+    function paint(state) {
+      var checked = state === 'on';
+      row.setAttribute('aria-checked', checked ? 'true' : 'false');
+      row.disabled = state === 'blocked' || state === 'needs-install' || state === 'none';
+      note.textContent = COPY[state] || COPY.ask;
+    }
+
+    notify.onChange(paint);
+    paint(notify.state());
+
+    row.addEventListener('click', function () {
+      var state = notify.state();
+      if (state === 'on') { notify.off(); paint(notify.state()); say('Off.'); return; }
+
+      notify.ask().then(function (next) {
+        paint(next);
+        if (next === 'on') { say('On — saved.'); return; }
+        if (next === 'blocked') {
+          /* Said twice on purpose. The note explains the state; this line
+             confirms that the tap was received and did what it could. */
+          say('The browser refused. Change it in your browser\'s settings for this site.', true);
+          return;
+        }
+        say('Not allowed yet.', true);
+      });
+    });
+  })();
+
   /* Hold the room the busy word will need, before it is ever needed.
    *
    * Locking the width at the moment of the swap only stops the button
@@ -462,6 +733,7 @@
      second machine, and paying for them on a screen nobody opened is how an
      app feels slow for no reason. */
   function onEnterView(name) {
+    if (name === 'browse') refreshSeries();
     if (name === 'history') renderHistory();
     if (name === 'people') renderUsers();
     if (name === 'library') renderLibrary();
@@ -921,6 +1193,9 @@
 
     $('btnVlc').disabled = false;
     $('btnCopy').disabled = false;
+    /* Named before it plays, so the lock screen never shows the previous
+       film's title over this one's audio. */
+    mediaSession.update({ state: 'paused' });
     /* A different film is a different subtitle file. Carrying the last one
        across would silently caption the wrong thing. */
     clearSubs();
@@ -983,6 +1258,15 @@
     });
   });
 
+  /* The lock screen's own transport state. Cheap, and it has to be exact:
+     a widget showing a play triangle over a film that is playing is a tap
+     that stops what you wanted. */
+  video.addEventListener('play', function () { mediaSession.update({ state: 'playing' }); });
+  video.addEventListener('pause', function () { mediaSession.update({ state: 'paused' }); });
+  video.addEventListener('loadedmetadata', function () { mediaSession.position(); });
+  video.addEventListener('durationchange', function () { mediaSession.position(); });
+  video.addEventListener('seeked', function () { mediaSession.position(); });
+
   /* Position tracking — throttled, plus the moments a phone actually leaves. */
   video.addEventListener('timeupdate', function () {
     if (!current) return;
@@ -990,6 +1274,9 @@
     if (now - lastSaved < 5000) return;
     lastSaved = now;
     store.progress(current, video.currentTime, video.duration);
+    /* Same throttle. The OS interpolates between updates from the playback
+       rate, so it does not need one per frame to draw a smooth scrubber. */
+    mediaSession.position();
   });
 
   function flushProgress() {
@@ -1243,6 +1530,7 @@
     if (s) { try { s.endSession(true); } catch (e) { /* already gone */ } }
     lastPlayerState = null;
     screenEl.classList.remove('is-onair');
+    notify.close('cast');
     setStatus('Stopped casting.', '');
     toast({ text: 'Stopped. Tap Cast to TV to send it back.' });
   }
@@ -1398,6 +1686,7 @@
          report PLAYING, which is where it is upgraded. */
       logCast('The TV accepted it. Waiting for it to start playing\u2026');
       setStatus('Sent to ' + name + ' — waiting for it to start.', 'ready');
+      reportCast('Sent to ' + name, 'Waiting for it to start\u2026');
       $('onairTitle').textContent = 'Sent to ' + name;
       $('onairSub').textContent = currentTitle || nameOf(u);
       screenEl.classList.add('is-onair');
@@ -1423,6 +1712,8 @@
       }
       screenEl.classList.remove('is-onair');
       setStatus(name + ' couldn\'t play it (' + ((err && err.code) || 'error') + '). It needs a public https .mp4 or .m3u8 link.', 'bad');
+      reportIssue('cast', name + " couldn't play it",
+        (currentTitle || nameOf(u)) + ' — open Cast Bridge for the log.');
       openCastLog(true);
     });
   }
@@ -1580,17 +1871,24 @@
     if (remotePlayer.playerState !== lastPlayerState) {
       lastPlayerState = remotePlayer.playerState;
       logCast('TV player state: ' + (lastPlayerState || 'idle') + idleTail());
-      if (lastPlayerState === window.chrome.cast.media.PlayerState.PLAYING) {
+      var PSx = window.chrome.cast.media.PlayerState;
+      if (lastPlayerState === PSx.PLAYING) {
         disarmStallWatch();
         var playingOn = deviceName();
         setStatus('Playing on ' + playingOn + '.', 'live');
         $('onairTitle').textContent = 'Playing on ' + playingOn;
+        reportCast('Playing on ' + playingOn);
+      } else if (lastPlayerState === PSx.PAUSED) {
+        reportCast('Paused on ' + deviceName());
+      } else if (lastPlayerState === PSx.BUFFERING) {
+        reportCast('Buffering on ' + deviceName());
       }
     }
 
     var loaded = !!remotePlayer.isMediaLoaded && castState === 'CONNECTED';
     remoteEl.hidden = !loaded;
     if (!loaded) return;
+    mediaSession.position();
 
     var seek = $('rSeek');
     var dur = Number(remotePlayer.duration) || 0;
@@ -1654,6 +1952,223 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * Media Session — the lock screen and the notification shade
+   *
+   * This is the other half of "controls while the app is in the background",
+   * and it is a different mechanism from the notifications above rather than
+   * a duplicate of them. The operating system draws this one itself, from
+   * the audio the tab is producing: album art, a scrubber, and the same
+   * transport keys as Spotify — on the lock screen, in the shade, on
+   * headphone buttons, on a car stereo.
+   *
+   * Which means it has a hard boundary that has to be said plainly rather
+   * than papered over: THE OS WIDGET ONLY EXISTS WHILE THIS TAB IS PLAYING
+   * AUDIO. Once a film is on the television the local element is paused on
+   * purpose — two soundtracks a few seconds apart in one room — so there is
+   * no audio, and no amount of metadata will make Android draw the widget.
+   * That case is exactly what the Pause/Stop buttons on the cast
+   * notification above are for. Two surfaces, one for each situation, and
+   * neither pretending to cover the other.
+   *
+   * The handlers are still routed through the cast check, because a session
+   * can start while the widget is on screen and the keys should keep
+   * working for the second or two before it goes away.
+   * ------------------------------------------------------------------ */
+
+  var mediaSession = (function () {
+    var ms = navigator.mediaSession;
+    if (!ms || typeof window.MediaMetadata !== 'function') {
+      return { update: function () {}, position: function () {}, clear: function () {} };
+    }
+
+    var casting = function () {
+      return castState === 'CONNECTED' && remoteCtl && remotePlayer && remotePlayer.isMediaLoaded;
+    };
+
+    function handle(name, fn) {
+      /* An unimplemented action is not an error — Chrome supports seekto,
+         Safari did not for years, and setting an unknown one throws. */
+      try { ms.setActionHandler(name, fn); } catch (e) { /* not on this browser */ }
+    }
+
+    handle('play', function () {
+      if (casting()) { remoteCtl.playOrPause(); return; }
+      video.play().catch(function () { /* policy */ });
+    });
+    handle('pause', function () {
+      if (casting()) { remoteCtl.playOrPause(); return; }
+      video.pause();
+    });
+    handle('stop', function () {
+      if (casting()) { stopCasting('from the lock screen'); return; }
+      video.pause();
+    });
+    handle('seekbackward', function (d) {
+      var by = (d && d.seekOffset) || 10;
+      if (casting()) { nudge(-by); return; }
+      try { video.currentTime = Math.max(0, video.currentTime - by); } catch (e) {}
+    });
+    handle('seekforward', function (d) {
+      var by = (d && d.seekOffset) || 10;
+      if (casting()) { nudge(by); return; }
+      try { video.currentTime = video.currentTime + by; } catch (e) {}
+    });
+    handle('seekto', function (d) {
+      if (!d || typeof d.seekTime !== 'number') return;
+      if (casting()) {
+        remotePlayer.currentTime = d.seekTime;
+        remoteCtl.seek();
+        return;
+      }
+      try { video.currentTime = d.seekTime; } catch (e) {}
+    });
+
+    /* Nulled deliberately. There is no playlist here, and an OS that is
+       given no handler draws no button — whereas a handler that does
+       nothing draws a Next that visibly ignores you. */
+    handle('previoustrack', null);
+    handle('nexttrack', null);
+
+    function update(opts) {
+      opts = opts || {};
+      if (!current) { clear(); return; }
+      try {
+        ms.metadata = new window.MediaMetadata({
+          title: currentTitle || nameOf(current),
+          /* Where it came from, in the line the OS labels "artist". A host
+             name is the honest answer for a link and "this phone" is the
+             honest answer for a file, and both are more use on a lock
+             screen than a repeat of the filename. */
+          artist: currentFrom || hostOf(current) || 'Cast Bridge',
+          album: 'Cast Bridge',
+          artwork: [
+            { src: '/assets/icon-192.png', sizes: '192x192', type: 'image/png' },
+            { src: '/assets/icon-512.png', sizes: '512x512', type: 'image/png' }
+          ]
+        });
+      } catch (e) { /* an older MediaMetadata — the transport still works */ }
+      ms.playbackState = opts.state || (video.paused ? 'paused' : 'playing');
+      position();
+    }
+
+    /* setPositionState throws on anything it considers impossible — a NaN
+       duration before metadata lands, a live stream's Infinity, or a
+       position past the end after a seek. All three are ordinary here, so
+       they are filtered rather than caught after the fact. */
+    function position() {
+      if (typeof ms.setPositionState !== 'function') return;
+      var live = casting();
+      var dur = live ? Number(remotePlayer.duration) : Number(video.duration);
+      var at = live ? Number(remotePlayer.currentTime) : Number(video.currentTime);
+      if (!isFinite(dur) || dur <= 0 || !isFinite(at) || at < 0) {
+        try { ms.setPositionState(); } catch (e) {}
+        return;
+      }
+      try {
+        ms.setPositionState({
+          duration: dur,
+          position: Math.min(at, dur),
+          playbackRate: video.playbackRate || 1
+        });
+      } catch (e) { /* refused — the transport keys still work */ }
+    }
+
+    function clear() {
+      ms.metadata = null;
+      ms.playbackState = 'none';
+      try { if (ms.setPositionState) ms.setPositionState(); } catch (e) {}
+    }
+
+    return { update: update, position: position, clear: clear };
+  })();
+
+  /* ------------------------------------------------------------------ *
+   * Reporting — the same events, said out loud when nobody is watching
+   *
+   * Every function below is a thin translation of something the app was
+   * already doing into one sentence for the notification shade. They are
+   * gathered here rather than sprinkled through the player because the
+   * decision "is this worth interrupting someone for" is a single decision
+   * and it should be readable in one place.
+   *
+   * What gets a notification: a television that started, stopped, or
+   * refused; an upload's progress and its ending; a scan that finished
+   * while the phone was in a pocket. What does not: anything you can see,
+   * anything you asked for a second ago, and every intermediate percent —
+   * the tag makes those one notification that changes, not a queue.
+   * ------------------------------------------------------------------ */
+
+  /* Two buttons, no more: Android shows at most two and silently drops the
+     rest, and a control you can see on one phone and not another is worse
+     than a control that is never there. */
+  function castActions() {
+    if (!remotePlayer || !remotePlayer.isMediaLoaded) return [];
+    var PS = window.chrome && window.chrome.cast && window.chrome.cast.media.PlayerState;
+    var paused = PS && remotePlayer.playerState === PS.PAUSED;
+    return [
+      { action: 'toggle', title: paused ? 'Play' : 'Pause' },
+      { action: 'stop', title: 'Stop' }
+    ];
+  }
+
+  function reportCast(headline, detail, opts) {
+    opts = opts || {};
+    notify.show('cast', {
+      title: headline,
+      body: detail || currentTitle || (current ? nameOf(current) : ''),
+      actions: opts.urgent ? [] : castActions(),
+      ongoing: !opts.urgent,
+      urgent: Boolean(opts.urgent)
+    });
+  }
+
+  function reportUpload(pct, line) {
+    notify.show('upload', {
+      title: 'Sending to the stream host — ' + Math.round(pct) + '%',
+      body: line || '',
+      actions: [{ action: 'cancel', title: 'Cancel' }],
+      ongoing: true
+    });
+  }
+
+  /* A failure is the one thing allowed to make a sound. Everything else is
+     silent by construction — see notify.options(). */
+  function reportIssue(tag, headline, detail) {
+    notify.show(tag, { title: headline, body: detail || '', urgent: true });
+  }
+
+  /* The buttons in the shade, performed here because the worker has no
+     Cast session and no <video> — it only knows which button was tapped. */
+  notify.onAction(function (action, tag) {
+    if (tag === 'upload' && action === 'cancel') {
+      if (uploadXhr) uploadXhr.abort();
+      notify.close('upload');
+      return;
+    }
+    if (tag !== 'cast') return;
+
+    if (action === 'stop') {
+      stopCasting('from the notification');
+      notify.close('cast');
+      return;
+    }
+    if (action !== 'toggle') return;
+
+    /* Casting: the television owns the position, so the phone asks it.
+       Not casting: this element is the thing making the sound. */
+    if (castState === 'CONNECTED' && remoteCtl && remotePlayer && remotePlayer.isMediaLoaded) {
+      remoteCtl.playOrPause();
+      /* Redraw with the button's new word rather than waiting for the TV's
+         next ANY_CHANGE — a Pause that still says "Pause" afterwards reads
+         as a tap that did nothing. */
+      setTimeout(syncRemote, 0);
+      return;
+    }
+    if (video.paused) video.play().catch(function () { /* policy */ });
+    else video.pause();
+  });
+
+  /* ------------------------------------------------------------------ *
    * Subtitles
    *
    * The file goes through /api/subs and never straight to the TV: a
@@ -1681,6 +2196,7 @@
     subsBox.classList.remove('is-on');
     $('subsSummary').textContent = 'Subtitles';
     $('subsOff').hidden = true;
+    $('subsKeepNote').hidden = true;
     if (opts.resetField !== false) $('subsUrl').value = '';
     fieldError($('subsUrl'), $('subsError'), null);
   }
@@ -1756,6 +2272,116 @@
       busy(btn, false);
       btn.disabled = false;
     }
+  });
+
+  /* An .srt off the phone.
+   *
+   * A television fetches its own text track over the network, so a file
+   * sitting in a phone's Downloads folder is not reachable by it at any
+   * price — which is why the address field alone left most subtitle files
+   * unusable. The file goes up, comes back as an address, and from there it
+   * is the same path a pasted link takes.
+   */
+
+  /* Subtitle files are the last place on the web where legacy encodings are
+     still normal: a Malay, Spanish or Polish .srt is very often Windows-1252
+     rather than UTF-8, and decoding one as UTF-8 replaces every accented
+     character with a black diamond. Strict mode is what makes the difference
+     detectable rather than silently wrong — it throws instead of
+     substituting, and that throw is the signal to try the other one. */
+  function decodeSubtitleBytes(buf) {
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+    } catch (e) {
+      try {
+        return new TextDecoder('windows-1252').decode(buf);
+      } catch (e2) {
+        return new TextDecoder().decode(buf);   // last resort: lossy, but readable
+      }
+    }
+  }
+
+  function readFileText(file) {
+    if (file.arrayBuffer) {
+      return file.arrayBuffer().then(decodeSubtitleBytes);
+    }
+    return new Promise(function (done, fail) {
+      var fr = new FileReader();
+      fr.onload = function () { done(decodeSubtitleBytes(fr.result)); };
+      fr.onerror = function () { fail(new Error('That file could not be read.')); };
+      fr.readAsArrayBuffer(file);
+    });
+  }
+
+  $('btnSubsFile').addEventListener('click', function () { $('subsFile').click(); });
+
+  $('subsFile').addEventListener('change', function () {
+    var file = this.files && this.files[0];
+    /* Cleared straight away so choosing the SAME file twice fires again —
+       a change event compares values, and a re-pick of one file is not a
+       change. Someone re-adding a subtitle after turning it off would
+       otherwise tap and watch nothing happen. */
+    this.value = '';
+    if (!file) return;
+
+    if (!current) {
+      fieldError($('subsUrl'), $('subsError'),
+        'Load a video first — subtitles attach to what is playing.');
+      return;
+    }
+
+    var btn = $('btnSubsFile');
+    busy(btn, true, 'Uploading…');
+    btn.disabled = true;
+    fieldError($('subsUrl'), $('subsError'), null);
+
+    readFileText(file).then(function (text) {
+      return fetch('/api/subs?name=' + encodeURIComponent(file.name), {
+        method: 'POST',
+        headers: { 'content-type': 'text/plain; charset=utf-8', accept: 'application/json' },
+        body: text
+      });
+    }).then(function (res) {
+      return res.json().then(function (body) { return { status: res.status, body: body }; });
+    }).then(function (r) {
+      if (r.status === 401) { handleAuthLapse(); return; }
+      if (r.status !== 201 || !r.body || r.body.ok !== true) {
+        fieldError($('subsUrl'), $('subsError'),
+          (r.body && r.body.error) || 'That subtitle file could not be used.');
+        return;
+      }
+
+      subsProxy = new URL(r.body.url, location.origin).toString();
+      subsName = r.body.name || file.name;
+      attachLocalTrack(subsProxy, subsName);
+
+      subsBox.classList.add('is-on');
+      $('subsSummary').textContent = 'Subtitles on' +
+        (r.body.cues ? ' · ' + r.body.cues + ' lines' : '');
+      $('subsOff').hidden = false;
+
+      /* Said, not assumed. The address has to be reachable without a
+         sign-in because the thing fetching it is a television, so the id is
+         the only thing protecting it — the same bargain the Library makes,
+         and it is stated in the same plain words there. */
+      var keep = $('subsKeepNote');
+      keep.textContent = 'Kept for 30 days at a link of its own. Anyone with that ' +
+        'exact link can read it — that is how the television gets it.';
+      keep.hidden = false;
+
+      if (castState === 'CONNECTED' && remotePlayer && remotePlayer.isMediaLoaded) {
+        var at = remotePlayer.currentTime || 0;
+        castLoad(current, { at: at });
+        toast({ text: 'Subtitles on — picking the TV back up at ' + clock(at) + '.' });
+      } else {
+        toast({ text: 'Subtitles on' + (r.body.cues ? ' — ' + r.body.cues + ' lines.' : '.') });
+      }
+    }).catch(function () {
+      fieldError($('subsUrl'), $('subsError'), 'That subtitle file could not be sent.');
+    }).then(function () {
+      busy(btn, false);
+      btn.disabled = false;
+    });
   });
 
   $('subsOff').addEventListener('click', function () {
@@ -2643,13 +3269,22 @@
           $('browseResult').innerHTML = '';
           renderBrowseError(
             (res.body && res.body.error) || 'The deep scan couldn\'t finish.', false);
+          reportIssue('scan', 'Nothing found on that page',
+            (res.body && res.body.error) || hostOf(u));
           return;
         }
         renderScan(res.body);
+        var found = (res.body.media || []).length;
+        notify.show('scan', {
+          title: found === 1 ? 'Found 1 stream' : 'Found ' + found + ' streams',
+          body: res.body.title || hostOf(u),
+          urgent: true
+        });
       })
       .catch(function () {
         $('browseResult').innerHTML = '';
         renderBrowseError('No connection to the scanner.', false);
+        reportIssue('scan', 'The scan could not finish', 'No connection to the scanner.');
       })
       .then(function () {
         endScanProgress();
@@ -3207,11 +3842,499 @@
 
   $('browseForm').addEventListener('submit', function (e) {
     e.preventDefault();
-    scan($('pageUrl').value);
+    if (browseMode === 'episodes') crawl($('pageUrl').value);
+    else scan($('pageUrl').value);
   });
   $('pageUrl').addEventListener('input', function () {
     fieldError($('pageUrl'), $('pageError'), null);
   });
+
+  /* ------------------------------------------------------------------ *
+   * Episodes — the crawl, and the series you have opened before
+   *
+   * Rj's words: "if I put a season page in, it should find the child pages,
+   * then if I select episode 2, finds links for it, so I don't need to keep
+   * finding and pasting links. And store parent page history so I can view
+   * again tomorrow."
+   *
+   * Three parts, and the middle one is the one worth naming:
+   *
+   *   1. The crawl asks /api/crawl for the CHILD PAGES of an address.
+   *   2. Choosing one hands it to the ordinary Play path. Nothing about
+   *      resolving a video changed — an episode picked from a list and an
+   *      address pasted by hand arrive at the same function, which is why
+   *      "two options, parent page or direct url" needed no second scanner.
+   *   3. What the crawl found is remembered, per person, keyed on the
+   *      season's address. Opening it tomorrow paints from that memory in
+   *      one frame and re-crawls behind the list — so a season is instant
+   *      to look at and still correct a few seconds later.
+   * ------------------------------------------------------------------ */
+
+  var browseMode = 'page';       // 'page' = find the video · 'episodes' = find the children
+  var crawlInFlight = false;
+  var lastCrawl = null;          // the answer on screen, for the filter to redraw from
+  var seriesItems = [];
+  var seriesLoaded = false;
+
+  function setBrowseMode(name) {
+    browseMode = name === 'episodes' ? 'episodes' : 'page';
+    var page = $('modePage');
+    var eps = $('modeEpisodes');
+    page.classList.toggle('is-on', browseMode === 'page');
+    eps.classList.toggle('is-on', browseMode === 'episodes');
+    page.setAttribute('aria-pressed', browseMode === 'page' ? 'true' : 'false');
+    eps.setAttribute('aria-pressed', browseMode === 'episodes' ? 'true' : 'false');
+    /* The button says what it will do. "Scan" for a page it will read, and
+       the other word for the other job — a single label across two modes is
+       how someone taps expecting streams and gets a list of links. */
+    reserveBusy($('btnScan'), ['Scan', 'Episodes', 'Scanning…', 'Reading…']);
+    $('btnScan').querySelector('.cb-label').textContent =
+      browseMode === 'episodes' ? 'Episodes' : 'Scan';
+  }
+
+  $('modePage').addEventListener('click', function () { setBrowseMode('page'); });
+  $('modeEpisodes').addEventListener('click', function () { setBrowseMode('episodes'); });
+
+  /* An episode is just an address, so it goes where every address goes. The
+     Link screen is where a video is played from, and sending someone there
+     with the box already filled is the difference between "it found it" and
+     "now paste this somewhere". */
+  function openEpisode(url, title) {
+    $('url').value = url;
+    $('linkHint').hidden = true;
+    showTab('link');
+    resolveThenPlay(url);
+    if (title) toast({ text: 'Opening ' + title });
+  }
+
+  /* "Episode 4" / "S2 · Episode 4" / the label the page gave it. Built here
+     rather than in the crawler because it is a sentence for a screen, and
+     the crawler's job ends at facts. */
+  function episodeWords(ep) {
+    var bits = [];
+    if (ep.season !== null && ep.season !== undefined) bits.push('S' + ep.season);
+    if (ep.num !== null && ep.num !== undefined) bits.push('Episode ' + ep.num);
+    return bits.join(' · ');
+  }
+
+  function episodeRow(ep) {
+    var row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'cb-eprow';
+
+    var num = document.createElement('span');
+    num.className = 'cb-epnum';
+    /* Tabular figures, so a column of 1 · 9 · 10 · 100 lines up rather than
+       drifting right as the numbers grow. Set in the stylesheet. */
+    num.textContent = (ep.num === null || ep.num === undefined) ? '·' : String(ep.num);
+    row.appendChild(num);
+
+    var body = document.createElement('span');
+    body.className = 'cb-epbody';
+
+    var name = document.createElement('span');
+    name.className = 'cb-epname';
+    /* The label first, because "Bigg Boss Season 20 Grand Premiere" tells
+       you more than "Episode 1" does. The number is already in the gutter. */
+    name.textContent = ep.title || episodeWords(ep) || nameOf(ep.url);
+    body.appendChild(name);
+
+    var sub = document.createElement('span');
+    sub.className = 'cb-epsub';
+    var words = episodeWords(ep);
+    sub.textContent = ep.title && words ? words : hostOf(ep.url);
+    body.appendChild(sub);
+
+    row.appendChild(body);
+    row.addEventListener('click', function () { openEpisode(ep.url, ep.title); });
+    return row;
+  }
+
+  function seasonRow(season) {
+    var row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'cb-eprow is-season';
+
+    var body = document.createElement('span');
+    body.className = 'cb-epbody';
+    var name = document.createElement('span');
+    name.className = 'cb-epname';
+    name.textContent = season.title ||
+      (season.season !== null ? 'Season ' + season.season : nameOf(season.url));
+    body.appendChild(name);
+    var sub = document.createElement('span');
+    sub.className = 'cb-epsub';
+    sub.textContent = 'Open this season';
+    body.appendChild(sub);
+    row.appendChild(body);
+
+    row.addEventListener('click', function () {
+      $('pageUrl').value = season.url;
+      crawl(season.url);
+    });
+    return row;
+  }
+
+  /* Where the list came from, said plainly, because it changes how much it
+     should be trusted. The alternative — presenting a guess from a repeating
+     URL pattern in the same voice as a list read off the page — is the kind
+     of quiet confidence that makes someone stop believing the whole screen. */
+  function crawlProvenance(data) {
+    if (data.via === 'shape') {
+      return 'Worked out from the pattern of the addresses — check one before trusting the rest.';
+    }
+    if (data.via === 'followed' && data.followed && data.followed.length) {
+      return 'Read from ' + (data.followed.length === 1
+        ? 'the season page this one links to.'
+        : data.followed.length + ' season pages this one links to.');
+    }
+    return '';
+  }
+
+  function renderCrawl(data, opts) {
+    opts = opts || {};
+    lastCrawl = data;
+    var wrap = $('browseResult');
+    wrap.innerHTML = '';
+    fieldError($('pageUrl'), $('pageError'), null);
+    $('browseHint').hidden = true;
+
+    var episodes = data.episodes || [];
+    var seasons = data.seasons || [];
+
+    var card = document.createElement('div');
+    card.className = 'card shadow-soft border-light cb-pagecard';
+    var cardBody = document.createElement('div');
+    cardBody.className = 'card-body';
+
+    var h = document.createElement('p');
+    h.className = 'cb-pagetitle';
+    h.textContent = data.title || data.host || 'Untitled page';
+    cardBody.appendChild(h);
+
+    var sub = document.createElement('div');
+    sub.className = 'cb-pagehost';
+    var count = episodes.length
+      ? episodes.length + (episodes.length === 1 ? ' episode' : ' episodes')
+      : (seasons.length
+          ? seasons.length + (seasons.length === 1 ? ' season' : ' seasons')
+          : 'nothing to open');
+    sub.textContent = (data.host || hostOf(data.finalUrl || data.url)) + ' · ' + count +
+      (opts.cached ? ' · from the last time you looked' : '');
+    cardBody.appendChild(sub);
+
+    var why = crawlProvenance(data);
+    if (why && !opts.cached) {
+      var note = document.createElement('div');
+      note.className = 'cb-epnote';
+      note.textContent = why;
+      cardBody.appendChild(note);
+    }
+
+    card.appendChild(cardBody);
+    wrap.appendChild(card);
+
+    if (!episodes.length && !seasons.length) {
+      var empty = document.createElement('div');
+      empty.className = 'cb-empty';
+      empty.innerHTML =
+        '<h3>No episode list on that page</h3>' +
+        '<p>Either the page builds its list after loading, or this is already a ' +
+        'single episode. Switch to <b>The video</b> and scan it — that runs the ' +
+        'page properly and looks for the stream itself.</p>';
+      var go = document.createElement('button');
+      go.type = 'button';
+      go.className = 'btn btn-secondary btn-sm';
+      go.textContent = 'Scan it for the video';
+      go.addEventListener('click', function () {
+        setBrowseMode('page');
+        scan(data.finalUrl || data.url);
+      });
+      empty.appendChild(go);
+      wrap.appendChild(empty);
+      return;
+    }
+
+    if (seasons.length) {
+      var sHead = document.createElement('h3');
+      sHead.className = 'cb-ephead';
+      sHead.textContent = seasons.length === 1 ? 'Season' : 'Seasons';
+      wrap.appendChild(sHead);
+      var sList = document.createElement('div');
+      sList.className = 'cb-list list-group';
+      seasons.forEach(function (season) { sList.appendChild(seasonRow(season)); });
+      wrap.appendChild(sList);
+    }
+
+    if (!episodes.length) return;
+
+    var eHead = document.createElement('h3');
+    eHead.className = 'cb-ephead';
+    eHead.textContent = 'Episodes';
+    wrap.appendChild(eHead);
+
+    var list = document.createElement('div');
+    list.className = 'cb-list list-group';
+
+    /* A long season is a scroll, not a page control. Paging a list you
+       already have in hand adds a decision per twenty rows and buys nothing;
+       a filter answers the actual question, which is "where is 34". It only
+       appears once the list is long enough to be worth searching. */
+    if (episodes.length > 20) {
+      var filterWrap = document.createElement('div');
+      filterWrap.className = 'cb-epfilter';
+      var label = document.createElement('label');
+      label.className = 'cb-sronly';
+      label.setAttribute('for', 'epFilter');
+      label.textContent = 'Find an episode';
+      var input = document.createElement('input');
+      input.type = 'search';
+      input.id = 'epFilter';
+      input.className = 'form-control';
+      input.placeholder = 'Find an episode — a number or a name';
+      input.autocomplete = 'off';
+      var said = document.createElement('p');
+      said.className = 'cb-epcount';
+      said.setAttribute('role', 'status');
+
+      input.addEventListener('input', function () {
+        var q = input.value.trim().toLowerCase();
+        var shown = 0;
+        Array.prototype.forEach.call(list.children, function (row, i) {
+          var ep = episodes[i];
+          var hay = ((ep.title || '') + ' ' + episodeWords(ep) + ' ' + ep.url).toLowerCase();
+          var hit = !q || hay.indexOf(q) !== -1;
+          row.hidden = !hit;
+          if (hit) shown += 1;
+        });
+        said.textContent = q
+          ? (shown ? shown + ' of ' + episodes.length + ' shown' : 'Nothing matches “' + input.value.trim() + '”')
+          : '';
+      });
+
+      filterWrap.appendChild(label);
+      filterWrap.appendChild(input);
+      filterWrap.appendChild(said);
+      wrap.appendChild(filterWrap);
+    }
+
+    episodes.forEach(function (ep) { list.appendChild(episodeRow(ep)); });
+    wrap.appendChild(list);
+  }
+
+  function crawl(rawUrl, opts) {
+    opts = opts || {};
+    var u = String(rawUrl || '').trim();
+    if (!u) return;
+    if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+    if (!isHttp(u)) {
+      renderBrowseError('That doesn\'t look like a web address.', false);
+      return;
+    }
+    if (crawlInFlight || scanInFlight) return;
+
+    setBrowseMode('episodes');
+    lastScanUrl = u;
+    crawlInFlight = true;
+    var btn = $('btnScan');
+    busy(btn, true, 'Reading…');
+    fieldError($('pageUrl'), $('pageError'), null);
+    $('browseHint').hidden = true;
+    /* Only when there is nothing on screen. A re-crawl behind a remembered
+       list must not replace it with a progress panel — the whole value of
+       remembering it is that the list is there while this runs. */
+    if (!opts.quiet) scanStop = startScanProgress($('browseResult'), 'quick');
+
+    fetch('/api/crawl?url=' + encodeURIComponent(u), { headers: { accept: 'application/json' } })
+      .then(function (r) {
+        return r.json().then(function (body) { return { status: r.status, body: body }; });
+      })
+      .then(function (res) {
+        if (res.status === 401) { handleAuthLapse(); return; }
+        var body = res.body || {};
+        if (body.walled) { renderWalled(body); return; }
+        if (body.botWall) { renderBotWall(body); return; }
+        if (res.status !== 200 || body.ok !== true) {
+          if (opts.quiet) return;   // the remembered list stays; it is still the best answer
+          $('browseResult').innerHTML = '';
+          renderBrowseError(body.error || 'That page couldn\'t be read.', true);
+          return;
+        }
+
+        renderCrawl(body);
+
+        /* Remembered only when it found something. A row that opens to an
+           empty list is a worse thing to keep than no row. */
+        if ((body.episodes && body.episodes.length) || (body.seasons && body.seasons.length)) {
+          rememberSeries(body);
+        }
+      })
+      .catch(function () {
+        if (opts.quiet) return;
+        $('browseResult').innerHTML = '';
+        renderBrowseError('No connection to the scanner.', true);
+      })
+      .then(function () {
+        if (!opts.quiet) endScanProgress();
+        busy(btn, false);
+        setBrowseMode('episodes');
+        crawlInFlight = false;
+      });
+  }
+
+  /* ---------- the shelf ---------- */
+
+  function rememberSeries(data) {
+    var url = data.finalUrl || data.url;
+    if (!url) return;
+    fetch('/api/series', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        url: url,
+        title: data.title || '',
+        host: data.host || hostOf(url),
+        episodes: data.episodes || []
+      })
+    }).then(function (r) {
+      if (r.status === 401) { handleAuthLapse(); return null; }
+      return r.ok ? r.json() : null;
+    }).then(function (body) {
+      if (!body || !body.ok || !body.item) return;
+      /* Replaced in place rather than appended: the server upserts on the
+         address, so a second look at the same season is the same row. */
+      seriesItems = [body.item].concat(
+        seriesItems.filter(function (it) { return it.url !== body.item.url; }));
+      renderSeriesList();
+    }).catch(function () { /* the crawl still worked; the shelf is a bonus */ });
+  }
+
+  function openSeries(item) {
+    $('pageUrl').value = item.url;
+    setBrowseMode('episodes');
+
+    /* Painted from memory first. This is the whole point of the row: a
+       season you looked at yesterday is on screen in one frame instead of
+       fifteen seconds, and the fresh read lands behind it. */
+    if (item.episodes && item.episodes.length) {
+      renderCrawl({
+        url: item.url,
+        finalUrl: item.url,
+        title: item.title,
+        host: item.host,
+        via: 'words',
+        episodes: item.episodes,
+        seasons: []
+      }, { cached: true });
+      crawl(item.url, { quiet: true });
+      return;
+    }
+    crawl(item.url);
+  }
+
+  function forgetSeries(item, row) {
+    fetch('/api/series?id=' + encodeURIComponent(item.id), { method: 'DELETE' })
+      .then(function (r) {
+        if (r.status === 401) { handleAuthLapse(); return; }
+        if (!r.ok) { $('seriesError').textContent = 'That could not be removed.'; return; }
+        seriesItems = seriesItems.filter(function (it) { return it.id !== item.id; });
+        renderSeriesList();
+        toast({
+          text: 'Removed ' + (item.title || item.host || 'that series') + '.',
+          actionLabel: 'Undo',
+          onAction: function () { rememberSeries(item); },
+          ms: 8000
+        });
+      })
+      .catch(function () { $('seriesError').textContent = 'That could not be removed.'; });
+  }
+
+  function seriesRow(item) {
+    var row = document.createElement('div');
+    row.className = 'cb-seriesrow';
+
+    var open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'cb-seriesopen';
+
+    var name = document.createElement('span');
+    name.className = 'cb-seriesname';
+    name.textContent = item.title || item.host || nameOf(item.url);
+    open.appendChild(name);
+
+    var sub = document.createElement('span');
+    sub.className = 'cb-seriessub';
+    var n = (item.episodes || []).length;
+    sub.textContent = (item.host || hostOf(item.url)) +
+      (n ? ' · ' + n + (n === 1 ? ' episode' : ' episodes') : '') +
+      (item.at ? ' · ' + ago(Date.parse(item.at)) : '');
+    open.appendChild(sub);
+
+    open.addEventListener('click', function () { openSeries(item); });
+    row.appendChild(open);
+
+    /* One row, one way out. Undo rather than a confirm — nothing is
+       destroyed here that a crawl cannot rebuild in ten seconds, so a
+       dialog would cost more than the mistake does. */
+    var forget = document.createElement('button');
+    forget.type = 'button';
+    forget.className = 'cb-seriesforget';
+    forget.setAttribute('aria-label', 'Forget ' + (item.title || item.host || 'this series'));
+    forget.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">' +
+      '<path d="M6 6l12 12M18 6 6 18"/></svg>';
+    forget.addEventListener('click', function () { forgetSeries(item, row); });
+    row.appendChild(forget);
+
+    return row;
+  }
+
+  function renderSeriesList() {
+    var box = $('seriesBox');
+    var list = $('seriesList');
+    list.innerHTML = '';
+    $('seriesError').textContent = '';
+
+    if (!seriesItems.length) { box.hidden = true; return; }
+    box.hidden = false;
+    seriesItems.forEach(function (item) { list.appendChild(seriesRow(item)); });
+  }
+
+  function refreshSeries(force) {
+    if (seriesLoaded && !force) return;
+    seriesLoaded = true;
+    fetch('/api/series', { headers: { accept: 'application/json' } })
+      .then(function (r) {
+        if (r.status === 401) { handleAuthLapse(); return null; }
+        return r.ok ? r.json() : null;
+      })
+      .then(function (body) {
+        if (!body || !body.ok) return;
+        seriesItems = body.items || [];
+        renderSeriesList();
+      })
+      .catch(function () { /* offline: the shelf is simply not shown */ });
+  }
+
+  $('btnSeriesClear').addEventListener('click', function () {
+    var kept = seriesItems.slice();
+    fetch('/api/series?all=1', { method: 'DELETE' })
+      .then(function (r) {
+        if (r.status === 401) { handleAuthLapse(); return; }
+        if (!r.ok) { $('seriesError').textContent = 'That could not be cleared.'; return; }
+        seriesItems = [];
+        renderSeriesList();
+        toast({
+          text: 'Cleared ' + kept.length + (kept.length === 1 ? ' series.' : ' series.'),
+          actionLabel: 'Undo',
+          onAction: function () { kept.forEach(rememberSeries); },
+          ms: 10000
+        });
+      })
+      .catch(function () { $('seriesError').textContent = 'That could not be cleared.'; });
+  });
+
+  setBrowseMode('page');
 
   /* ------------------------------------------------------------------ *
    * History view
@@ -3506,6 +4629,10 @@
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js')
       .then(function (reg) {
+        /* The worker is what draws notifications, so nothing can be said
+           until it exists. Anything the app wanted to report before this
+           point is already held in `wanted` and paints on the next tick. */
+        notify.setReg(reg);
         if (reg.waiting) offerUpdate(reg.waiting);
 
         reg.addEventListener('updatefound', function () {
@@ -4285,13 +5412,11 @@
            one on. A number that swings between four minutes and forty in the
            first second is worse than no number. */
         var left = rate > 0 ? (e.total - e.loaded) / rate : 0;
-        renderLocalPick({
-          uploading: true,
-          pct: pct,
-          line: fmtSize(e.loaded) + ' of ' + fmtSize(e.total) +
-            (rate ? ' · ' + fmtRate(rate * 8) : '') +
-            (rate && left > 2 ? ' · about ' + fmtLength(left) + ' left' : '')
-        });
+        var line = fmtSize(e.loaded) + ' of ' + fmtSize(e.total) +
+          (rate ? ' · ' + fmtRate(rate * 8) : '') +
+          (rate && left > 2 ? ' · about ' + fmtLength(left) + ' left' : '');
+        renderLocalPick({ uploading: true, pct: pct, line: line });
+        reportUpload(pct, file.name + ' · ' + line);
       });
 
       xhr.addEventListener('load', function () {
@@ -4312,21 +5437,34 @@
           load(body.url, { title: file.name, from: 'this phone' });
           renderLocalPick();
           toast({ text: 'On the stream host. Tap Cast to TV.' });
+          notify.close('upload');
+          notify.show('upload-done', {
+            title: 'Uploaded — ready for the TV',
+            body: file.name,
+            urgent: true
+          });
           return;
         }
-        renderLocalPick({
-          error: (body && body.error) ||
-            'The stream host refused that file (' + xhr.status + ').'
-        });
+        var why = (body && body.error) ||
+          'The stream host refused that file (' + xhr.status + ').';
+        renderLocalPick({ error: why });
+        notify.close('upload');
+        reportIssue('upload-done', 'Upload failed', why);
       });
 
       xhr.addEventListener('error', function () {
         uploadXhr = null;
         renderLocalPick({ error: 'Could not reach the stream host.' });
+        notify.close('upload');
+        reportIssue('upload-done', 'Upload failed', 'Could not reach the stream host.');
       });
       xhr.addEventListener('abort', function () {
         uploadXhr = null;
         renderLocalPick({ error: 'Stopped. Nothing was left on the host.' });
+        /* Cancelled on purpose, from the shade or from the screen. Saying
+           "upload failed" about something you just stopped is the app
+           arguing with you. */
+        notify.close('upload');
       });
 
       xhr.send(file);

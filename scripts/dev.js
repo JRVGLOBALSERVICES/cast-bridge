@@ -34,6 +34,8 @@ const subsApi = require('../api/subs.js');
 const streamApi = require('../api/stream.js');
 const ticketApi = require('../api/ticket.js');
 const biliApi = require('../api/bilibili.js');
+const crawlApi = require('../api/crawl.js');
+const seriesApi = require('../api/series.js');
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
@@ -53,6 +55,19 @@ const server = http.createServer(async (req, res) => {
     req.query = Object.fromEntries(url.searchParams.entries());
     try {
       await (pathname === '/api/users' ? usersApi : historyApi)(req, res);
+    } catch (e) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  /* The crawl and the shelf. Without these a local run can find an episode
+     list nowhere and remember nothing, which is most of what changed. */
+  if (pathname === '/api/crawl' || pathname === '/api/series') {
+    req.query = Object.fromEntries(url.searchParams.entries());
+    try {
+      await (pathname === '/api/crawl' ? crawlApi : seriesApi)(req, res);
     } catch (e) {
       res.statusCode = 500;
       res.end(JSON.stringify({ ok: false, error: e.message }));

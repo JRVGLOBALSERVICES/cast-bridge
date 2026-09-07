@@ -454,6 +454,31 @@ summary:focus-visible {
   margin: 0.35rem 0 0.6rem;
   font-size: 0.75rem; line-height: 1.45; color: var(--cb-ink-2);
 }
+/* The divider between the two ways in. A bare second button under a form
+   reads as a second submit for that form; the word is what makes it an
+   alternative to the field rather than an extra step after it. */
+.cb-subs-or {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.15rem 0 0.55rem;
+  font-size: var(--cb-label-size);
+  font-weight: var(--cb-label-weight);
+  letter-spacing: var(--cb-label-track);
+  text-transform: uppercase;
+  color: var(--cb-ink-2);
+}
+.cb-subs-or::before,
+.cb-subs-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--cb-line);
+}
+/* A retention and reach note, not an error — it carries the weight of the
+   warning ink without red, which is reserved for destruction. */
+.cb-subs-warn { color: var(--cb-warn-ink); }
+
 .cb-subs-off {
   margin-bottom: 0.65rem;
   min-height: 44px; padding: 0 1rem;
@@ -730,6 +755,243 @@ body.is-gated .cb-nav { display: none; }
   font-size: 0.8rem;
   line-height: 1.45;
   color: var(--cb-ink-2);
+}
+
+/* The mode switch sits above the field it governs, so it needs the gap
+   underneath rather than the one the scope row carries by default. */
+.cb-findrow { margin-bottom: 0.6rem; }
+
+/* ---------- Episodes and remembered series ---------- */
+.cb-ephead {
+  margin: 1rem 0 0.5rem;
+  font-size: var(--cb-label-size);
+  font-weight: var(--cb-label-weight);
+  letter-spacing: var(--cb-label-track);
+  text-transform: uppercase;
+  color: var(--cb-ink-2);
+}
+.cb-epnote {
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--cb-warn-ink);
+}
+.cb-epfilter { margin-bottom: 0.5rem; }
+.cb-epcount {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--cb-ink-2);
+}
+
+/* A row is the whole target — 56px, comfortably past the 44px minimum, with
+   the number in a fixed gutter so a column of 1 · 9 · 10 · 100 lines up
+   instead of drifting right as the numbers grow. */
+.cb-eprow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.7rem 0.9rem;
+  text-align: left;
+  border: 0;
+  border-radius: var(--cb-radius-xl);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+  cursor: pointer;
+}
+.cb-eprow + .cb-eprow { margin-top: 0.45rem; }
+.cb-eprow:focus-visible { outline: 2px solid var(--cb-accent); outline-offset: 2px; }
+.cb-eprow:active { box-shadow: var(--cb-shadow-inset); }
+.cb-epnum {
+  flex: 0 0 2.25rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--cb-accent);
+}
+.cb-eprow.is-season .cb-epname { color: var(--cb-accent); }
+.cb-epbody { min-width: 0; display: block; }
+/* Two lines, then an ellipsis. A full episode title can be a sentence, and a
+   row that grows to four lines breaks the rhythm of the whole list. */
+.cb-epname {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--cb-ink);
+}
+.cb-epsub {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--cb-ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cb-serieshist { margin-top: 1.25rem; }
+.cb-serieshead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.cb-seriestitle {
+  margin: 0;
+  font-size: var(--cb-label-size);
+  font-weight: var(--cb-label-weight);
+  letter-spacing: var(--cb-label-track);
+  text-transform: uppercase;
+  color: var(--cb-ink-2);
+}
+.cb-seriesrow {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+  border-radius: var(--cb-radius-xl);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+}
+.cb-seriesrow + .cb-seriesrow { margin-top: 0.45rem; }
+.cb-seriesopen {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 3.5rem;
+  padding: 0.7rem 0.2rem 0.7rem 0.9rem;
+  text-align: left;
+  border: 0;
+  border-radius: var(--cb-radius-xl);
+  background: none;
+  cursor: pointer;
+}
+.cb-seriesopen:focus-visible { outline: 2px solid var(--cb-accent); outline-offset: -2px; }
+.cb-seriesname {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--cb-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cb-seriessub {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.78rem;
+  color: var(--cb-ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Removal is one tap with an undo behind it, so it stays quiet: this is not
+   destruction, it is forgetting, and red is a budget spent elsewhere. */
+.cb-seriesforget {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  border: 0;
+  border-radius: var(--cb-radius-xl);
+  background: none;
+  color: var(--cb-ink-soft);
+  cursor: pointer;
+}
+.cb-seriesforget:hover { color: var(--cb-ink); }
+.cb-seriesforget:focus-visible { outline: 2px solid var(--cb-accent); outline-offset: -2px; }
+
+/* ---------- Settings rows ----------
+   A light preference: it applies on the tap and confirms inline. The switch
+   is a real `role="switch"` button rather than a styled checkbox, so the
+   pressed state is announced and the focus ring is the same one every other
+   control here uses. */
+.cb-settings {
+  margin-bottom: 0.9rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--cb-radius-xl);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+}
+.cb-setrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+}
+.cb-setk {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--cb-ink);
+}
+.cb-setv {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--cb-ink-2);
+}
+.cb-setsaved {
+  margin: 0.45rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--cb-ok);
+}
+.cb-setsaved.is-bad { color: var(--cb-bad); }
+
+/* 44px of touch target, which is the whole button — the track inside it is
+   smaller on purpose so the control reads as a switch and still takes a
+   thumb anywhere near it. */
+.cb-switch {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 3.6rem;
+  height: 2.75rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.cb-switch:focus-visible { outline: 2px solid var(--cb-accent); outline-offset: 2px; border-radius: var(--cb-radius); }
+.cb-switch[disabled] { cursor: not-allowed; opacity: 0.55; }
+.cb-switch-track {
+  position: relative;
+  display: block;
+  width: 3.1rem;
+  height: 1.7rem;
+  border-radius: 999px;
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-inset);
+  transition: background 180ms ease-out;
+}
+.cb-switch-thumb {
+  position: absolute;
+  top: 0.2rem;
+  left: 0.2rem;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 50%;
+  background: var(--cb-mute);
+  box-shadow: var(--cb-shadow-light);
+  transition: transform 180ms ease-out, background 180ms ease-out;
+}
+.cb-switch[aria-checked="true"] .cb-switch-track { background: color-mix(in srgb, var(--cb-accent) 18%, var(--cb-surface)); }
+.cb-switch[aria-checked="true"] .cb-switch-thumb {
+  transform: translateX(1.4rem);
+  background: var(--cb-accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-switch-track, .cb-switch-thumb { transition: none; }
 }
 
 /* ---------- Library ---------- */
