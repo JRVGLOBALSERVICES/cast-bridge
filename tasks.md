@@ -277,3 +277,54 @@
       landing on the deep-scan offer, an extensionless octet-stream link
       playing, and two regressions (a direct .mp4 and a Netflix link) both
       answering with zero calls to the scanner. 27/27.
+
+- [x] Task 29: The phone becomes an actual remote, and subtitles arrive.
+      Rj sent a Play Store listing — "Cast to TV - Screen Mirroring" — and
+      asked for that, as a web app. This app already was the link half of
+      it. What it was not was a remote: the on-air panel said "Your phone is
+      the remote now" over a dead screen with no controls on it, which was
+      a sentence the code did not back up.
+
+      RemotePlayerController now does. Position on a live scrubber, -10s,
+      play/pause, +10s, volume, mute and stop, every value reported back by
+      the receiver rather than guessed at here. The thumb owns the seek bar
+      while it is held, because redrawing from the TV's clock mid-drag pulls
+      it back out from under the finger. A live stream has no end to scrub
+      towards, so the bar is disabled and the row says Live instead of
+      showing a bar pinned at 100% that does nothing when dragged.
+
+      Subtitles were the top complaint on the listing Rj sent, and the
+      reason is structural: a television fetches the text track itself and
+      takes only WebVTT served cross-origin-open, while what people have is
+      an SRT on a host that has never sent a CORS header. So `/api/subs`
+      fetches, converts and re-serves it, and the same converted copy feeds
+      the phone's own <track>. Adding one mid-film reloads the media and
+      seeks straight back, because a track can only be declared at load —
+      announced in a toast, since the picture visibly blinks and an
+      unexplained blink reads as a fault.
+
+      One real bug fell out of writing it. `castLoad` set its resume point
+      from `video.currentTime` — the LOCAL element, which is paused at the
+      start the whole time something is on the TV. Any reload would have
+      silently restarted the film from zero. It reads the receiver's
+      position now.
+
+      The device list stopped being quiet about the three things people
+      arrive from that app looking for: screen mirroring, Roku and Fire TV,
+      and a video already on the phone. None are reachable from a browser,
+      and each row now says so and names what to do instead.
+
+      Verified: 19 unit assertions on the SRT->VTT converter (hourless and
+      loose-digit stamps, sequence numbers, cue ids, BOM, CRLF, an arrow
+      inside dialogue, a raw tag, italics kept, an empty file refused);
+      9 live runs of the real endpoint against real files (a 666-cue WWDC
+      SRT, two VTTs served as text/plain, one with accents, an HTML page, an
+      mp4, a 404, a private address, a missing parameter, an OPTIONS
+      preflight); and 12 driven in a real browser at 412x915 — the mp4
+      playing, subtitles on with all 666 cues parsed and showing by Chrome's
+      own VTT parser, three error paths reading in plain English, turn-off
+      removing the track, the remote's seven controls measured at 44px or
+      better, no console errors and no horizontal overflow. 40/40.
+
+      Not verified, and cannot be from here: the Cast calls themselves. A
+      headless browser on a VPS has no Chromecast on its network. Logged.

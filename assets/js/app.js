@@ -403,6 +403,17 @@
   var castState = 'NO_DEVICES_AVAILABLE';
   var lastSaved = 0;
 
+  /* The Cast remote. Null until the sender library is up; the panel that
+     drives it stays hidden until the TV reports media actually loaded. */
+  var remotePlayer = null;
+  var remoteCtl = null;
+  var scrubbing = false;
+
+  /* Subtitles, as the address of our own converted copy — never the file
+     the person pasted, which is almost never VTT and almost never CORS. */
+  var subsProxy = '';
+  var subsName = '';
+
   function setStatus(text, kind) {
     statusText.textContent = text;
     statusDot.className = 'cb-dot' + (kind ? ' is-' + kind : '');
@@ -505,6 +516,10 @@
 
     $('btnVlc').disabled = false;
     $('btnCopy').disabled = false;
+    /* A different film is a different subtitle file. Carrying the last one
+       across would silently caption the wrong thing. */
+    clearSubs();
+    subsBox.hidden = false;
     updateCastUi();
 
     /* Already on the TV: the phone is the remote, not a second speaker.
@@ -586,6 +601,7 @@
       }
     });
     castState = ctx.getCastState();
+    initRemote();
     updateCastUi();
   }
 
@@ -599,20 +615,54 @@
     try { return (s && s.getCastDevice().friendlyName) || 'the TV'; } catch (e) { return 'the TV'; }
   }
 
-  function castLoad(u) {
+  function castLoad(u, opts) {
     var s = castSession();
     if (!s) return;
-    var info = new window.chrome.cast.media.MediaInfo(u, mimeOf(u));
-    info.streamType = window.chrome.cast.media.StreamType.BUFFERED;
+    opts = opts || {};
+    var M = window.chrome.cast.media;
+
+    var info = new M.MediaInfo(u, mimeOf(u));
+    info.streamType = M.StreamType.BUFFERED;
     if (mimeOf(u) === 'application/x-mpegURL') {
-      info.hlsSegmentFormat = window.chrome.cast.media.HlsSegmentFormat.TS;
-      info.hlsVideoSegmentFormat = window.chrome.cast.media.HlsVideoSegmentFormat.MPEG2_TS;
+      info.hlsSegmentFormat = M.HlsSegmentFormat.TS;
+      info.hlsVideoSegmentFormat = M.HlsVideoSegmentFormat.MPEG2_TS;
     }
-    info.metadata = new window.chrome.cast.media.GenericMediaMetadata();
+    info.metadata = new M.GenericMediaMetadata();
     info.metadata.title = currentTitle || nameOf(u);
 
-    var req = new window.chrome.cast.media.LoadRequest(info);
-    req.currentTime = video.currentTime || 0;
+    /* A text track has to be declared when the media loads — there is no
+       way to bolt one on afterwards, which is why turning subtitles on
+       mid-film reloads and seeks back rather than doing nothing. */
+    if (subsProxy) {
+      var track = new M.Track(1, M.TrackType.TEXT);
+      track.trackContentId = subsProxy;
+      track.trackContentType = 'text/vtt';
+      track.subtype = M.TextTrackType.SUBTITLES;
+      track.name = subsName || 'Subtitles';
+      track.language = navigator.language || 'en';
+      info.tracks = [track];
+
+      /* Television-sized, and legible over a bright frame. */
+      var style = new M.TextTrackStyle();
+      style.foregroundColor = '#FFFFFFFF';
+      style.backgroundColor = '#000000A6';
+      style.edgeType = M.TextTrackEdgeType.OUTLINE;
+      style.edgeColor = '#000000FF';
+      info.textTrackStyle = style;
+    }
+
+    var req = new M.LoadRequest(info);
+    if (subsProxy) req.activeTrackIds = [1];
+
+    /* Where to pick up. Once something is on the TV, the TV holds the
+       position — the local element has been paused at the start all along,
+       so reading it here would silently restart the film. */
+    var at = opts.at;
+    if (at === undefined) {
+      at = (remotePlayer && remotePlayer.isMediaLoaded && remotePlayer.currentTime) ||
+           video.currentTime || 0;
+    }
+    req.currentTime = at;
 
     var name = deviceName();
     s.loadMedia(req).then(function () {
@@ -661,6 +711,281 @@
       return;
     }
     window.cast.framework.CastContext.getInstance().requestSession().catch(function () {});
+  });
+
+  /* ------------------------------------------------------------------ *
+   * The remote
+   *
+   * Once a film is on the television the phone has one job, and the panel
+   * used to only claim it: "Your phone is the remote now" over a dead
+   * screen with no controls on it. RemotePlayerController is the thing
+   * that makes the sentence true — position, transport, volume and stop,
+   * all reported back by the TV rather than guessed at here.
+   * ------------------------------------------------------------------ */
+
+  var remoteEl = $('remote');
+
+  function initRemote() {
+    if (remoteCtl || !window.cast || !window.cast.framework) return;
+
+    remotePlayer = new window.cast.framework.RemotePlayer();
+    remoteCtl = new window.cast.framework.RemotePlayerController(remotePlayer);
+
+    /* One listener rather than nine. The controller fires this for every
+       property it owns, which is exactly the set the panel draws from. */
+    remoteCtl.addEventListener(
+      window.cast.framework.RemotePlayerEventType.ANY_CHANGE, syncRemote);
+
+    /* Seeking: the thumb owns the value while it is held. Redrawing from
+       the TV's clock mid-drag drags the thumb back out from under it. */
+    var seek = $('rSeek');
+    var startScrub = function () { if (!seek.disabled) scrubbing = true; };
+    seek.addEventListener('pointerdown', startScrub);
+    seek.addEventListener('keydown', startScrub);
+    seek.addEventListener('input', function () {
+      $('rNow').textContent = clock(Number(seek.value));
+      paintRange(seek);
+    });
+    var commitSeek = function () {
+      if (!scrubbing) return;
+      scrubbing = false;
+      if (!remotePlayer || !remotePlayer.isMediaLoaded) return;
+      remotePlayer.currentTime = Number(seek.value);
+      remoteCtl.seek();
+    };
+    seek.addEventListener('change', commitSeek);
+    seek.addEventListener('pointerup', commitSeek);
+    seek.addEventListener('pointercancel', function () { scrubbing = false; syncRemote(); });
+
+    $('rPlay').addEventListener('click', function () {
+      if (remotePlayer && remotePlayer.isMediaLoaded) remoteCtl.playOrPause();
+    });
+    $('rBack').addEventListener('click', function () { nudge(-10); });
+    $('rFwd').addEventListener('click', function () { nudge(10); });
+
+    var vol = $('rVol');
+    vol.addEventListener('input', function () {
+      $('rVolNum').textContent = vol.value;
+      paintRange(vol);
+    });
+    vol.addEventListener('change', function () {
+      if (!remotePlayer) return;
+      remotePlayer.volumeLevel = Number(vol.value) / 100;
+      remoteCtl.setVolumeLevel();
+    });
+    $('rMute').addEventListener('click', function () {
+      if (remotePlayer) remoteCtl.muteOrUnmute();
+    });
+
+    /* Stopping is one tap back from where it was, so it gets distance
+       from the transport rather than a dialog in front of it. */
+    $('rStop').addEventListener('click', function () {
+      if (!remoteCtl) return;
+      remoteCtl.stop();
+      var s = castSession();
+      if (s) s.endSession(true);
+      screenEl.classList.remove('is-onair');
+      toast({ text: 'Stopped. Tap Cast to TV to send it back.' });
+    });
+  }
+
+  function nudge(by) {
+    if (!remotePlayer || !remotePlayer.isMediaLoaded) return;
+    var dur = remotePlayer.duration || 0;
+    var next = (remotePlayer.currentTime || 0) + by;
+    remotePlayer.currentTime = Math.max(0, dur ? Math.min(next, dur - 1) : next);
+    remoteCtl.seek();
+  }
+
+  /* WebKit gives a range no fill of its own, so the track is painted from
+     a percentage the element carries. Firefox uses ::-moz-range-progress
+     and ignores this — both end up filled. */
+  function paintRange(el) {
+    var max = Number(el.max) || 100;
+    var pct = max ? (Number(el.value) / max) * 100 : 0;
+    el.style.setProperty('--p', Math.max(0, Math.min(100, pct)) + '%');
+  }
+
+  function syncRemote() {
+    if (!remotePlayer || !remoteEl) return;
+
+    var loaded = !!remotePlayer.isMediaLoaded && castState === 'CONNECTED';
+    remoteEl.hidden = !loaded;
+    if (!loaded) return;
+
+    var seek = $('rSeek');
+    var dur = Number(remotePlayer.duration) || 0;
+    var now = Number(remotePlayer.currentTime) || 0;
+
+    /* A live stream has no end to scrub towards. Saying so is better than
+       a bar pinned at 100% that does nothing when it is dragged. */
+    var seekable = dur > 0 && isFinite(dur);
+    seek.disabled = !seekable;
+    $('rBack').disabled = !seekable;
+    $('rFwd').disabled = !seekable;
+
+    if (seekable) {
+      seek.max = String(Math.floor(dur));
+      if (!scrubbing) {
+        seek.value = String(Math.floor(now));
+        $('rNow').textContent = clock(now);
+        paintRange(seek);
+      }
+      $('rEnd').textContent = clock(dur);
+    } else {
+      seek.max = '100';
+      seek.value = '0';
+      paintRange(seek);
+      $('rNow').textContent = clock(now);
+      $('rEnd').textContent = '';
+    }
+
+    var state = remotePlayer.playerState;
+    var PS = window.chrome.cast.media.PlayerState;
+    var paused = state === PS.PAUSED;
+    var label = state === PS.BUFFERING ? 'Buffering…' : (seekable ? '' : 'Live');
+    var stateEl = $('rState');
+    stateEl.textContent = label;
+    stateEl.classList.toggle('is-live', label === 'Live');
+
+    /* The button shows what it will do, so its icon and its label have to
+       move together — a "Pause" button drawn as a play triangle is the
+       single easiest way to make someone stop the film they wanted. */
+    var btn = $('rPlay');
+    btn.setAttribute('aria-label', paused ? 'Play on the TV' : 'Pause on the TV');
+    $('rPlayIcon').innerHTML = paused
+      ? '<path d="M8 5v14l11-7z"/>'
+      : '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>';
+
+    var muted = !!remotePlayer.isMuted;
+    var mute = $('rMute');
+    mute.setAttribute('aria-pressed', muted ? 'true' : 'false');
+    mute.setAttribute('aria-label', muted ? 'Unmute the TV' : 'Mute the TV');
+    $('rMuteIcon').innerHTML = muted
+      ? '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="m17 9 4 6M21 9l-4 6"/>'
+      : '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>';
+
+    var vol = $('rVol');
+    if (document.activeElement !== vol) {
+      var level = Math.round((Number(remotePlayer.volumeLevel) || 0) * 100);
+      vol.value = String(muted ? 0 : level);
+      $('rVolNum').textContent = vol.value;
+      paintRange(vol);
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Subtitles
+   *
+   * The file goes through /api/subs and never straight to the TV: a
+   * television fetches the track itself and takes only WebVTT served
+   * cross-origin-open, while what people actually have is an SRT on a host
+   * that sends no CORS header. The same converted copy feeds the phone's
+   * own <track>, so both screens read from one file.
+   * ------------------------------------------------------------------ */
+
+  var subsBox = $('subsBox');
+  var subsTrackEl = null;
+
+  function subsProxyUrl(u) {
+    return '/api/subs?u=' + encodeURIComponent(u);
+  }
+
+  function clearSubs(opts) {
+    opts = opts || {};
+    subsProxy = '';
+    subsName = '';
+    if (subsTrackEl) {
+      try { video.removeChild(subsTrackEl); } catch (e) { /* already gone */ }
+      subsTrackEl = null;
+    }
+    subsBox.classList.remove('is-on');
+    $('subsSummary').textContent = 'Subtitles';
+    $('subsOff').hidden = true;
+    if (opts.resetField !== false) $('subsUrl').value = '';
+    fieldError($('subsUrl'), $('subsError'), null);
+  }
+
+  function attachLocalTrack(proxy, label) {
+    if (subsTrackEl) {
+      try { video.removeChild(subsTrackEl); } catch (e) { /* already gone */ }
+    }
+    subsTrackEl = document.createElement('track');
+    subsTrackEl.kind = 'subtitles';
+    subsTrackEl.label = label || 'Subtitles';
+    subsTrackEl.srclang = (navigator.language || 'en').slice(0, 2);
+    subsTrackEl.src = proxy;
+    subsTrackEl.default = true;
+    video.appendChild(subsTrackEl);
+    try { subsTrackEl.track.mode = 'showing'; } catch (e) { /* not ready yet */ }
+    subsTrackEl.addEventListener('load', function () {
+      try { subsTrackEl.track.mode = 'showing'; } catch (e) { /* gone */ }
+    });
+  }
+
+  $('subsForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var raw = $('subsUrl').value.trim();
+    if (!raw) {
+      fieldError($('subsUrl'), $('subsError'), 'Paste the address of an .srt or .vtt file.');
+      return;
+    }
+    if (!current) {
+      fieldError($('subsUrl'), $('subsError'), 'Load a video first — subtitles attach to what is playing.');
+      return;
+    }
+    fieldError($('subsUrl'), $('subsError'), null);
+
+    var btn = $('btnSubs');
+    btn.classList.add('is-busy');
+    btn.disabled = true;
+
+    var proxy = subsProxyUrl(raw);
+    try {
+      /* Fetched here first on purpose. The alternative is handing the TV an
+         address and watching nothing appear, with no way to say why. */
+      var res = await fetch(proxy, { headers: { accept: 'text/vtt' } });
+      if (!res.ok) {
+        var why = 'That subtitle file could not be read.';
+        try { var j = await res.json(); if (j && j.error) why = j.error; } catch (e2) { /* not json */ }
+        fieldError($('subsUrl'), $('subsError'), why);
+        return;
+      }
+      var cues = res.headers.get('X-Subtitle-Cues') || '';
+
+      subsProxy = new URL(proxy, location.origin).toString();
+      subsName = nameOf(raw);
+      attachLocalTrack(subsProxy, subsName);
+
+      subsBox.classList.add('is-on');
+      $('subsSummary').textContent = 'Subtitles on' + (cues ? ' · ' + cues + ' lines' : '');
+      $('subsOff').hidden = false;
+
+      /* On the TV a track can only arrive with the media, so this reloads
+         and seeks straight back — announced, because the film visibly
+         blinks and an unexplained blink reads as a fault. */
+      if (castState === 'CONNECTED' && remotePlayer && remotePlayer.isMediaLoaded) {
+        var at = remotePlayer.currentTime || 0;
+        castLoad(current, { at: at });
+        toast({ text: 'Subtitles on — picking the TV back up at ' + clock(at) + '.' });
+      } else {
+        toast({ text: 'Subtitles on' + (cues ? ' — ' + cues + ' lines.' : '.') });
+      }
+    } catch (err) {
+      fieldError($('subsUrl'), $('subsError'), "That subtitle file couldn't be reached.");
+    } finally {
+      btn.classList.remove('is-busy');
+      btn.disabled = false;
+    }
+  });
+
+  $('subsOff').addEventListener('click', function () {
+    clearSubs();
+    if (castState === 'CONNECTED' && remotePlayer && remotePlayer.isMediaLoaded && current) {
+      var at = remotePlayer.currentTime || 0;
+      castLoad(current, { at: at });
+    }
+    toast({ text: 'Subtitles off.' });
   });
 
   /* ------------------------------------------------------------------ *

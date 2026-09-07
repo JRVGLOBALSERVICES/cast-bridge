@@ -25,6 +25,10 @@
 
   --cb-radius: 0.55rem;    /* $border-radius */
   --cb-radius-xl: 0.95rem; /* $border-radius-xl */
+
+  /* The on-air panel is the app's one dark surface. The light-surface
+     accent reads at 3.1:1 on #0d0f14; this one clears 7:1. */
+  --cb-accent-dark: #7d93f2;
 }
 
 body {
@@ -193,23 +197,174 @@ summary:focus-visible {
 .cb-screen.is-live .cb-idle { display: none; }
 .cb-idle svg { flex: none; color: var(--cb-line); }
 
-/* Casting takeover — the phone stops being the screen. */
+/* Casting takeover — the phone stops being the screen and becomes the
+   remote. The 16/9 box is released here on purpose: a transport bar
+   squeezed into 206px of letterbox is a row of targets too small to hit. */
 .cb-onair {
-  position: absolute;
-  inset: 0;
   display: none;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
+  gap: 0.9rem;
   background: #0d0f14;
   color: #e6e7ee;
-  text-align: center;
-  padding: 1rem;
+  padding: 1rem 0.9rem 0.9rem;
 }
 .cb-screen.is-onair .cb-onair { display: flex; }
-.cb-onair strong { font-weight: 700; font-size: 1rem; }
-.cb-onair span { font-size: 0.8125rem; color: #93a5be; }
+.cb-screen.is-onair .cb-screen-inner { aspect-ratio: auto; }
+.cb-screen.is-onair video,
+.cb-screen.is-onair .cb-idle { display: none; }
+
+.cb-onair-head { display: flex; align-items: center; gap: 0.7rem; }
+.cb-onair-head svg { flex: none; color: var(--cb-accent-dark); }
+.cb-onair-text { display: flex; flex-direction: column; min-width: 0; }
+.cb-onair strong {
+  font-weight: 700; font-size: 0.9375rem; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cb-onair-text > span {
+  font-size: 0.8125rem; color: #a7b4cc; line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ---------- The remote ----------
+   Every control clears 44px. This is a thumb on a sofa, in the dark, at
+   arm's length from a television — the one place where a 32px icon button
+   is not a style choice but a missed tap. */
+.cb-remote { display: flex; flex-direction: column; gap: 0.85rem; }
+
+.cb-range {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 34px; margin: 0;
+  background: transparent; cursor: pointer;
+}
+.cb-range::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 3px;
+  background: linear-gradient(to right,
+    var(--cb-accent-dark) 0 var(--p, 0%), #333a4d var(--p, 0%) 100%);
+}
+.cb-range::-moz-range-track { height: 6px; border-radius: 3px; background: #333a4d; }
+.cb-range::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--cb-accent-dark); }
+.cb-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 18px; height: 18px; margin-top: -6px;
+  border-radius: 50%; border: 0;
+  background: #e6e7ee; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+.cb-range::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%; border: 0;
+  background: #e6e7ee; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+.cb-range:disabled { cursor: default; opacity: 0.45; }
+
+.cb-seek { display: flex; flex-direction: column; }
+.cb-times {
+  display: flex; align-items: baseline; gap: 0.5rem;
+  margin: -0.15rem 0 0; font-size: 0.75rem; color: #a7b4cc;
+  /* Elapsed time redraws once a second; proportional digits make the row
+     twitch sideways under a thumb that is trying to hold still. */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+.cb-times-state { flex: 1; text-align: center; color: #8e9db8; }
+.cb-times-state.is-live { color: var(--cb-accent-dark); font-weight: 600; }
+
+.cb-transport { display: flex; align-items: center; justify-content: center; gap: 1.1rem; }
+.cb-rbtn {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 44px; min-height: 44px; padding: 0;
+  border: 0; border-radius: 50%;
+  background: #1b2030; color: #e6e7ee;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.cb-rbtn:hover:not(:disabled) { background: #262d42; }
+.cb-rbtn:active:not(:disabled) { transform: scale(0.94); }
+.cb-rbtn:disabled { opacity: 0.4; cursor: default; }
+.cb-rbtn-lg {
+  min-width: 60px; min-height: 60px;
+  background: var(--cb-accent-dark); color: #0d0f14;
+}
+.cb-rbtn-lg:hover:not(:disabled) { background: #96a9f7; }
+.cb-rbtn-sm { min-width: 44px; min-height: 44px; background: transparent; }
+.cb-rbtn-sm:hover:not(:disabled) { background: #1b2030; }
+/* The skip amount rides inside the arrow rather than beside it, which
+   means it has to sit on the arc's centre — not the button's — and knock
+   the stroke out behind itself. Drawn without both, the arc runs straight
+   through the digits and "10" reads as a smudge. */
+.cb-rbtn-num {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 0 1.5px; border-radius: 2px;
+  background: inherit;
+  font-size: 0.625rem; font-weight: 700; line-height: 1;
+  letter-spacing: -0.02em;
+}
+#rBack .cb-rbtn-num { left: 46%; }
+#rFwd .cb-rbtn-num { left: 54%; }
+
+.cb-vol { display: flex; align-items: center; gap: 0.6rem; }
+.cb-vol .cb-range { flex: 1; }
+.cb-vol-num {
+  min-width: 2.1ch; text-align: right;
+  font-size: 0.75rem; color: #a7b4cc;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Stopping the cast is reversible in one tap, so it gets geography rather
+   than a dialog — and no red. Red is spent on things that go wrong. */
+.cb-stop {
+  align-self: center;
+  min-height: 44px; padding: 0 1.1rem;
+  border: 1px solid #333a4d; border-radius: var(--cb-radius);
+  background: transparent; color: #a7b4cc;
+  font-size: 0.8125rem; font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.cb-stop:hover { color: #e6e7ee; border-color: #4a5570; }
+
+.cb-onair :focus-visible { outline: 3px solid var(--cb-accent-dark); outline-offset: 2px; }
+
+/* ---------- Subtitles ---------- */
+.cb-subs {
+  margin-bottom: 0.75rem;
+  border-radius: var(--cb-radius-xl);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+  padding: 0.35rem 0.85rem;
+}
+.cb-subs > summary {
+  display: flex; align-items: center; gap: 0.55rem;
+  min-height: 44px;
+  font-size: 0.875rem; font-weight: 600; color: var(--cb-ink-2);
+  cursor: pointer; list-style: none;
+}
+.cb-subs > summary::-webkit-details-marker { display: none; }
+.cb-subs > summary svg { flex: none; color: var(--cb-ink-soft); }
+.cb-subs > summary::after {
+  content: ''; margin-left: auto;
+  width: 8px; height: 8px;
+  border-right: 2px solid var(--cb-ink-soft);
+  border-bottom: 2px solid var(--cb-ink-soft);
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform 0.18s ease;
+}
+.cb-subs[open] > summary::after { transform: rotate(-135deg) translate(-2px, -2px); }
+.cb-subs.is-on > summary { color: var(--cb-accent); }
+.cb-subs form { padding-bottom: 0.25rem; }
+.cb-subs-note {
+  margin: 0.35rem 0 0.6rem;
+  font-size: 0.75rem; line-height: 1.45; color: var(--cb-ink-2);
+}
+.cb-subs-off {
+  margin-bottom: 0.65rem;
+  min-height: 44px; padding: 0 1rem;
+  border: 1px solid var(--cb-line); border-radius: var(--cb-radius);
+  background: transparent; color: var(--cb-ink-2);
+  font-size: 0.8125rem; font-weight: 600; cursor: pointer;
+}
+.cb-subs-off:hover { color: var(--cb-ink); border-color: var(--cb-ink-soft); }
 
 /* ---------- Status strip ---------- */
 .cb-status {

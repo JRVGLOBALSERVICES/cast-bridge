@@ -300,3 +300,67 @@ signed CDN link on the strength of its name. An address that names itself —
 request at all; verified in the browser with a fetch counter.
 
 **Context Rj needs to review:** `assets/js/app.js`, `looksDirect`.
+
+## Task 29: the cast path is code-verified, not device-verified
+
+**Question I would have asked:** can you put a Chromecast in front of this?
+
+**Assumption made:** shipped it. The Cast SDK cannot be exercised from a
+headless browser on a VPS — there is no receiver on this network, so
+`CastContext` reports NO_DEVICES_AVAILABLE and `RemotePlayer` never loads
+media. What IS verified is everything around it: the panel's layout and
+targets at 412x915, the subtitle file the TV would fetch, and the SRT->VTT
+conversion Chrome's own parser accepted at 666 cues.
+
+**Context Rj needs to review:** `assets/js/app.js`, `initRemote` and
+`syncRemote`. Cast it at something and tell me what the transport does —
+particularly whether the seek bar tracks and whether ±10s lands where it
+should. That is the one part of this I could not put in front of a device.
+
+## Task 29: /api/subs is deliberately unauthenticated
+
+**Not a question — a decision Rj should know about.** Every other endpoint
+here is behind a session. This one cannot be: the thing fetching a subtitle
+track is a Chromecast, which carries no cookie and cannot be made to.
+
+What bounds it instead: it is not a general proxy. Every hop goes through
+the same `safeFetch` guard as the scanner, so it cannot be pointed inside a
+private network; the body is capped at 3 MB; an HTML content type is refused
+outright; anything that does not carry a subtitle timestamp is refused; and
+the only thing it can ever emit is `text/vtt` built by our own parser, never
+the bytes it fetched. It cannot be turned into a way to read arbitrary pages.
+
+**Context Rj needs to review:** `api/subs.js`, the header block.
+
+## Task 29: the subtitle track's language is a guess
+
+**Question I would have asked:** how should a subtitle file's language be
+declared when the file does not say?
+
+**Assumption made:** `navigator.language` — the phone's language. Cast
+requires a language on a SUBTITLES track and a subtitle file carries no
+reliable declaration of its own. With exactly one track, forced active, the
+value only labels it; it does not gate display. A Portuguese file on an
+English phone will be captioned correctly and labelled wrongly.
+
+**Context Rj needs to review:** `assets/js/app.js`, `castLoad`,
+`track.language`. If you want it right, the fix is a small language picker
+next to the subtitle field — say the word.
+
+## Task 29: what a browser genuinely cannot do
+
+**Not a question.** Three features on the app Rj sent are not buildable as a
+web app at all, and the device list now says so rather than staying quiet:
+
+- **Screen mirroring.** No web API exposes the screen to a television.
+  Chrome's own menu does it; a page cannot.
+- **A video already on the phone.** The TV fetches over the network and
+  cannot reach the phone's storage, so a locally-picked file has no address
+  to be fetched from. It would need uploading somewhere first — real scope
+  and a real bill, so I have not assumed it.
+- **Roku, Fire TV, Samsung, LG.** No browser can discover them; DLNA needs
+  UDP multicast. The VLC hand-off is the honest route and always was.
+
+**Context Rj needs to review:** `index.html`, the "Which TVs work, and how"
+list. If you want phone-file casting, that is an upload target and a
+decision about who pays for the storage — tell me and I will scope it.

@@ -11,6 +11,9 @@
     },
     "api/auth.js": {
       "maxDuration": 10
+    },
+    "api/subs.js": {
+      "maxDuration": 15
     }
   },
   "buildCommand": "node scripts/stamp-build.mjs",

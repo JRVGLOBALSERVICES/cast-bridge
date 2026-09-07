@@ -29,6 +29,7 @@ const scan = require('../api/scan.js');
 const authApi = require('../api/auth.js');
 const usersApi = require('../api/users.js');
 const historyApi = require('../api/history.js');
+const subsApi = require('../api/subs.js');
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
@@ -48,6 +49,17 @@ const server = http.createServer(async (req, res) => {
     req.query = Object.fromEntries(url.searchParams.entries());
     try {
       await (pathname === '/api/users' ? usersApi : historyApi)(req, res);
+    } catch (e) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  if (pathname === '/api/subs') {
+    req.query = Object.fromEntries(url.searchParams.entries());
+    try {
+      await subsApi(req, res);
     } catch (e) {
       res.statusCode = 500;
       res.end(JSON.stringify({ ok: false, error: e.message }));
