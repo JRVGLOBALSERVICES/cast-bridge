@@ -26,6 +26,7 @@ const TYPES = {
 
 const extract = require('../api/extract.js');
 const scan = require('../api/scan.js');
+const probeApi = require('../api/probe.js');
 const authApi = require('../api/auth.js');
 const usersApi = require('../api/users.js');
 const historyApi = require('../api/history.js');
@@ -60,6 +61,17 @@ const server = http.createServer(async (req, res) => {
     req.query = Object.fromEntries(url.searchParams.entries());
     try {
       await subsApi(req, res);
+    } catch (e) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  if (pathname === '/api/probe') {
+    req.query = Object.fromEntries(url.searchParams.entries());
+    try {
+      await probeApi(req, res);
     } catch (e) {
       res.statusCode = 500;
       res.end(JSON.stringify({ ok: false, error: e.message }));

@@ -18,6 +18,10 @@
     "api/stream.js": {
       "maxDuration": 60,
       "memory": 1024
+    },
+    "api/probe.js": {
+      "maxDuration": 30,
+      "memory": 1024
     }
   },
   "buildCommand": "node scripts/stamp-build.mjs",

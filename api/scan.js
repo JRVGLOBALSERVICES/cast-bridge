@@ -105,10 +105,15 @@ async function launch() {
   });
 }
 
+/* Where the address came from, and nothing else.
+ *
+ * This used to append "· live stream" to every .m3u8 and "· adaptive
+ * stream" to every .mpd, which is a claim about the content made purely
+ * from the file extension. A Bigg Boss episode is a fixed-length recording
+ * and every row on it read "live stream". The playlist itself settles it —
+ * it is live only when it has no #EXT-X-ENDLIST — and /api/probe reads
+ * that, so the answer now comes from the stream rather than from its name. */
 function detailFor(u, via) {
-  const p = String(u).split('?')[0];
-  if (/\.m3u8$/i.test(p)) return via + ' · live stream';
-  if (/\.mpd$/i.test(p)) return via + ' · adaptive stream';
   return via;
 }
 

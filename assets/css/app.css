@@ -26,6 +26,16 @@
   --cb-radius: 0.55rem;    /* $border-radius */
   --cb-radius-xl: 0.95rem; /* $border-radius-xl */
 
+  /* One eyebrow, one spec.
+     Six places were drawing the same small-caps label — the gate eyebrow,
+     the field labels, the history scope, the member tag, the danger-zone
+     heading and now the table header — at six different sizes and five
+     different letter-spacings (.04em to .18em). Same role, six looks, and
+     the eye reads that as words that will not sit still. */
+  --cb-label-size: 0.6875rem;
+  --cb-label-weight: 700;
+  --cb-label-track: 0.08em;
+
   /* The on-air panel is the app's one dark surface. The light-surface
      accent reads at 3.1:1 on #0d0f14; this one clears 7:1. */
   --cb-accent-dark: #7d93f2;
@@ -804,9 +814,9 @@ google-cast-launcher {
   border-radius: var(--cb-radius);
 }
 .cb-danger h3 {
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-size: var(--cb-label-size);
+  font-weight: var(--cb-label-weight);
+  letter-spacing: var(--cb-label-track);
   text-transform: uppercase;
   color: var(--cb-bad);
   margin: 0 0 0.15rem;
@@ -982,9 +992,9 @@ body.is-gated { overflow: hidden; }
   align-items: center;
   gap: 8px;
   margin: 0 0 14px;
-  font-size: .68rem;
-  font-weight: 700;
-  letter-spacing: .18em;
+  font-size: var(--cb-label-size);
+  font-weight: var(--cb-label-weight);
+  letter-spacing: var(--cb-label-track);
   text-transform: uppercase;
   color: var(--cb-ink-2);
 }
@@ -1035,9 +1045,9 @@ body.is-gated { overflow: hidden; }
 .cb-gate-label {
   display: block;
   margin-bottom: 7px;
-  font-size: .68rem;
-  font-weight: 700;
-  letter-spacing: .14em;
+  font-size: var(--cb-label-size);
+  font-weight: var(--cb-label-weight);
+  letter-spacing: var(--cb-label-track);
   text-transform: uppercase;
   color: var(--cb-ink-2);
 }
@@ -1307,9 +1317,9 @@ body.is-gated { overflow: hidden; }
 }
 
 .cb-scoperow-label {
-  font-size: .72rem;
-  font-weight: 600;
-  letter-spacing: .05em;
+  font-size: var(--cb-label-size);
+  font-weight: var(--cb-label-weight);
+  letter-spacing: var(--cb-label-track);
   text-transform: uppercase;
   color: var(--cb-ink-2);
 }
@@ -1400,9 +1410,9 @@ body.is-gated { overflow: hidden; }
 }
 
 .cb-userrow-tag {
-  font-size: .7rem;
-  font-weight: 600;
-  letter-spacing: .04em;
+  font-size: var(--cb-label-size);
+  font-weight: var(--cb-label-weight);
+  letter-spacing: var(--cb-label-track);
   text-transform: uppercase;
   color: var(--cb-ink-2);
 }
@@ -1415,3 +1425,320 @@ body.is-gated { overflow: hidden; }
 }
 
 .cb-userrow-acts { display: flex; gap: 14px; align-items: center; }
+
+/* ------------------------------------------------------------------ *
+ * The stream table
+ *
+ * Six decisions, made on purpose rather than defaulted:
+ *
+ *   ALIGN    Length and Size are right-aligned on tabular figures, so the
+ *            last digit lines up and two sizes can be compared by eye.
+ *   ROWS     Hairline divider, no zebra. Six columns is nowhere near the
+ *            ~12 where striping starts earning its noise.
+ *   DENSITY  48px — this is an everyday read, not an ops console.
+ *   STICKY   Header sticks. The identity column does not need to, because
+ *            the table never scrolls sideways: below 640px it stacks.
+ *   CELLS    Loading is a shimmer, missing is an em-dash carrying its
+ *            reason, a value is a value. One line per row, ellipsis and a
+ *            tooltip for a long name — numbers never truncate.
+ *   ACTIONS  Play is always visible, because on a phone there is no hover
+ *            to reveal it with.
+ *
+ * The breakpoint is a container query, not a viewport one: this table has
+ * to hold up inside the browse panel as well as full width, and a media
+ * query pinned to a phone size would lay out a desktop table in a 380px
+ * column the moment the panel narrowed.
+ * ------------------------------------------------------------------ */
+
+.cb-tablewrap {
+  container-type: inline-size;
+  border-radius: var(--cb-radius);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+  padding: 2px 10px 6px;
+}
+
+.cb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .8125rem;
+  color: var(--cb-ink);
+}
+
+.cb-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--cb-surface);
+  padding: 10px 8px 8px;
+  font-size: var(--cb-label-size);
+  font-weight: var(--cb-label-weight);
+  letter-spacing: var(--cb-label-track);
+  text-transform: uppercase;
+  color: var(--cb-ink-2);
+  text-align: left;
+  border-bottom: 1px solid var(--cb-line);
+  white-space: nowrap;
+}
+
+.cb-table td {
+  padding: 9px 8px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--cb-line);
+}
+.cb-table tbody tr:last-of-type td { border-bottom: 0; }
+
+/* Numbers: right, tabular, never wrapped, never truncated. */
+.cb-table th.cb-t-num,
+.cb-table td.cb-t-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  width: 1%;
+}
+.cb-table th.cb-t-type,
+.cb-table td.cb-t-type,
+.cb-table th.cb-t-q,
+.cb-table td.cb-t-q,
+.cb-table th.cb-t-act,
+.cb-table td.cb-t-act { width: 1%; white-space: nowrap; }
+.cb-table td.cb-t-q { font-variant-numeric: tabular-nums; }
+.cb-table td.cb-t-act { text-align: right; }
+
+/* Identity: as wide as is left over, one line, ellipsis + tooltip. */
+.cb-table td.cb-t-name { width: 100%; min-width: 0; max-width: 0; }
+
+.cb-t-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cb-t-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cb-t-chev {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid var(--cb-ink-soft);
+  border-bottom: 2px solid var(--cb-ink-soft);
+  transform: rotate(45deg) translate(-2px, -2px);
+}
+.cb-t-row.is-open .cb-t-chev { transform: rotate(-135deg) translate(-2px, -2px); }
+@media (prefers-reduced-motion: no-preference) {
+  .cb-t-chev { transition: transform .18s ease; }
+}
+
+.cb-t-sub {
+  display: block;
+  margin-top: 1px;
+  font-size: .6875rem;
+  color: var(--cb-ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cb-table .badge { font-size: .625rem; letter-spacing: .04em; }
+
+/* An em-dash is a state, so it is drawn as one — quieter than a value,
+   and never mistakable for a cell that failed to render. */
+.cb-table td.is-missing { color: var(--cb-ink-2); }
+
+.cb-skel {
+  display: inline-block;
+  width: 3.2em;
+  height: .7em;
+  border-radius: 3px;
+  background: var(--cb-line);
+  vertical-align: middle;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cb-skel {
+    background: linear-gradient(90deg, var(--cb-line) 25%, #e9edf5 50%, var(--cb-line) 75%);
+    background-size: 240% 100%;
+    animation: cb-shimmer 1.1s linear infinite;
+  }
+  @keyframes cb-shimmer {
+    from { background-position: 120% 0; }
+    to   { background-position: -120% 0; }
+  }
+}
+
+.cb-table td.cb-t-act .btn {
+  min-height: 2rem;
+  padding: .25rem .7rem;
+  text-transform: none;
+  font-size: .78125rem;
+  font-weight: 600;
+}
+
+/* Row expand — the third-priority fields live here rather than nowhere. */
+.cb-t-detailrow td { padding: 0 8px 12px; border-bottom: 1px solid var(--cb-line); }
+.cb-t-defs {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 14px;
+  margin: 0 0 10px;
+  font-size: .75rem;
+}
+.cb-t-defs dt { color: var(--cb-ink-2); font-weight: 600; }
+.cb-t-defs dd {
+  margin: 0;
+  color: var(--cb-ink);
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.cb-t-detail .btn { text-transform: none; font-size: .75rem; font-weight: 600; }
+
+.cb-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Stacked, below 640px of the table's own container ----------
+ *
+ * Identity and the value the person is judging on stay on line one;
+ * everything else drops to line two with its label. Nothing is hidden and
+ * nothing scrolls sideways. */
+@container (max-width: 640px) {
+  .cb-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+  /* Four columns, two rows. Line one is the name and the number the
+     person is judging on; line two is the state, in its own slots rather
+     than stacked on top of each other. */
+  .cb-table tbody tr.cb-t-row {
+    display: grid;
+    grid-template-columns: max-content max-content minmax(0, 1fr) max-content;
+    align-items: center;
+    gap: 4px 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--cb-line);
+  }
+  .cb-table tbody tr.cb-t-row td {
+    border: 0;
+    padding: 0;
+    width: auto;
+    max-width: none;
+  }
+
+  .cb-table td.cb-t-name { grid-column: 1 / 4; grid-row: 1; min-width: 0; }
+  .cb-table td.cb-t-num[data-label="Size"] {
+    grid-column: 4; grid-row: 1;
+    font-weight: 600;
+  }
+  .cb-table td.cb-t-type { grid-column: 1; grid-row: 2; }
+  .cb-table td.cb-t-q { grid-column: 2; grid-row: 2; }
+  .cb-table td.cb-t-num[data-label="Length"] {
+    grid-column: 3; grid-row: 2;
+    text-align: left;
+  }
+  .cb-table td.cb-t-act { grid-column: 4; grid-row: 2; }
+
+  .cb-table td.cb-t-q,
+  .cb-table td.cb-t-num[data-label="Length"] {
+    font-size: .75rem;
+    color: var(--cb-ink-2);
+  }
+
+  /* Label the ambiguous only. "720p" and "2.1 GB" say what they are;
+     "1:04:12" on its own could be a length or a timestamp. */
+  .cb-table td.cb-t-num[data-label="Length"]::before {
+    content: "Length ";
+    color: var(--cb-ink-2);
+  }
+  .cb-table td.cb-t-num[data-label="Length"].is-loading::before { content: "Length "; }
+
+  .cb-table .cb-t-detailrow td { padding: 0 0 12px; }
+}
+
+/* ------------------------------------------------------------------ *
+ * Scan progress
+ * ------------------------------------------------------------------ */
+
+.cb-scan {
+  border-radius: var(--cb-radius);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+  padding: 14px 16px 16px;
+}
+
+.cb-scan-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.cb-scan-stage {
+  font-size: .875rem;
+  font-weight: 600;
+  color: var(--cb-ink);
+}
+.cb-scan-clock {
+  font-size: .75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--cb-ink-2);
+  white-space: nowrap;
+}
+
+.cb-scan-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--cb-line);
+  box-shadow: var(--cb-shadow-inset);
+  overflow: hidden;
+}
+.cb-scan-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--cb-accent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cb-scan-fill { transition: width .25s linear; }
+}
+
+/* Past the estimate the bar stops claiming to know how far along it is. */
+.cb-scan-track.is-waiting .cb-scan-fill {
+  background: linear-gradient(90deg,
+    var(--cb-line) 0%, var(--cb-accent) 40%, var(--cb-accent) 60%, var(--cb-line) 100%);
+  background-size: 220% 100%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cb-scan-track.is-waiting .cb-scan-fill {
+    animation: cb-scan-wait 1.4s ease-in-out infinite;
+  }
+  @keyframes cb-scan-wait {
+    from { background-position: 120% 0; }
+    to   { background-position: -120% 0; }
+  }
+}
+
+.cb-scan-note {
+  margin: 10px 0 0;
+  font-size: .75rem;
+  line-height: 1.5;
+  color: var(--cb-ink-2);
+}

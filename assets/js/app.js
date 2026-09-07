@@ -1435,6 +1435,130 @@
 
   var scanInFlight = false;
   var lastScanUrl = '';
+  var scanStop = null;
+
+  /* ---------- Scan progress ----------
+   *
+   * A scan is between two and thirty seconds of nothing happening on
+   * screen, and a single line reading "Reading the page…" for thirty of
+   * them is indistinguishable from a hang. So show the clock: what it is
+   * doing now, how long it has been doing it, and roughly how much is
+   * left.
+   *
+   * The remaining figure is an estimate against a typical run and says so.
+   * Once a run passes that estimate the app stops predicting rather than
+   * counting down towards a zero it is going to sail straight past — the
+   * bar goes indeterminate and the line says it is taking longer than
+   * usual, which is true and useful. A countdown that reaches 0:00 and
+   * keeps spinning is the same lie as no countdown at all.
+   */
+  var SCAN_STAGES = {
+    quick: {
+      total: 6,
+      steps: [
+        [0, 'Fetching the page'],
+        [2, 'Following its player frames'],
+        [4, 'Checking what those addresses serve']
+      ]
+    },
+    deep: {
+      total: 20,
+      steps: [
+        [0, 'Starting a browser'],
+        [3, 'Opening the page'],
+        [7, 'Starting its player'],
+        [12, 'Watching what it loads'],
+        [17, 'Reading the playlists it asked for']
+      ]
+    }
+  };
+
+  function startScanProgress(box, kind) {
+    var plan = SCAN_STAGES[kind] || SCAN_STAGES.quick;
+    box.textContent = '';
+
+    var wrap = document.createElement('div');
+    wrap.className = 'cb-scan';
+
+    var head = document.createElement('div');
+    head.className = 'cb-scan-head';
+    var stage = document.createElement('span');
+    stage.className = 'cb-scan-stage';
+    /* Only the stage is announced. The clock changes four times a second
+       and would talk over everything else. */
+    stage.setAttribute('role', 'status');
+    var clock = document.createElement('span');
+    clock.className = 'cb-scan-clock';
+    clock.setAttribute('aria-hidden', 'true');
+    head.appendChild(stage);
+    head.appendChild(clock);
+    wrap.appendChild(head);
+
+    var track = document.createElement('div');
+    track.className = 'cb-scan-track';
+    track.setAttribute('role', 'progressbar');
+    track.setAttribute('aria-label', 'Scan progress');
+    track.setAttribute('aria-valuemin', '0');
+    track.setAttribute('aria-valuemax', '100');
+    var fill = document.createElement('div');
+    fill.className = 'cb-scan-fill';
+    track.appendChild(fill);
+    wrap.appendChild(track);
+
+    var note = document.createElement('p');
+    note.className = 'cb-scan-note';
+    note.textContent = kind === 'deep'
+      ? 'The deep scan runs the page in a real browser, so it takes longer than the quick one.'
+      : 'Reading the page as it came off the wire — no browser yet.';
+    wrap.appendChild(note);
+
+    box.appendChild(wrap);
+
+    var started = Date.now();
+    var overrun = false;
+
+    var tick = function () {
+      var elapsed = (Date.now() - started) / 1000;
+
+      var current = plan.steps[0][1];
+      for (var i = 0; i < plan.steps.length; i++) {
+        if (elapsed >= plan.steps[i][0]) current = plan.steps[i][1];
+      }
+      if (stage.textContent !== current + '…') stage.textContent = current + '…';
+
+      if (elapsed < plan.total) {
+        /* Stops at 95%. The last 5% belongs to the answer arriving, and a
+           bar that sits full while nothing has happened is worse than one
+           that admits it is not finished. */
+        var pct = Math.min(95, (elapsed / plan.total) * 95);
+        fill.style.width = pct.toFixed(1) + '%';
+        track.setAttribute('aria-valuenow', String(Math.round(pct)));
+        track.setAttribute('aria-valuetext',
+          fmtLength(elapsed) + ' elapsed, about ' +
+          fmtLength(Math.max(1, plan.total - elapsed)) + ' left');
+        clock.textContent = fmtLength(elapsed) + ' elapsed · about ' +
+          fmtLength(Math.max(1, plan.total - elapsed)) + ' left';
+      } else {
+        if (!overrun) {
+          overrun = true;
+          track.classList.add('is-waiting');
+          track.removeAttribute('aria-valuenow');
+          fill.style.width = '100%';
+        }
+        track.setAttribute('aria-valuetext',
+          fmtLength(elapsed) + ' elapsed, taking longer than usual');
+        clock.textContent = fmtLength(elapsed) + ' elapsed · taking longer than usual';
+      }
+    };
+
+    tick();
+    var timer = setInterval(tick, 250);
+    return function () { clearInterval(timer); };
+  }
+
+  function endScanProgress() {
+    if (scanStop) { scanStop(); scanStop = null; }
+  }
 
   function renderBrowseError(message, retry) {
     fieldError($('pageUrl'), $('pageError'), message, retry ? {
@@ -1711,7 +1835,7 @@
     busy(btn, true);
     fieldError($('pageUrl'), $('pageError'), null);
     $('browseHint').hidden = true;
-    $('browseResult').innerHTML = '<div class="cb-empty"><p>Reading the page…</p></div>';
+    scanStop = startScanProgress($('browseResult'), 'quick');
 
     fetch('/api/extract?url=' + encodeURIComponent(u), { headers: { accept: 'application/json' } })
       .then(function (r) {
@@ -1743,6 +1867,7 @@
         renderBrowseError('No connection to the scanner.', true);
       })
       .then(function () {
+        endScanProgress();
         busy(btn, false);
         scanInFlight = false;
       });
@@ -1797,9 +1922,7 @@
     lastScanUrl = u;
     var btn = $('btnScan');
     busy(btn, true);
-    $('browseResult').innerHTML =
-      '<div class="cb-empty"><p>Opening the page in a browser and watching what it loads…</p>' +
-      '<p class="cb-deepnote">This takes a few seconds longer than the quick scan.</p></div>';
+    scanStop = startScanProgress($('browseResult'), 'deep');
 
     fetch('/api/scan?url=' + encodeURIComponent(u), { headers: { accept: 'application/json' } })
       .then(function (r) {
@@ -1822,6 +1945,7 @@
         renderBrowseError('No connection to the scanner.', false);
       })
       .then(function () {
+        endScanProgress();
         busy(btn, false);
         scanInFlight = false;
       });
@@ -1962,46 +2086,208 @@
       empty.appendChild(go);
       wrap.appendChild(empty);
     } else {
-      var list = document.createElement('div');
-      list.className = 'cb-list list-group';
-      data.media.forEach(function (m) {
-        list.appendChild(mediaRow(m, data));
-      });
-      wrap.appendChild(list);
+      wrap.appendChild(mediaTable(data));
     }
 
     wrap.appendChild(previewBlock(data.finalUrl));
   }
 
-  function mediaRow(m, page) {
-    var row = document.createElement('div');
-    row.className = 'list-group-item';
+  /* ---------- The stream table ----------
+   *
+   * A set of streams is a set of records with a name and two numbers, so
+   * it is a table: identity left, numbers right-aligned on tabular
+   * figures, one line per row, a hairline between rows and no stripes.
+   *
+   * Six columns do not fit a phone, so below 640px of the CONTAINER — not
+   * the viewport, because this same table also has to survive inside a
+   * narrow panel — each row stacks: identity and the size on line one,
+   * type, quality and length on line two, each labelled. Nothing is
+   * dropped and nothing scrolls sideways, so there is no row of numbers
+   * with its name scrolled off.
+   *
+   * Every measured cell has three states and they are drawn differently
+   * on purpose. Loading is a shimmer, missing is an em-dash with the
+   * reason on hover, and a value is a value. A blank cell would be
+   * indistinguishable from a bug, which is the whole reason the rule
+   * exists.
+   */
 
-    var body = document.createElement('div');
-    body.className = 'cb-item-body';
+  function cell(row, cls, label) {
+    var td = document.createElement('td');
+    td.className = cls;
+    if (label) td.setAttribute('data-label', label);
+    row.appendChild(td);
+    return td;
+  }
 
-    var title = document.createElement('span');
-    title.className = 'cb-item-title';
-    title.textContent = m.label || nameOf(m.url);
-    title.title = m.url;
-    body.appendChild(title);
+  function setLoading(td) {
+    td.classList.remove('is-missing');
+    td.classList.add('is-loading');
+    td.textContent = '';
+    td.removeAttribute('title');
+    var bar = document.createElement('span');
+    bar.className = 'cb-skel';
+    bar.setAttribute('aria-hidden', 'true');
+    td.appendChild(bar);
+    var sr = document.createElement('span');
+    sr.className = 'cb-sr';
+    sr.textContent = 'Reading…';
+    td.appendChild(sr);
+  }
 
-    var meta = document.createElement('div');
-    meta.className = 'cb-item-meta';
+  function setValue(td, text, note) {
+    td.classList.remove('is-loading', 'is-missing');
+    td.textContent = text;
+    if (note) td.title = note; else td.removeAttribute('title');
+  }
+
+  /* Missing is not blank and not zero. It is an em-dash that says why. */
+  function setMissing(td, why) {
+    td.classList.remove('is-loading');
+    td.classList.add('is-missing');
+    td.textContent = '—';
+    td.title = why || 'That host did not report it.';
+  }
+
+  function fmtLength(sec) {
+    var s = Math.round(Number(sec) || 0);
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var r = s % 60;
+    var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+    return h ? h + ':' + pad(m) + ':' + pad(r) : m + ':' + pad(r);
+  }
+
+  /* Decimal units, because "2.1 GB" is what a person means by two
+     gigabytes and what their data plan bills them in. */
+  function fmtSize(bytes) {
+    var n = Number(bytes) || 0;
+    if (n >= 1e9) return (n / 1e9).toFixed(n / 1e9 >= 10 ? 0 : 1) + ' GB';
+    if (n >= 1e6) return Math.round(n / 1e6) + ' MB';
+    if (n >= 1e3) return Math.round(n / 1e3) + ' KB';
+    return n + ' B';
+  }
+
+  function fmtRate(bps) {
+    var n = Number(bps) || 0;
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + ' Mbps';
+    if (n >= 1e3) return Math.round(n / 1e3) + ' kbps';
+    return n + ' bps';
+  }
+
+  var HEADS = [
+    ['Stream', 'cb-t-name'],
+    ['Type', 'cb-t-type'],
+    ['Quality', 'cb-t-q'],
+    ['Length', 'cb-t-num'],
+    ['Size', 'cb-t-num'],
+    ['Action', 'cb-t-act']
+  ];
+
+  function mediaTable(page) {
+    var box = document.createElement('div');
+    box.className = 'cb-tablewrap';
+
+    var table = document.createElement('table');
+    table.className = 'cb-table';
+
+    var caption = document.createElement('caption');
+    caption.className = 'cb-sr';
+    caption.textContent = 'Streams found on ' + hostOf(page.finalUrl);
+    table.appendChild(caption);
+
+    var thead = document.createElement('thead');
+    var hrow = document.createElement('tr');
+    HEADS.forEach(function (h, i) {
+      var th = document.createElement('th');
+      th.scope = 'col';
+      th.className = h[1];
+      /* The action column's heading is for a screen reader only — a
+         visible "Action" over a column of buttons is a label on a label. */
+      if (i === HEADS.length - 1) {
+        var sr = document.createElement('span');
+        sr.className = 'cb-sr';
+        sr.textContent = h[0];
+        th.appendChild(sr);
+      } else {
+        th.textContent = h[0];
+      }
+      hrow.appendChild(th);
+    });
+    thead.appendChild(hrow);
+    table.appendChild(thead);
+
+    var tbody = document.createElement('tbody');
+    var jobs = page.media.map(function (m, i) {
+      return mediaRow(tbody, m, page, i);
+    });
+    table.appendChild(tbody);
+    box.appendChild(table);
+
+    /* Three at a time. Forty rows firing at once would queue behind each
+       other anyway and spend the browser's whole connection budget on
+       measurements nobody has scrolled to yet. */
+    runQueue(jobs, 3);
+    return box;
+  }
+
+  function runQueue(jobs, width) {
+    var next = 0;
+    var step = function () {
+      if (next >= jobs.length) return;
+      var job = jobs[next++];
+      Promise.resolve()
+        .then(job)
+        .catch(function () { /* a row that failed already says so */ })
+        .then(step);
+    };
+    for (var i = 0; i < Math.min(width, jobs.length); i++) step();
+  }
+
+  function mediaRow(tbody, m, page, index) {
+    var detailId = 'streamDetail' + index;
+
+    var tr = document.createElement('tr');
+    tr.className = 'cb-t-row';
+
+    var name = cell(tr, 'cb-t-name');
+    var toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'cb-t-toggle';
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', detailId);
+    var label = document.createElement('span');
+    label.className = 'cb-t-label';
+    label.textContent = m.label || nameOf(m.url);
+    label.title = m.url;
+    toggle.appendChild(label);
+    var chev = document.createElement('span');
+    chev.className = 'cb-t-chev';
+    chev.setAttribute('aria-hidden', 'true');
+    toggle.appendChild(chev);
+    name.appendChild(toggle);
+
+    var sub = document.createElement('span');
+    sub.className = 'cb-t-sub';
+    sub.textContent = m.detail || hostOf(m.url);
+    name.appendChild(sub);
+
+    var type = cell(tr, 'cb-t-type', 'Type');
     var badge = document.createElement('span');
     badge.className = 'badge badge-secondary';
     badge.textContent = m.kind || kindOf(m.url);
-    meta.appendChild(badge);
-    var detail = document.createElement('span');
-    detail.textContent = m.detail || hostOf(m.url);
-    meta.appendChild(detail);
-    body.appendChild(meta);
+    type.appendChild(badge);
 
-    row.appendChild(body);
+    var cells = {
+      quality: cell(tr, 'cb-t-q', 'Quality'),
+      length: cell(tr, 'cb-t-num', 'Length'),
+      size: cell(tr, 'cb-t-num', 'Size')
+    };
+    setLoading(cells.quality);
+    setLoading(cells.length);
+    setLoading(cells.size);
 
-    var actions = document.createElement('div');
-    actions.className = 'cb-item-actions';
-
+    var act = cell(tr, 'cb-t-act');
     var play = document.createElement('button');
     play.type = 'button';
     play.className = 'btn btn-secondary btn-sm';
@@ -2011,10 +2297,150 @@
       showTab('link');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
-    actions.appendChild(play);
+    act.appendChild(play);
+    tbody.appendChild(tr);
 
-    row.appendChild(actions);
-    return row;
+    /* The rest of what the probe learns — the address itself, the segment
+       count, the bitrate — lives one tap away rather than nowhere. */
+    var drow = document.createElement('tr');
+    drow.className = 'cb-t-detailrow';
+    drow.hidden = true;
+    var dcell = document.createElement('td');
+    dcell.colSpan = HEADS.length;
+    dcell.id = detailId;
+    dcell.className = 'cb-t-detail';
+    drow.appendChild(dcell);
+    tbody.appendChild(drow);
+    renderStreamDetail(dcell, m, null);
+
+    toggle.addEventListener('click', function () {
+      var opening = drow.hidden;
+      drow.hidden = !opening;
+      toggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
+      tr.classList.toggle('is-open', opening);
+    });
+
+    return function () { return probeRow(m, page, cells, dcell); };
+  }
+
+  /* Resolves to whether the address actually reached the clipboard, so the
+     button can say "press and hold" rather than a "Copied" that lied. */
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).then(
+        function () { return true; },
+        function () { return false; }
+      );
+    }
+    return Promise.resolve(false);
+  }
+
+  function defRow(dl, term, value, note) {
+    var dt = document.createElement('dt');
+    dt.textContent = term;
+    var dd = document.createElement('dd');
+    dd.textContent = value;
+    if (note) dd.title = note;
+    dl.appendChild(dt);
+    dl.appendChild(dd);
+  }
+
+  function renderStreamDetail(box, m, info) {
+    box.textContent = '';
+    var dl = document.createElement('dl');
+    dl.className = 'cb-t-defs';
+
+    defRow(dl, 'Address', m.url, m.url);
+    defRow(dl, 'Found', m.detail || 'on the page');
+
+    if (info && info.ok) {
+      if (info.variants) defRow(dl, 'Qualities', String(info.variants));
+      if (info.segments) defRow(dl, 'Segments', String(info.segments));
+      if (info.bandwidth) defRow(dl, 'Bitrate', fmtRate(info.bandwidth));
+      if (info.bytesBasis === 'sampled') {
+        defRow(dl, 'Size read', 'Estimated from three sampled segments');
+      } else if (info.bytesBasis === 'bitrate') {
+        defRow(dl, 'Size read', 'Estimated from the declared bitrate');
+      } else if (info.bytesBasis === 'measured') {
+        defRow(dl, 'Size read', 'Measured from the file itself');
+      }
+    } else if (info && info.error) {
+      defRow(dl, 'Details', info.error);
+    } else if (info === null) {
+      defRow(dl, 'Details', 'Reading…');
+    }
+
+    box.appendChild(dl);
+
+    var copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'btn btn-secondary btn-sm';
+    copy.textContent = 'Copy address';
+    copy.addEventListener('click', function () {
+      copyText(m.url).then(function (ok) {
+        copy.textContent = ok ? 'Copied' : 'Press and hold to copy';
+        setTimeout(function () { copy.textContent = 'Copy address'; }, 1500);
+      });
+    });
+    box.appendChild(copy);
+  }
+
+  function probeFailed(cells, why) {
+    setMissing(cells.quality, why);
+    setMissing(cells.length, why);
+    setMissing(cells.size, why);
+  }
+
+  function probeRow(m, page, cells, dcell) {
+    var q = '/api/probe?url=' + encodeURIComponent(m.url);
+    if (page.finalUrl) q += '&from=' + encodeURIComponent(page.finalUrl);
+
+    return fetch(q, { headers: { accept: 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (info) {
+        if (!info || info.ok !== true) {
+          var why = (info && info.error) ||
+            'That host would not answer a request for its details.';
+          probeFailed(cells, why);
+          renderStreamDetail(dcell, m, info || { error: why });
+          return;
+        }
+
+        if (info.height) {
+          setValue(cells.quality, info.height + 'p',
+            info.width ? info.width + ' × ' + info.height : null);
+        } else {
+          setMissing(cells.quality, 'That stream declares no resolution.');
+        }
+
+        if (info.live) {
+          setValue(cells.length, 'Live', 'A live stream has no fixed length.');
+          setMissing(cells.size, 'A live stream has no fixed size.');
+          renderStreamDetail(dcell, m, info);
+          return;
+        }
+
+        if (info.duration) setValue(cells.length, fmtLength(info.duration));
+        else setMissing(cells.length, 'That stream does not state its length.');
+
+        if (info.bytes) {
+          var exact = info.bytesBasis === 'measured';
+          setValue(cells.size, (exact ? '' : '≈ ') + fmtSize(info.bytes),
+            exact ? 'Measured from the file.'
+              : info.bytesBasis === 'sampled'
+                ? 'Estimated from three sampled segments — expect a few percent either way.'
+                : 'Estimated from the declared bitrate — a ceiling, so likely high.');
+        } else {
+          setMissing(cells.size, 'That host does not report a size for it.');
+        }
+
+        renderStreamDetail(dcell, m, info);
+      })
+      .catch(function () {
+        probeFailed(cells, 'The details could not be read from here.');
+        renderStreamDetail(dcell, m,
+          { error: 'The details could not be read from here.' });
+      });
   }
 
   function previewBlock(url) {
