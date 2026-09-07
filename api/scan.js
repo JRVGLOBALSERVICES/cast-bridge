@@ -22,7 +22,20 @@ const auth = require('../lib/auth');
 
 const NAV_TIMEOUT_MS = 20000;
 const SETTLE_MS = 6000;
+const FRAME_BOOT_MS = 2500;
 const HARD_BUDGET_MS = 45000;
+
+/* Where a lazy-loading page parks the real address until it decides to load.
+   LiteSpeed Cache, WP Rocket and the rest of the caching plugins all do this,
+   so it is an ordinary-web pattern, not an exotic one. */
+const DEFERRED_SRC = [
+  'data-litespeed-src', 'data-src', 'data-lazy-src', 'data-original', 'data-url'
+];
+
+/* Frames that are never a player, so their presence must not be read as
+   "there is a player here but we missed its stream". */
+const NOT_A_PLAYER =
+  /googletagmanager|google-analytics|doubleclick|adservice|adsystem|facebook\.com|recaptcha|disqus/i;
 
 /* Content types that mean "this response is playable", for the cases where
    the URL carries no useful extension (signed CDN links usually don't). */
@@ -95,21 +108,54 @@ async function collect(page, target) {
 
   await page.goto(target, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
 
-  /* Plenty of players only fetch the manifest once something is clicked.
-     One nudge at whatever looks like a play control is worth the second. */
+  /* A lazy-loaded player is an empty frame until the page decides to fill it.
+     The caching plugins ship `src="about:blank"` and keep the real address in
+     a data- attribute, swapping it in on scroll or on first touch. A scanner
+     that only waits sees about:blank for the whole budget and then reports a
+     page that plainly has a player on it as having no video at all. Promote
+     the deferred address ourselves instead of hoping the page gets round to
+     it, and scroll, because scrolling is what most lazy-loaders listen for. */
+  let promoted = 0;
   try {
-    await page.evaluate(() => {
-      const hit = document.querySelector(
-        '[class*="play" i],[id*="play" i],[aria-label*="play" i],button,video'
-      );
-      if (hit && typeof hit.click === 'function') hit.click();
-      document.querySelectorAll('video').forEach((v) => {
-        v.muted = true;
-        const p = v.play();
-        if (p && p.catch) p.catch(() => {});
+    promoted = await page.evaluate((attrs) => {
+      let n = 0;
+      document.querySelectorAll('iframe').forEach((f) => {
+        const cur = f.getAttribute('src') || '';
+        if (cur && cur !== 'about:blank') return;
+        for (const a of attrs) {
+          const v = f.getAttribute(a);
+          if (v && /^(https?:)?\/\//i.test(v)) { f.setAttribute('src', v); n++; break; }
+        }
       });
+      const h = document.body ? document.body.scrollHeight : 0;
+      window.scrollTo(0, h);
+      window.scrollTo(0, 0);
+      return n;
+    }, DEFERRED_SRC);
+  } catch (e) { /* a page that refuses to be read is still worth watching */ }
+
+  if (promoted) await new Promise((r) => setTimeout(r, FRAME_BOOT_MS));
+
+  /* The play control is nearly always inside the player's own frame, not on
+     the page that embeds it. Poking only the top document clicks the site's
+     own chrome and leaves the player untouched, so walk every frame. */
+  const poke = () => {
+    const hit = document.querySelector(
+      '[class*="play" i],[id*="play" i],[aria-label*="play" i],button,video'
+    );
+    if (hit && typeof hit.click === 'function') hit.click();
+    document.querySelectorAll('video').forEach((v) => {
+      v.muted = true;
+      const p = v.play();
+      if (p && p.catch) p.catch(() => {});
     });
-  } catch (e) { /* a page that refuses to be poked is still worth watching */ }
+  };
+
+  for (const frame of page.frames()) {
+    try {
+      await frame.evaluate(poke);
+    } catch (e) { /* detached, cross-origin-locked, or hostile — keep going */ }
+  }
 
   await new Promise((r) => setTimeout(r, SETTLE_MS));
 
@@ -138,7 +184,31 @@ async function collect(page, target) {
     poster = meta.p;
   } catch (e) { /* keep the media, drop the trimmings */ }
 
-  return { media: Array.from(found.values()), title, poster };
+  /* Did this page even have something to play? "Nothing found" on a page
+     carrying a player and "nothing found" on a page carrying no player are
+     different answers, and telling someone their video needs a sign-in when
+     the address simply has no video on it sends them hunting for a password
+     that was never the problem. */
+  let evidence = { players: 0, frames: 0 };
+  try {
+    evidence = await page.evaluate((attrs, notPlayer) => {
+      const re = new RegExp(notPlayer, 'i');
+      const frames = Array.from(document.querySelectorAll('iframe')).filter((f) => {
+        const src = attrs
+          .map((a) => f.getAttribute(a) || '')
+          .find((v) => /^(https?:)?\/\//i.test(v)) || '';
+        if (!src || re.test(src)) return false;
+        const r = f.getBoundingClientRect();
+        return r.width > 40 && r.height > 40;
+      });
+      return {
+        players: document.querySelectorAll('video,audio').length,
+        frames: frames.length
+      };
+    }, ['src'].concat(DEFERRED_SRC), NOT_A_PLAYER.source);
+  } catch (e) { /* an unreadable page just gets the vaguer message */ }
+
+  return { media: Array.from(found.values()), title, poster, evidence };
 }
 
 module.exports = async function handler(req, res) {
@@ -216,15 +286,23 @@ module.exports = async function handler(req, res) {
     const media = result.media.slice(0, MAX_RESULTS);
 
     if (!media.length) {
+      const saw = result.evidence || { players: 0, frames: 0 };
+      const noPlayer = !saw.players && !saw.frames;
       res.statusCode = 200;
       res.end(JSON.stringify({
         ok: false,
         empty: true,
         deep: true,
         finalUrl: target,
-        error: 'Ran the page in a browser and watched everything it fetched. ' +
-          'Nothing playable came through. The video may need a sign-in, or ' +
-          'it may be encrypted like the big streaming apps are.'
+        saw,
+        error: noPlayer
+          ? 'Ran the page in a browser. There is no video on it at all — no ' +
+            'player, no embed, nothing to cast. Check the address is the one ' +
+            'you meant to send.'
+          : 'Ran the page in a browser, opened its player and watched every ' +
+            'request. The player is there but never fetched anything ' +
+            'playable. It probably needs a sign-in, or it is encrypted the ' +
+            'way the big streaming apps are.'
       }));
       return;
     }
