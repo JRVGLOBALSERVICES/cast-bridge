@@ -364,3 +364,41 @@ web app at all, and the device list now says so rather than staying quiet:
 **Context Rj needs to review:** `index.html`, the "Which TVs work, and how"
 list. If you want phone-file casting, that is an upload target and a
 decision about who pays for the storage — tell me and I will scope it.
+
+## Task 30: the extension answers the question, and it moves the blocker
+
+**Question I would have asked:** the extension hands you an `.m3u8`. Should
+Cast Bridge then be able to cast it, and who pays for that?
+
+**Assumption made:** I stopped at proving the route and did not build the
+piece that completes it, because that piece has a bandwidth bill on it.
+
+Two things stand between a captured stream and the TV, and neither is the
+cipher:
+
+- **Hotlink protection.** That host serves its segments to a request carrying
+  its own `Referer`/`Origin`. A Chromecast sends neither. The extension
+  advertises exactly this as "Header Spoofing" — it is the standard blocker,
+  not a quirk of this site.
+- **CORS.** Google's own Cast media docs state HLS and DASH streams must be
+  served with CORS headers, and they suggest a CORS proxy for testing. A CDN
+  like this one will not send them.
+
+The fix for both is one generic thing: a `/api/stream` proxy that fetches
+with the right headers, rewrites the manifest's segment addresses to route
+back through itself, and re-serves everything CORS-open — the same shape as
+the `/api/subs` endpoint that already ships. It is legitimate and it is not
+specific to any site; every hotlink-protected or non-CORS stream currently
+fails to cast for these reasons.
+
+**What I did not do, and why it is worth Rj deciding rather than me:** a
+feature film streamed through Vercel is gigabytes per view, both directions,
+on a plan that meters bandwidth. That is real money and it is his account, so
+the size of that bill is his call and not an assumption I should quietly make.
+
+**Unchanged decision:** I am still not recovering rpmplay's key and
+reimplementing its cipher. The extension route makes that unnecessary, which
+is the useful part of this answer.
+
+**Context Rj needs to review:** this note's proxy proposal, and whether the
+bandwidth is worth it. Nothing in the repo changed this pass.

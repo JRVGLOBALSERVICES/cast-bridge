@@ -328,3 +328,34 @@
 
       Not verified, and cannot be from here: the Cast calls themselves. A
       headless browser on a VPS has no Chromecast on its network. Logged.
+
+- [x] Task 30: Answer Rj's "find something like this that can decrypt those 2
+      links" — github.com/anpa26/website-media-downloader. Read the tool rather
+      than its README. It is a browser EXTENSION (MV3, `webRequest` +
+      `webRequestFilterResponse` on `<all_urls>`, service worker
+      `network_detector.js`), and it contains no cipher for rpmplay or any
+      other host: `grep decrypt` across its source finds only standard HLS
+      AES-128 segment decryption in `offlineStreamConvert.js`, using the key
+      the manifest itself publishes via `#EXT-X-KEY`. Its only host-specific
+      code, `surgical_scrapers.js` (148 lines), covers Instagram, TikTok and
+      Twitter/X — nothing else.
+
+      So it does not break the desicinema blob either. It never has to: it
+      watches the requests the page makes AFTER the page has decrypted the
+      address in its own JavaScript, from inside the browser. That vantage
+      point is the entire difference, and Cast Bridge is a web page, so it can
+      never have it.
+
+      Re-confirmed the block is still real and unchanged today:
+      `movieshub.rpmplay.xyz/api/v1/info?id=usw96p` still answers HTTP 200,
+      `application/octet-stream`, 3777 bytes of hex. yt-dlp 2026.03.17 returns
+      "Unsupported URL" on both the embed and, with --force-generic-extractor,
+      on the desicinema page. No server-side tool resolves it.
+
+      The extension is real and installable: AMO API reports status `public`,
+      v2.3.2, 1056 average daily users, 4.5 rating, and Android-compatible —
+      so it installs on Firefox for Android, on Rj's phone. Chrome is
+      load-unpacked only. Its Google OAuth is opt-in "save to Drive" on the
+      narrow `drive.file` scope.
+
+      groundbanks.net is unchanged and needs no tool: there is no video on it.
