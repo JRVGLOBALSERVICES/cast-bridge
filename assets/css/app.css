@@ -2323,3 +2323,14 @@ body.is-gated { overflow: hidden; }
 /* Cancel and Copy sit under the button they qualify, on their own line each
    so neither is mistaken for the primary action. */
 .cb-bili-body .cb-linkbtn { display: block; margin-top: 0.35rem; }
+
+/* The "no TV found" explainer. Borrows the log's disclosure chrome; the body
+   is prose, so it gets reading measure and the UI font rather than the log's
+   monospace column. */
+.cb-help > summary { color: var(--cb-ink); }
+.cb-help-body { padding: 0 0 0.9rem; max-width: 62ch; }
+.cb-help-body p { margin: 0 0 0.7rem; font-size: 0.9rem; line-height: 1.55; color: var(--cb-ink-soft); }
+.cb-help-body ol { margin: 0 0 0.7rem; padding-left: 1.2rem; }
+.cb-help-body li { margin-bottom: 0.55rem; font-size: 0.9rem; line-height: 1.5; color: var(--cb-ink-soft); }
+.cb-help-body b { color: var(--cb-ink); font-weight: 600; }
+.cb-help-body p:last-child { margin-bottom: 0; }

@@ -204,6 +204,40 @@
       </select>
     </div>
 
+    <!-- ---------- Nothing found ----------
+         "No TV found" with a dead button is a wall, not an answer. This page
+         does not discover anything. Chrome does, over the local network, so the
+         only useful thing to say here is where that search goes wrong.
+         Shown only while the sender reports no devices. -->
+    <details class="cb-log cb-help" id="castHelp" hidden>
+      <summary>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 3.1c-.5.2-.8.7-.8 1.2v.4"/><path d="M12 17h.01"/></svg>
+        <span>Can&rsquo;t see your TV?</span>
+      </summary>
+      <div class="cb-help-body">
+        <p>This page never searches for televisions. Chrome does, on the network
+           the phone is joined to, and hands the list over. So a TV that shows
+           its own “ready to cast” screen and still doesn't appear here is
+           almost always a network split, not a fault in the app.</p>
+        <ol>
+          <li><b>Same Wi‑Fi, same name.</b> Not the guest network, and not a
+              separate 5&nbsp;GHz name. Two bands sold as two networks are two
+              networks.</li>
+          <li><b>Client isolation off.</b> Mesh kits and hotel-style routers
+              ship it on; it blocks exactly this. It is sometimes called AP
+              isolation or Guest mode.</li>
+          <li><b>A Samsung TV has no Cast of its own.</b> If that screen is
+              there, something is plugged into it: a Chromecast or a Google
+              TV stick, and <i>that</i> is what holds the Wi‑Fi setting. Check
+              it in the Google Home app, not in the TV's menu.</li>
+          <li><b>Close the setup screen on the TV</b>, then power-cycle the
+              stick and reload this page.</li>
+        </ol>
+        <p>If another television answers from this same phone right now, the
+           phone is fine and the difference is on that device.</p>
+      </div>
+    </details>
+
     <!-- ---------- Cast log ----------
          A television that accepts a stream and then sits on "loading" tells
 

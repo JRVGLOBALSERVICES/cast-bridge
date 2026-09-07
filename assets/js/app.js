@@ -1454,6 +1454,16 @@
     btn.querySelector('span').textContent = castState === 'CONNECTED' ? 'Send to ' + deviceName() : 'Cast to TV';
 
     if (castState !== 'CONNECTED') screenEl.classList.remove('is-onair');
+
+    /* "No TV found" used to end the sentence with a disabled button. The
+       explainer appears with it and leaves with it — folded shut, because
+       most of the time the search succeeds a second later. */
+    var help = $('castHelp');
+    if (help) {
+      var stuck = castState === 'NO_DEVICES_AVAILABLE';
+      help.hidden = !stuck;
+      if (!stuck) help.open = false;
+    }
   }
 
   $('btnCast').addEventListener('click', function () {
