@@ -1554,16 +1554,25 @@
           });
         });
 
-        /* Ask the active worker what it is, so the footer shows the build
-           actually being served rather than the one that was deployed. */
-        var active = navigator.serviceWorker.controller;
-        if (active) {
+        /* Ask the worker what it is, so the footer shows the build actually
+           being served rather than the one that was deployed. On a first
+           visit there is no controller yet — reg.active is already the
+           activated worker, and that is exactly the visit where someone
+           most wants to know which build they just landed on. */
+        function askBuild(worker) {
+          if (!worker) return;
           var ch = new MessageChannel();
           ch.port1.onmessage = function (e) {
             if (e.data && e.data.build) showBuild(e.data.build);
           };
-          active.postMessage({ type: 'GET_BUILD' }, [ch.port2]);
+          worker.postMessage({ type: 'GET_BUILD' }, [ch.port2]);
         }
+
+        askBuild(navigator.serviceWorker.controller || reg.active);
+
+        navigator.serviceWorker.addEventListener('controllerchange', function () {
+          askBuild(navigator.serviceWorker.controller);
+        });
 
         /* Check on every foreground — an installed app can sit for weeks. */
         reg.update().catch(function () {});
