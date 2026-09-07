@@ -1,0 +1,13 @@
+# Cast Bridge
+
+A single-page web app that puts a video link on a TV. Paste a direct media
+address, or give it a webpage and it reads the media off the page server-side,
+then hands the stream to a Chromecast (Google Cast), an AirPlay target, or VLC.
+
+No account, no tracking, no ads, no analytics. History lives in the browser's
+own localStorage and never leaves the device.
+
+What it cannot do: DRM services. Netflix, Disney+, Hotstar, Prime Video, Max,
+Viu, iQIYI, sooka and Astro GO encrypt their video and only decrypt inside a
+licensed player, so no address on those pages is playable on a TV. The app says
+so explicitly rather than returning an empty result or a marketing trailer.

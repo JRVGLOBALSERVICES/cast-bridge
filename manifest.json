@@ -1,1 +1,24 @@
-{"name":"Cast Bridge","short_name":"Cast Bridge","start_url":"/","display":"standalone","background_color":"#12161C","theme_color":"#12161C","icons":[]}
+{
+  "name": "Cast Bridge",
+  "short_name": "Cast Bridge",
+  "description": "Find a video link, play it, and send it to the TV.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#e6e7ee",
+  "theme_color": "#e6e7ee",
+  "icons": [
+    { "src": "/assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/assets/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ],
+  "share_target": {
+    "action": "/",
+    "method": "GET",
+    "params": {
+      "title": "t",
+      "text": "s",
+      "url": "s"
+    }
+  }
+}

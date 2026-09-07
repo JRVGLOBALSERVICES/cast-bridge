@@ -1,0 +1,668 @@
+/* Hallmark · pre-emit critique: P4 H5 E5 S4 R5 V3
+   Variety scores 3 by design: the visual system was specified (Themesberg
+   Neumorphism UI), so theme selection was not Hallmark's to make. */
+/* Cast Bridge — app layer.
+   Everything here builds on Neumorphism UI's own tokens. No new palette,
+   no new radii, no new shadows: the values below are lifted from the kit's
+   _variables.scss so the app and the kit stay one system. */
+
+:root {
+  /* Kit tokens, verbatim from neumorphism/_variables.scss */
+  --cb-surface: #e6e7ee;   /* $primary / $soft / $body-bg */
+  --cb-accent: #2d4cc8;    /* $secondary */
+  --cb-ink: #44476a;       /* $gray-900 / $body-color */
+  --cb-ink-soft: #66799e;  /* $gray-700 */
+  --cb-ink-2: #525480;     /* $gray-800 — 5.80:1 on the surface, AA for body text */
+  --cb-mute: #93a5be;      /* $gray-600 — 2.04:1. DECORATION ONLY, never text. */
+  --cb-line: #d1d9e6;      /* $gray-400 / $light */
+  --cb-ok: #18634b;        /* $success */
+  --cb-warn: #f0b400;      /* $warning */
+  --cb-bad: #a91e2c;       /* $danger */
+
+  --cb-shadow-soft: 6px 6px 12px #b8b9be, -6px -6px 12px #ffffff;
+  --cb-shadow-light: 3px 3px 6px #b8b9be, -3px -3px 6px #ffffff;
+  --cb-shadow-inset: inset 2px 2px 5px #b8b9be, inset -3px -3px 7px #ffffff;
+
+  --cb-radius: 0.55rem;    /* $border-radius */
+  --cb-radius-xl: 0.95rem; /* $border-radius-xl */
+}
+
+body {
+  padding: max(1rem, env(safe-area-inset-top)) 0 3.5rem;
+  overflow-x: hidden;
+}
+
+.cb-shell {
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.btn {
+  transition: color 0.15s ease, background-color 0.15s ease,
+              border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* ---------- Focus ---------- *
+   The kit sets $input-btn-focus-box-shadow and $input-focus-box-shadow to
+   none, which leaves keyboard users with no visible focus at all — a WCAG
+   2.4.7 failure. Correctness outranks the look, so the ring goes back on,
+   scoped to :focus-visible so a mouse click stays clean. The accent clears
+   3:1 against the #e6e7ee surface. */
+.btn:focus-visible,
+.form-control:focus-visible,
+.nav-link:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--cb-accent);
+  outline-offset: 2px;
+  border-radius: var(--cb-radius);
+}
+.btn:focus:not(:focus-visible) { outline: none; }
+
+.cb-skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--cb-surface);
+  color: var(--cb-accent);
+  padding: 0.65rem 1rem;
+  border-radius: var(--cb-radius);
+  box-shadow: var(--cb-shadow-soft);
+  z-index: 60;
+  font-weight: 600;
+}
+.cb-skip:focus { left: 1rem; top: 1rem; }
+
+/* ---------- Masthead ---------- */
+.cb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.cb-wordmark {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--cb-ink);
+}
+.cb-wordmark span { color: var(--cb-accent); }
+.cb-tagline {
+  margin: 0.15rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--cb-ink-2);
+  font-weight: 400;
+}
+
+/* Device pill — quietest notification surface (badge). */
+.cb-devicepill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: none;
+  padding: 0.4rem 0.7rem;
+  border-radius: 2rem;
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--cb-ink-2);
+  white-space: nowrap;
+}
+
+.cb-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--cb-mute);
+  flex: none;
+}
+.cb-dot.is-ready { background: var(--cb-ok); }
+.cb-dot.is-live {
+  background: var(--cb-accent);
+  box-shadow: 0 0 0 0.25rem rgba(45, 76, 200, 0.18);
+}
+.cb-dot.is-bad { background: var(--cb-bad); }
+@media (prefers-reduced-motion: no-preference) {
+  .cb-dot.is-live { animation: cb-pulse 1.8s ease-in-out infinite; }
+}
+@keyframes cb-pulse {
+  50% { box-shadow: 0 0 0 0.55rem rgba(45, 76, 200, 0); }
+}
+
+/* ---------- Player ---------- *
+   A screen is the one thing neumorphism has a real idiom for: press it into
+   the surface. The video is the only dark element in the app. */
+.cb-screen {
+  border-radius: var(--cb-radius-xl);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-inset);
+  padding: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.cb-screen-inner {
+  position: relative;
+  border-radius: var(--cb-radius);
+  overflow: hidden;
+  background: #0d0f14;
+}
+.cb-screen.is-idle .cb-screen-inner {
+  background: transparent;
+  min-height: 4.5rem;
+}
+.cb-screen.is-live .cb-screen-inner { aspect-ratio: 16 / 9; }
+.cb-screen video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #0d0f14;
+}
+.cb-screen.is-idle video { display: none; }
+
+.cb-idle {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.5rem;
+  color: var(--cb-ink-2);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+.cb-screen.is-live .cb-idle { display: none; }
+.cb-idle svg { flex: none; color: var(--cb-line); }
+
+/* Casting takeover — the phone stops being the screen. */
+.cb-onair {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background: #0d0f14;
+  color: #e6e7ee;
+  text-align: center;
+  padding: 1rem;
+}
+.cb-screen.is-onair .cb-onair { display: flex; }
+.cb-onair strong { font-weight: 700; font-size: 1rem; }
+.cb-onair span { font-size: 0.8125rem; color: #93a5be; }
+
+/* ---------- Status strip ---------- */
+.cb-status {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--cb-ink);
+  line-height: 1.4;
+}
+.cb-status .cb-status-text { flex: 1; min-width: 0; }
+.cb-status .custom-select,
+.cb-status select {
+  flex: none;
+  width: auto;
+  font-size: 0.8125rem;
+  padding: 0.3rem 1.6rem 0.3rem 0.6rem;
+  height: auto;
+}
+.cb-status.is-bad { color: var(--cb-bad); }
+
+/* ---------- Action grid ---------- */
+.cb-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.cb-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.875rem; /* 46px — over the 44px touch floor */
+  padding-left: 0.6rem;
+  padding-right: 0.6rem;
+  text-transform: none;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+.cb-actions .btn:disabled,
+.cb-actions .btn.disabled {
+  opacity: 1;                       /* the outline carries the state, not a fade */
+  box-shadow: none;
+  background-color: var(--cb-surface);
+  border: 1px solid var(--cb-line);
+  color: var(--cb-ink-soft);
+}
+
+.cb-actions .btn svg { flex: none; }
+
+/* Nothing is loaded: three of these four can do nothing, and a 2x2 grid of
+   dead buttons is the first thing the eye lands on — it also pushes the
+   paste box, the one control that matters at this moment, past the fold on
+   a 390px phone. Idle shows Cast alone (you may well want to reach the TV
+   before you pick anything); the rest arrive when there is something to
+   act on. */
+#main:has(#screen.is-idle) .cb-actions { grid-template-columns: 1fr; }
+#main:has(#screen.is-idle) .cb-actions .btn:not(#btnCast) { display: none; }
+
+.cb-actions .btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+google-cast-launcher {
+  --connected-color: #2d4cc8;
+  --disconnected-color: #44476a;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: inline-block;
+  flex: none;
+}
+
+/* Buttons: lock the width so an in-place spinner moves nothing. */
+.btn.is-busy { pointer-events: none; }
+.btn.is-busy .cb-label { visibility: hidden; }
+.cb-spin {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: -0.55rem 0 0 -0.55rem;
+  border: 2px solid rgba(68, 71, 106, 0.25);
+  border-top-color: var(--cb-accent);
+  border-radius: 50%;
+  display: none;
+}
+.btn.is-busy .cb-spin { display: block; animation: cb-rotate 0.7s linear infinite; }
+@keyframes cb-rotate { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .btn.is-busy .cb-spin { animation-duration: 2s; }
+}
+
+/* ---------- Tabs ---------- *
+   Three sources, so a tab bar is right (a Sections sheet starts at 5).
+   The indicator slides rather than jumping. */
+.cb-tabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  padding: 0.35rem;
+  margin: 1.5rem 0 1rem;
+  border-radius: var(--cb-radius-xl);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-inset);
+}
+.cb-tabs .nav-link {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.75rem; /* 44px */
+  padding: 0.5rem 0.4rem;
+  border-radius: var(--cb-radius);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--cb-ink-2);
+  background: transparent;
+  cursor: pointer;
+  border: 0;
+  width: 100%;
+}
+.cb-tabs .nav-link[aria-selected="true"] { color: var(--cb-accent); }
+.cb-tabs .cb-tabcount {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0.05rem 0.35rem;
+  border-radius: 2rem;
+  background: rgba(45, 76, 200, 0.12);
+  color: var(--cb-accent);
+}
+.cb-tab-indicator {
+  position: absolute;
+  top: 0.35rem;
+  bottom: 0.35rem;
+  border-radius: var(--cb-radius);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+  z-index: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-tab-indicator { transition: none; }
+}
+
+.tab-pane { display: none; }
+.tab-pane.is-active { display: block; }
+@media (prefers-reduced-motion: no-preference) {
+  .tab-pane.is-active { animation: cb-fade 0.18s ease-out both; }
+}
+@keyframes cb-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- Lists ---------- */
+.cb-list { margin: 0; }
+.cb-list .list-group-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 0.5rem;
+  border: 0;
+  border-radius: var(--cb-radius);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+}
+.cb-list .list-group-item:last-child { margin-bottom: 0; }
+
+.cb-item-body { flex: 1; min-width: 0; }
+.cb-item-title {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--cb-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cb-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--cb-ink-2);
+}
+.cb-item-meta .badge { font-size: 0.625rem; letter-spacing: 0.04em; }
+.cb-item-actions { display: flex; align-items: center; gap: 0.35rem; flex: none; }
+.cb-item-actions .btn {
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  padding: 0.3rem 0.55rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: none;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+/* Resume marker on a history row. */
+.cb-resume {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--cb-accent);
+  font-weight: 600;
+}
+.cb-progress {
+  height: 0.1875rem;
+  border-radius: 2rem;
+  background: rgba(68, 71, 106, 0.12);
+  overflow: hidden;
+  margin-top: 0.4rem;
+}
+.cb-progress i {
+  display: block;
+  height: 100%;
+  border-radius: 2rem;
+  background: var(--cb-accent);
+}
+
+.cb-star { color: var(--cb-mute); }
+.cb-star.is-on { color: var(--cb-warn); }
+
+/* ---------- Empty states — never a dead end ---------- */
+.cb-empty {
+  text-align: center;
+  padding: 1.75rem 1.25rem;
+  border-radius: var(--cb-radius-xl);
+  box-shadow: var(--cb-shadow-inset);
+  color: var(--cb-ink-2);
+}
+.cb-empty h3 {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--cb-ink);
+  margin: 0 0 0.35rem;
+}
+.cb-empty p { font-size: 0.8125rem; margin: 0 auto 0.9rem; max-width: 46ch; line-height: 1.5; }
+.cb-empty .btn { text-transform: none; font-weight: 600; font-size: 0.8125rem; }
+
+/* A wall, stated. Same inset well as any empty state — this is an outcome,
+   not a failure — but the left rule marks it as "this will never work"
+   rather than "try again". Warning, not danger: nothing broke. */
+.cb-walled {
+  text-align: left;
+  border-left: 3px solid var(--cb-warn);
+  margin-top: 0.75rem;
+}
+.cb-walled p { margin-left: 0; margin-right: 0; }
+.cb-walled-note {
+  font-size: 0.75rem;
+  color: var(--cb-ink-soft);
+  font-style: italic;
+}
+
+/* ---------- Browser pane ---------- */
+.cb-frame-wrap {
+  position: relative;
+  border-radius: var(--cb-radius-xl);
+  box-shadow: var(--cb-shadow-inset);
+  padding: 0.4rem;
+  margin-top: 0.75rem;
+}
+.cb-frame {
+  display: block;
+  width: 100%;
+  height: 20rem;
+  border: 0;
+  border-radius: var(--cb-radius);
+  background: #f3f7fa;   /* $gray-100, not pure white */
+}
+.cb-frame-note {
+  padding: 1rem 0.85rem;
+  font-size: 0.8125rem;
+  color: var(--cb-ink-2);
+  line-height: 1.5;
+  text-align: center;
+}
+.cb-frame-note b { color: var(--cb-ink); font-weight: 600; }
+
+.cb-pagecard { margin-bottom: 0.75rem; }
+.cb-pagecard .card-body { padding: 0.85rem; }
+.cb-pagetitle {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--cb-ink);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cb-pagehost { font-size: 0.75rem; color: var(--cb-ink-2); }
+
+/* ---------- Search / filter ---------- */
+.cb-filterbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.cb-filterbar .form-control { flex: 1; min-width: 0; }
+.cb-chip {
+  flex: none;
+  padding: 0.45rem 0.75rem;
+  border: 0;
+  border-radius: 2rem;
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--cb-ink-2);
+  cursor: pointer;
+  min-height: 2.25rem;
+}
+.cb-chip[aria-pressed="true"] {
+  box-shadow: var(--cb-shadow-inset);
+  color: var(--cb-accent);
+}
+
+/* ---------- Inline validation ---------- */
+.cb-fielderror {
+  display: none;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--cb-bad);
+  line-height: 1.45;
+}
+.cb-fielderror.is-shown { display: flex; }
+.cb-fielderror button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--cb-accent);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.form-control.is-invalid,
+.form-control[aria-invalid="true"] { border-color: var(--cb-bad); }
+
+/* ---------- Toasts — auto-dismiss, carrying an undo ---------- */
+.cb-toasts {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  z-index: 50;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  pointer-events: none;
+}
+.cb-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 34rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: var(--cb-radius);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-soft);
+  font-size: 0.8125rem;
+  color: var(--cb-ink);
+}
+.cb-toast .cb-toast-text { flex: 1; min-width: 0; }
+.cb-toast .btn { flex: none; text-transform: none; font-weight: 700; font-size: 0.8125rem; padding: 0.3rem 0.7rem; }
+@media (prefers-reduced-motion: no-preference) {
+  .cb-toast { animation: cb-toast-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both; }
+}
+@keyframes cb-toast-in {
+  from { opacity: 0; transform: translateY(0.75rem); }
+  to { opacity: 1; transform: none; }
+}
+.cb-toast.is-leaving { opacity: 0; transition: opacity 0.18s ease-in; }
+
+/* ---------- Help ---------- */
+.cb-help { margin-top: 1.75rem; }
+.cb-help summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--cb-ink-2);
+  padding: 0.5rem 0;
+  list-style: none;
+}
+.cb-help summary::-webkit-details-marker { display: none; }
+.cb-help summary::after { content: " ›"; }
+.cb-help[open] summary::after { content: " ⌄"; }
+.cb-help dl { margin: 0.5rem 0 0; font-size: 0.8125rem; line-height: 1.55; color: var(--cb-ink-2); }
+.cb-help dt { font-weight: 700; color: var(--cb-ink); margin-top: 0.75rem; }
+.cb-help dt:first-child { margin-top: 0; }
+.cb-help dd { margin: 0.15rem 0 0; }
+
+/* ---------- Danger zone — bordered, labelled, last ---------- */
+.cb-danger {
+  margin-top: 1.25rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(169, 30, 44, 0.3);
+  border-radius: var(--cb-radius);
+}
+.cb-danger h3 {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cb-bad);
+  margin: 0 0 0.15rem;
+}
+.cb-danger p { font-size: 0.75rem; color: var(--cb-ink-2); margin: 0 0 0.6rem; line-height: 1.45; }
+.cb-danger .btn { text-transform: none; font-weight: 600; font-size: 0.8125rem; }
+
+.cb-linkbtn {
+  border: 0;
+  background: none;
+  padding: 0.35rem 0;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--cb-ink-2);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.cb-linkbtn.is-danger { color: var(--cb-bad); }
+
+.cb-sronly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Narrow phones: the action grid gets cramped at 4 across, never let it. */
+@media (max-width: 22.5rem) {
+  .cb-actions .btn { font-size: 0.8125rem; }
+  .cb-head { flex-wrap: wrap; }
+}
+
+/* ---------- Interaction states for the app's own controls ----------
+   Gate: default + hover + focus-visible + active + disabled, all present. */
+.cb-tabs .nav-link:hover { color: var(--cb-ink); }
+.cb-tabs .nav-link:active { transform: translateY(0.5px); }
+.cb-tabs .nav-link[aria-selected="true"]:hover { color: var(--cb-accent); }
+
+.cb-chip:hover { color: var(--cb-ink); }
+.cb-chip:active { box-shadow: var(--cb-shadow-inset); }
+
+.cb-linkbtn:hover { color: var(--cb-bad); }
+.cb-linkbtn:active { opacity: 0.75; }
+.cb-linkbtn:disabled { opacity: 0.5; cursor: default; text-decoration: none; }
+
+.cb-star:hover { color: var(--cb-warn); }
+
+.cb-skip:active { box-shadow: var(--cb-shadow-inset); }

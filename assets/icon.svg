@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Cast Bridge">
+  <defs>
+    <filter id="raise" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="14" dy="14" stdDeviation="14" flood-color="#b8b9be" flood-opacity="0.9"/>
+      <feDropShadow dx="-14" dy="-14" stdDeviation="14" flood-color="#ffffff" flood-opacity="1"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="#e6e7ee"/>
+
+  <g filter="url(#raise)">
+    <rect x="96" y="128" width="320" height="212" rx="34" fill="#e6e7ee"/>
+  </g>
+
+  <rect x="96" y="128" width="320" height="212" rx="34" fill="none" stroke="#d1d9e6" stroke-width="4"/>
+
+  <g fill="none" stroke="#2d4cc8" stroke-width="26" stroke-linecap="round">
+    <path d="M150 290a56 56 0 0 1 44 44"/>
+    <path d="M150 224a122 122 0 0 1 110 110"/>
+  </g>
+  <circle cx="152" cy="332" r="17" fill="#2d4cc8"/>
+
+  <rect x="196" y="376" width="120" height="18" rx="9" fill="#93a5be"/>
+</svg>

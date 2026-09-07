@@ -3,208 +3,200 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#12161C">
+<meta name="theme-color" content="#e6e7ee">
+<meta name="description" content="Paste or find a video link, play it, and send it to the TV.">
 <title>Cast Bridge</title>
 <link rel="manifest" href="manifest.json">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="32x32">
+<link rel="apple-touch-icon" href="assets/icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;800&display=swap" rel="stylesheet">
-<style>
-  :root{--bg:#12161C;--panel:#1B2129;--panel2:#232B36;--line:#2E3745;--ink:#EEF1F5;--mute:#8E98A8;--amber:#F2B441;--amber-ink:#1A1300;--ok:#5DD39E;--bad:#F26D6D}
-  *{box-sizing:border-box}
-  html,body{margin:0;background:var(--bg);color:var(--ink);font:500 16px/1.5 Manrope,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-  main{max-width:600px;margin:0 auto;padding:max(18px,env(safe-area-inset-top)) 16px 56px}
-  header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:16px}
-  h1{font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0}
-  .pill{font-size:13px;color:var(--mute)}
-  .row{display:flex;gap:8px}
-  input{flex:1;min-width:0;background:var(--panel);border:1.5px solid var(--line);color:var(--ink);border-radius:14px;padding:14px 16px;font:inherit;font-size:16px}
-  input:focus{outline:none;border-color:var(--amber)}
-  button{font:inherit;font-weight:800;border:0;border-radius:14px;padding:13px 18px;cursor:pointer;background:var(--amber);color:var(--amber-ink);white-space:nowrap}
-  button:disabled{opacity:.4;cursor:default}
-  button.quiet{background:var(--panel);color:var(--ink);border:1.5px solid var(--line)}
-  button.tiny{padding:6px 10px;font-size:13px;font-weight:600;border-radius:9px}
-  button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
-  .player{margin:14px 0 10px;background:#000;border-radius:16px;overflow:hidden;aspect-ratio:16/9;position:relative}
-  video{width:100%;height:100%;display:block;background:#000}
-  .empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--mute);font-size:15px;text-align:center;padding:20px}
-  .bar{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--panel);border-radius:14px;margin-bottom:10px;font-size:14px}
-  .dot{width:10px;height:10px;border-radius:50%;background:var(--mute);flex:none}
-  .dot.ok{background:var(--ok)} .dot.on{background:var(--amber);box-shadow:0 0 0 4px rgba(242,180,65,.2)} .dot.bad{background:var(--bad)}
-  .bar .grow{flex:1;min-width:0}
-  select{background:var(--panel2);color:var(--ink);border:1.5px solid var(--line);border-radius:10px;padding:7px 10px;font:inherit;font-size:13px}
-  .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  google-cast-launcher{--connected-color:var(--amber);--disconnected-color:var(--ink);width:24px;height:24px;display:inline-block}
-  .castbtn{display:flex;align-items:center;justify-content:center;gap:9px}
-  .hist{margin-top:26px}
-  .hist header{margin-bottom:8px}
-  .hist h2{font-size:14px;font-weight:600;color:var(--mute);margin:0}
-  .item{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--panel);border-radius:12px;margin-bottom:8px}
-  .item .t{flex:1;min-width:0}
-  .item .n{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:14px}
-  .item .w{display:block;color:var(--mute);font-size:12px}
-  .help{color:var(--mute);font-size:13.5px;margin-top:22px;line-height:1.55}
-  .help b{color:var(--ink);font-weight:600}
-  @media (prefers-reduced-motion:no-preference){.dot.on{animation:pulse 1.6s ease-in-out infinite}}
-  @keyframes pulse{50%{box-shadow:0 0 0 8px rgba(242,180,65,0)}}
-</style>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/neumorphism.css">
+<link rel="stylesheet" href="assets/css/app.css">
 </head>
 <body>
-<main>
-  <header><h1>Cast Bridge</h1><span class="pill" id="net">finding devices…</span></header>
 
-  <div class="row">
-    <input id="url" type="url" inputmode="url" placeholder="Paste a video link" autocomplete="off" spellcheck="false">
-    <button id="play">Play</button>
-  </div>
+<a class="cb-skip" href="#main">Skip to the player</a>
 
-  <div class="player">
-    <video id="video" controls playsinline preload="auto" x-webkit-airplay="allow"></video>
-    <div class="empty" id="empty">Paste a link above — mp4, webm, m3u8, or a Drive / Dropbox / Cloudinary share link</div>
-  </div>
+<div class="cb-shell">
 
-  <div class="bar">
-    <span class="dot" id="dot"></span>
-    <span class="grow" id="msg">Looking for cast devices on this Wi‑Fi…</span>
-    <select id="quality" hidden><option value="-1">Auto</option></select>
-  </div>
+  <header class="cb-head">
+    <div>
+      <h1 class="cb-wordmark">Cast<span>&nbsp;Bridge</span></h1>
+      <p class="cb-tagline">Find a video. Put it on the TV.</p>
+    </div>
+    <span class="cb-devicepill" id="devicePill">
+      <span class="cb-dot" id="devicePillDot"></span>
+      <span id="devicePillText">looking…</span>
+    </span>
+  </header>
 
-  <div class="actions">
-    <button id="cast" class="quiet castbtn" disabled><google-cast-launcher></google-cast-launcher><span>Cast to TV</span></button>
-    <button id="remote" class="quiet" hidden>AirPlay</button>
-    <button id="vlc" class="quiet" disabled>Open in VLC</button>
-    <button id="copy" class="quiet" disabled>Copy link</button>
-  </div>
+  <main id="main">
 
-  <section class="hist" id="histWrap" hidden>
-    <header><h2>History</h2><button class="tiny quiet" id="clear">Clear</button></header>
-    <div id="hist"></div>
-  </section>
+    <!-- ---------- Player ---------- -->
+    <div class="cb-screen is-idle" id="screen">
+      <div class="cb-screen-inner">
+        <video id="video" controls playsinline preload="metadata" x-webkit-airplay="allow"></video>
+        <div class="cb-idle" id="idle">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <span>Nothing playing. Paste a link below, or use <b>Browse</b> to pull the video off a page.</span>
+        </div>
+        <div class="cb-onair" id="onair">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><circle cx="2" cy="20" r="1"/></svg>
+          <strong id="onairTitle">Playing on the TV</strong>
+          <span id="onairSub">Your phone is the remote now.</span>
+        </div>
+      </div>
+    </div>
 
-  <p class="help">
-    <b>Chromecast, Google TV, Sony / TCL / Hisense (Android TV):</b> Cast to TV.
-    <b>Samsung / LG:</b> browsers can't reach them directly — tap Open in VLC, then use VLC's cast icon (it finds Samsung and LG over DLNA), or use your phone's Smart View mirroring.
-    <b>Apple TV:</b> AirPlay. Drive, Dropbox and Cloudinary share links are converted to direct links automatically; big Drive files may need "anyone with the link" sharing.
-  </p>
-</main>
+    <!-- ---------- Status strip ---------- -->
+    <div class="alert shadow-inset cb-status" id="status" role="status" aria-live="polite">
+      <span class="cb-dot" id="statusDot"></span>
+      <span class="cb-status-text" id="statusText">Looking for cast devices on this Wi&#8209;Fi…</span>
+      <label class="cb-sronly" for="quality">Stream quality</label>
+      <select class="form-control custom-select" id="quality" hidden>
+        <option value="-1">Auto</option>
+      </select>
+    </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
-<script>
-const $=id=>document.getElementById(id);
-const urlEl=$('url'),video=$('video'),empty=$('empty'),dot=$('dot'),msg=$('msg'),net=$('net'),qual=$('quality');
-const btnPlay=$('play'),btnCast=$('cast'),btnRemote=$('remote'),btnVlc=$('vlc'),btnCopy=$('copy');
-let current=null,hls=null,castState='NO_DEVICES_AVAILABLE';
+    <!-- ---------- Actions ---------- -->
+    <div class="cb-actions">
+      <button type="button" class="btn btn-primary" id="btnCast" disabled>
+        <google-cast-launcher aria-hidden="true"></google-cast-launcher>
+        <span>Cast to TV</span>
+      </button>
+      <button type="button" class="btn btn-primary" id="btnRemote" hidden>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"/><path d="m12 15 5 6H7z"/></svg>
+        <span>AirPlay</span>
+      </button>
+      <button type="button" class="btn btn-primary" id="btnVlc" disabled>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 3 5 8 5-8"/><path d="M5 14h14l2 7H3z"/></svg>
+        <span>Open in VLC</span>
+      </button>
+      <button type="button" class="btn btn-primary" id="btnCopy" disabled>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <span class="cb-label">Copy link</span>
+      </button>
+    </div>
 
-const setStatus=(t,k)=>{msg.textContent=t;dot.className='dot'+(k?' '+k:'');};
-const mime=u=>{const p=u.split('?')[0].toLowerCase();
-  if(p.endsWith('.m3u8'))return'application/x-mpegURL';if(p.endsWith('.mpd'))return'application/dash+xml';
-  if(p.endsWith('.webm'))return'video/webm';if(p.endsWith('.mkv'))return'video/x-matroska';if(p.endsWith('.mp3'))return'audio/mpeg';return'video/mp4';};
+    <!-- ---------- Source tabs ---------- -->
+    <div class="cb-tabs" role="tablist" aria-label="Where the video comes from">
+      <span class="cb-tab-indicator" id="tabIndicator" aria-hidden="true"></span>
+      <button type="button" class="nav-link" role="tab" id="tab-link" aria-controls="pane-link" aria-selected="true">
+        Link
+      </button>
+      <button type="button" class="nav-link" role="tab" id="tab-browse" aria-controls="pane-browse" aria-selected="false">
+        Browse
+      </button>
+      <button type="button" class="nav-link" role="tab" id="tab-history" aria-controls="pane-history" aria-selected="false">
+        History<span class="cb-tabcount" id="histCount" hidden>0</span>
+      </button>
+    </div>
 
-/* Turn common share links into direct media links (your own files on Drive / Dropbox / Cloudinary). */
-function resolve(u){
-  let m;
-  if((m=u.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?.*id=)([\w-]{10,})/)))return'https://drive.google.com/uc?export=download&id='+m[1];
-  if(/dropbox\.com\//.test(u))return u.replace('www.dropbox.com','dl.dropboxusercontent.com').replace(/[?&]dl=0/,'');
-  if(/res\.cloudinary\.com\/.+\/video\/upload\//.test(u)&&!/\/upload\/(q_|f_|vc_)/.test(u))return u.replace('/video/upload/','/video/upload/q_auto,f_auto/');
-  return u;
-}
+    <div class="tab-content">
 
-function load(raw){
-  let u=(raw||'').trim();
-  if(!/^https?:\/\//i.test(u)){setStatus('Enter a link that starts with http:// or https://','bad');return;}
-  u=resolve(u);
-  current=u;urlEl.value=u;empty.hidden=true;qual.hidden=true;qual.innerHTML='<option value="-1">Auto</option>';
-  if(hls){hls.destroy();hls=null;}
-  if(mime(u)==='application/x-mpegURL'&&window.Hls&&Hls.isSupported()){
-    hls=new Hls({startLevel:-1,capLevelToPlayerSize:false,maxBufferLength:60,maxMaxBufferLength:120,backBufferLength:30,abrEwmaDefaultEstimate:5e6,lowLatencyMode:false});
-    hls.loadSource(u);hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED,(_,d)=>{
-      if(d.levels.length>1){
-        d.levels.map((l,i)=>({i,h:l.height,b:l.bitrate})).sort((a,b)=>b.h-a.h).forEach(l=>{
-          const o=document.createElement('option');o.value=l.i;o.textContent=(l.h?l.h+'p':Math.round(l.b/1000)+'k');qual.appendChild(o);});
-        qual.hidden=false;
-      }
-    });
-    hls.on(Hls.Events.ERROR,(_,d)=>{if(d.fatal)setStatus('Stream error: '+d.details,'bad');});
-  }else{video.src=u;}
-  video.play().catch(()=>{});
-  btnVlc.disabled=false;btnCopy.disabled=false;
-  remember(u);updateUI();
-  if(castState==='CONNECTED')castLoad(u);
-}
-qual.addEventListener('change',()=>{if(hls)hls.currentLevel=parseInt(qual.value,10);});
+      <!-- ---------- Pane: paste a link ---------- -->
+      <section class="tab-pane is-active" id="pane-link" role="tabpanel" aria-labelledby="tab-link" tabindex="-1">
+        <form id="linkForm" novalidate>
+          <div class="input-group">
+            <label class="cb-sronly" for="url">Video link</label>
+            <input class="form-control form-control-lg" id="url" type="url" inputmode="url"
+                   placeholder="Paste a video link" autocomplete="off" spellcheck="false"
+                   aria-describedby="urlError">
+            <div class="input-group-append">
+              <button type="submit" class="btn btn-secondary" id="btnPlay">
+                <span class="cb-label">Play</span>
+                <span class="cb-spin" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+          <p class="cb-fielderror" id="urlError" role="alert"></p>
+        </form>
 
-/* ---------- Google Cast ---------- */
-window.__onGCastApiAvailable=ok=>{if(ok)initCast();else{net.textContent='cast unavailable';setStatus('Cast needs Chrome on Android or desktop Chrome.','bad');}};
-function initCast(){
-  const ctx=cast.framework.CastContext.getInstance();
-  ctx.setOptions({receiverApplicationId:chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,autoJoinPolicy:chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED});
-  ctx.addEventListener(cast.framework.CastContextEventType.CAST_STATE_CHANGED,e=>{castState=e.castState;updateUI();});
-  ctx.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED,e=>{
-    if(e.sessionState===cast.framework.SessionState.SESSION_STARTED&&current){video.pause();castLoad(current);}
-  });
-  castState=ctx.getCastState();updateUI();
-}
-function castLoad(u){
-  const s=cast.framework.CastContext.getInstance().getCurrentSession();if(!s)return;
-  const info=new chrome.cast.media.MediaInfo(u,mime(u));
-  info.streamType=chrome.cast.media.StreamType.BUFFERED;
-  if(mime(u)==='application/x-mpegURL'){info.hlsSegmentFormat=chrome.cast.media.HlsSegmentFormat.TS;info.hlsVideoSegmentFormat=chrome.cast.media.HlsVideoSegmentFormat.MPEG2_TS;}
-  info.metadata=new chrome.cast.media.GenericMediaMetadata();info.metadata.title=nameOf(u);
-  const req=new chrome.cast.media.LoadRequest(info);req.currentTime=video.currentTime||0;
-  const name=(s.getCastDevice()&&s.getCastDevice().friendlyName)||'TV';
-  s.loadMedia(req).then(()=>setStatus('Playing on '+name,'on'),
-    err=>setStatus('TV couldn’t play it ('+(err&&err.code||'error')+'). It needs a direct https .mp4/.m3u8 link.','bad'));
-}
-function updateUI(){
-  if(!window.cast){btnCast.disabled=true;return;}
-  const s=cast.framework.CastContext.getInstance().getCurrentSession();
-  const map={NO_DEVICES_AVAILABLE:['No cast devices on this Wi‑Fi','',true,'no devices'],
-    NOT_CONNECTED:['Cast device found — tap Cast to TV','ok',false,'device found'],
-    CONNECTING:['Connecting…','ok',true,'connecting'],
-    CONNECTED:['Connected to '+((s&&s.getCastDevice().friendlyName)||'TV'),'on',false,'connected']};
-  const m=map[castState]||map.NO_DEVICES_AVAILABLE;setStatus(m[0],m[1]);btnCast.disabled=m[2];net.textContent=m[3];
-}
-btnCast.addEventListener('click',()=>{const ctx=cast.framework.CastContext.getInstance();
-  if(castState==='CONNECTED'&&current)castLoad(current);else ctx.requestSession().catch(()=>{});});
+        <div class="cb-empty mt-3" id="linkHint">
+          <h3>Direct media links play here</h3>
+          <p>An <b>.mp4</b>, <b>.webm</b> or <b>.m3u8</b> address, or a Drive / Dropbox / Cloudinary share link — those get converted automatically.</p>
+          <button type="button" class="btn btn-primary btn-sm" id="hintBrowse">Got a webpage instead? Browse it</button>
+        </div>
+      </section>
 
-/* ---------- AirPlay / Remote Playback ---------- */
-if('remote' in video){btnRemote.hidden=false;
-  video.remote.watchAvailability(a=>{btnRemote.disabled=!a;}).catch(()=>{btnRemote.disabled=false;});
-  btnRemote.addEventListener('click',()=>{if(current)video.remote.prompt().catch(()=>{});});
-}else if(video.webkitShowPlaybackTargetPicker){btnRemote.hidden=false;btnRemote.disabled=false;
-  btnRemote.addEventListener('click',()=>{if(current)video.webkitShowPlaybackTargetPicker();});}
+      <!-- ---------- Pane: in-app browser ---------- -->
+      <section class="tab-pane" id="pane-browse" role="tabpanel" aria-labelledby="tab-browse" tabindex="-1">
+        <form id="browseForm" novalidate>
+          <div class="input-group">
+            <label class="cb-sronly" for="pageUrl">Page address</label>
+            <input class="form-control form-control-lg" id="pageUrl" type="url" inputmode="url"
+                   placeholder="Open a page address" autocomplete="off" spellcheck="false"
+                   aria-describedby="pageError">
+            <div class="input-group-append">
+              <button type="submit" class="btn btn-secondary" id="btnScan">
+                <span class="cb-label">Scan</span>
+                <span class="cb-spin" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+          <p class="cb-fielderror" id="pageError" role="alert"></p>
+        </form>
 
-/* ---------- VLC hand-off (Samsung/LG via VLC's DLNA renderer list) ---------- */
-btnVlc.addEventListener('click',()=>{if(!current)return;const ua=navigator.userAgent;
-  if(/android/i.test(ua)){const u=new URL(current);
-    location.href='intent://'+u.host+u.pathname+u.search+'#Intent;scheme='+u.protocol.replace(':','')+';package=org.videolan.vlc;type='+encodeURIComponent(mime(current))+';S.title='+encodeURIComponent(nameOf(current))+';end';}
-  else if(/iphone|ipad/i.test(ua)){location.href='vlc-x-callback://x-callback-url/stream?url='+encodeURIComponent(current);}
-  else{location.href='vlc://'+current;}});
-btnCopy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(current);btnCopy.textContent='Copied';setTimeout(()=>btnCopy.textContent='Copy link',1500);}catch{}});
+        <div id="browseResult"></div>
 
-/* ---------- History ---------- */
-const nameOf=u=>{try{const p=new URL(u);const f=decodeURIComponent(p.pathname.split('/').filter(Boolean).pop()||p.host);return f.length>60?f.slice(0,57)+'…':f;}catch{return u;}};
-const ago=t=>{const s=(Date.now()-t)/1000;if(s<60)return'just now';if(s<3600)return Math.floor(s/60)+' min ago';if(s<86400)return Math.floor(s/3600)+' h ago';return new Date(t).toLocaleDateString();};
-const getHist=()=>{try{return JSON.parse(localStorage.getItem('cb:hist')||'[]');}catch{return[];}};
-function remember(u){const h=[{u,t:Date.now()},...getHist().filter(x=>x.u!==u)].slice(0,20);localStorage.setItem('cb:hist',JSON.stringify(h));renderHist(h);}
-function renderHist(h){const wrap=$('histWrap'),box=$('hist');box.innerHTML='';wrap.hidden=!h.length;
-  h.forEach(x=>{const d=document.createElement('div');d.className='item';
-    d.innerHTML='<div class="t"><span class="n"></span><span class="w"></span></div>';
-    d.querySelector('.n').textContent=nameOf(x.u);d.querySelector('.w').textContent=ago(x.t);
-    const b=document.createElement('button');b.className='tiny';b.textContent='Play';b.onclick=()=>load(x.u);d.appendChild(b);
-    const r=document.createElement('button');r.className='tiny quiet';r.textContent='×';r.setAttribute('aria-label','Remove');
-    r.onclick=()=>{const n=getHist().filter(y=>y.u!==x.u);localStorage.setItem('cb:hist',JSON.stringify(n));renderHist(n);};d.appendChild(r);
-    box.appendChild(d);});}
-$('clear').addEventListener('click',()=>{localStorage.removeItem('cb:hist');renderHist([]);});
-renderHist(getHist());
+        <div class="cb-empty mt-3" id="browseHint">
+          <h3>Open a page, keep the video</h3>
+          <p>Cast Bridge loads the page, reads what media is on it, and lists every stream it finds so you can send one straight to the TV.</p>
+        </div>
+      </section>
 
-/* ---------- Wire up ---------- */
-btnPlay.addEventListener('click',()=>load(urlEl.value));
-urlEl.addEventListener('keydown',e=>{if(e.key==='Enter')load(urlEl.value);});
-video.addEventListener('error',()=>setStatus('This link won’t play here. It has to be the media file itself, not a webpage.','bad'));
-const q=new URLSearchParams(location.search).get('u');if(q)load(q);
-if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
-</script>
-<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+      <!-- ---------- Pane: history ---------- -->
+      <section class="tab-pane" id="pane-history" role="tabpanel" aria-labelledby="tab-history" tabindex="-1">
+        <div class="cb-filterbar">
+          <label class="cb-sronly" for="histSearch">Search history</label>
+          <input class="form-control" id="histSearch" type="search" placeholder="Search what you've played" autocomplete="off">
+          <button type="button" class="cb-chip" id="chipStarred" aria-pressed="false">Starred</button>
+        </div>
+
+        <div class="cb-list list-group" id="histList"></div>
+
+        <div class="cb-empty" id="histEmpty">
+          <h3>Nothing played yet</h3>
+          <p>Everything you play lands here with where you got to, so you can pick it back up on any screen.</p>
+          <button type="button" class="btn btn-primary btn-sm" id="emptyGoLink">Paste your first link</button>
+        </div>
+
+        <p class="cb-fielderror" id="histNoMatch" role="status"></p>
+
+        <div class="cb-danger" id="histDanger" hidden>
+          <h3>Danger zone</h3>
+          <p>Clearing removes every entry and every saved position on this device. You get ten seconds to take it back.</p>
+          <button type="button" class="cb-linkbtn is-danger" id="btnClearHist">Clear all history</button>
+          <button type="button" class="btn btn-primary btn-sm ml-3" id="btnExportHist">Export as JSON</button>
+        </div>
+      </section>
+
+    </div>
+
+    <details class="cb-help">
+      <summary>Which TVs work, and how</summary>
+      <dl>
+        <dt>Chromecast, Google TV, Android TV (Sony, TCL, Hisense)</dt>
+        <dd>Use <b>Cast to TV</b>. Chrome on Android or desktop Chrome only — other browsers have no Cast API.</dd>
+        <dt>Apple TV, AirPlay speakers</dt>
+        <dd>Use <b>AirPlay</b> in Safari on iPhone, iPad or Mac.</dd>
+        <dt>Samsung and LG</dt>
+        <dd>Browsers can't reach these directly. Tap <b>Open in VLC</b> and use VLC's cast icon — it finds them over DLNA. Phone mirroring (Smart View) also works.</dd>
+        <dt>A stream that plays here but not on the TV</dt>
+        <dd>The TV fetches the link itself, so it has to be a public <b>https</b> address. Links that need a login or a signed cookie won't reach it.</dd>
+      </dl>
+    </details>
+
+  </main>
+</div>
+
+<div class="cb-toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js" defer></script>
+<script src="assets/js/app.js" defer></script>
+<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1" defer></script>
 </body>
 </html>
