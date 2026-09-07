@@ -81,5 +81,18 @@
 - [x] Task 18: Pull-to-refresh audited against RJ-Design-Skill
       §navigation-and-feedback §6 and left alone — it already satisfies all six
       rules and guards double-fire. Working code was not rewritten.
-- [ ] Task 19: Video extraction against Rj's two test links — BLOCKED, see
-      issues.md. The links are not in the thread.
+- [x] Task 19: Video extraction run against Rj's two test links, both of them,
+      no substitutes. Quick scan: empty on both. Deep scan on the code as it
+      stood: empty on both, with a message blaming a sign-in. Only one of those
+      two answers was right, and it was right for the wrong reason.
+      desicinema.org ships its player as `<iframe src="about:blank">` with the
+      real address in `data-litespeed-src`; the scan watched a blank frame for
+      its whole budget. It now promotes deferred iframe addresses, scrolls to
+      trip the lazy-loader, and pokes the play control inside every frame,
+      twice, because an embed builds its inner frame after it boots. The frame
+      is now found and opened (`saw.frames: 1`, previously nothing) — but no
+      stream is captured from that host even so; see issues.md.
+      groundbanks.net has no video on it at all: zero media elements, and its
+      only iframe is a zero-pixel tag-manager pixel. An empty deep scan now
+      reports whether a player was on the page, so "there is nothing here" and
+      "there is a player here that gave us nothing" stopped sounding alike.

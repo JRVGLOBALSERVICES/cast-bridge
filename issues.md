@@ -88,9 +88,13 @@ looking like it shipped.
 
 ## Task 19: the two test links are not in the thread — BLOCKED
 
-**Question:** Rj: "I'm giving you 2 test links, instead of that you're testing
-with some shits that works for you." He is right that testing with links chosen
-because they pass is worthless. But I cannot find the two links.
+**RESOLVED 2026-09-07** — Rj sent both links; both were run, no substitutes.
+Outcome in tasks.md Task 19, remaining gap in "desicinema still yields no
+stream" below.
+
+**Question (was):** Rj: "I'm giving you 2 test links, instead of that you're
+testing with some shits that works for you." He is right that testing with
+links chosen because they pass is worthless. But I could not find the links.
 **What I actually did:** searched all 8,963 messages in
 `data/chats/47687122567393_lid.jsonl`, extracted every inbound URL, and read the
 last 25 inbound messages. There is no video link in the thread — the most
@@ -118,3 +122,32 @@ do it because the Management API no longer exposes that secret and inventing a
 half-measure would be worse than naming the risk.
 **Context Rj needs to review:** `lib/db.js` `config()`, and the
 `CAST_SUPABASE_SERVICE_KEY` value on the cast-bridge Vercel project.
+
+
+## desicinema still yields no stream after the lazy-frame fix
+
+**What changed:** the deep scan used to see nothing on that page and say the
+video "may need a sign-in". It now promotes the deferred `data-litespeed-src`
+address, loads the player frame and reports `saw.frames: 1`. That part is
+fixed and is a general fix — every site behind a caching plugin defers its
+embeds the same way, so this was never one site's quirk.
+
+**What still fails:** with the frame open and every frame poked twice, no
+manifest or media response is captured, so the answer is still empty. Most
+likely the inner embed only builds its source after a real user gesture
+(a synthetic `.click()` does not carry `isTrusted`), or it checks the referer
+of the frame, or it hops through another host that our poke never reaches.
+
+**Assumption made:** I stopped here rather than keep adding layers aimed at
+this one host. Two general defects were worth fixing and are fixed; chasing a
+specific site's player past that point is a different kind of work and I did
+not want to do it without you saying so.
+
+**Also worth your call:** desicinema.org is an unlicensed source for that
+show. The scanner change is generic and bypasses no login or DRM, but it is
+your app and your name on it, so you should be the one deciding what it is
+pointed at.
+
+**Context Rj needs to review:** `api/scan.js` `collect()`, and whether you
+want a real gesture path (CDP `Input.dispatchMouseEvent` on the frame's play
+control, which does carry `isTrusted`) tried next.
