@@ -900,3 +900,46 @@ is cleared on SESSION_ENDED and on dismiss.
 **Worth your eye:** `BEAT_MS` in `assets/js/app.js` is the dial, and
 `FRESH_MS` in `lib/nowplaying.js` is what has to stay at least ~4x it. Raise
 one without the other and a live session starts reading as `maybe`.
+
+## Task 42: iOS gets the notification but not the buttons
+
+**Question:** should the app say so, or stay quiet about it?
+**Assumption made:** stay quiet for now. Safari on iOS supports web
+notifications from an installed copy (16.4+) but ignores `actions`
+entirely — no Pause, no Stop, and no way to feature-detect it before
+drawing one. Writing "buttons are Android-only" into the Notifications row
+would be a sentence about a platform in a settings screen, which is the kind
+of copy that ages badly and reads as an apology. The notification itself is
+still correct and useful there, and tapping it opens the app.
+**Worth your eye:** `castActions()` in `assets/js/app.js`. If you want the
+row to say it, that is where the truth would have to come from — and it
+would have to be a real UA check, not a guess.
+
+## Task 42: the acknowledgement is sent BEFORE the work, not after
+
+**Question:** should the page acknowledge a tap once it has actually
+paused the television, rather than the moment it receives it?
+**Assumption made:** before. The worker is counting milliseconds to decide
+whether anybody is alive, and a Stop that tears down a Cast session can take
+longer than that window — acknowledging after the work would make every slow
+Stop look like a dead page, write the tap down a second time and open the
+app for no reason. The claim being made by the acknowledgement is "a live
+page has this", which is true at that line.
+**Worth your eye:** if a page acknowledges and then dies mid-Stop, the tap is
+lost — no retry. The film stays on the television, which is the safe end of
+that trade.
+
+## Tasks 41-46: what a VPS cannot prove
+
+**Question:** none — this is the boundary, stated plainly.
+**Assumption made:** n/a.
+**Worth your eye:** three things are unproven here and all three need a
+phone. (1) A real Android shade: the cover, the wide image and both buttons
+are proven to reach a real Chrome as real `Notification` objects with the
+right fields, but how Android *draws* them is its own business. (2) A tap on
+a real button, because no CDP command dispatches a `notificationclick` — the
+worker's handling of one is proven against the real `sw.js` in 28
+assertions, seen red first on the actual bugs. (3) The replay against a live
+Chromecast, which needs a television on the same Wi-Fi. If a tapped Pause
+opens the app and then does nothing, that is where to look — `withCast()` in
+`assets/js/app.js`, which waits eight seconds for the session to come back.

@@ -15,6 +15,7 @@ const SHELL = [
   '/index.html',
   '/assets/css/neumorphism.css',
   '/assets/css/app.css',
+  '/assets/js/artwork.js',
   '/assets/js/qr.js',
   '/assets/js/app.js',
   '/assets/icon.svg',
@@ -96,20 +97,122 @@ self.addEventListener('fetch', (e) => {
  * worker registration. `window.Notification` cannot carry them.
  * ------------------------------------------------------------------ */
 
-/* A tap anywhere on the notification means "show me". Focus the copy that
-   is already open rather than opening a second one — two Cast Bridges
-   fighting over one Cast session is a worse bug than the one being
-   reported. */
+/* A tap anywhere on the notification means "show me".
+ *
+ * Focus the copy that is already open rather than opening a second one —
+ * two Cast Bridges fighting over one Cast session is a worse bug than the
+ * one being reported.
+ *
+ * It used to `navigate()` that client to the notification's url first, and
+ * that is why a tap read as "the notification just disappears". Two faults
+ * in one line: navigating an OPEN window is a full reload, which drops the
+ * Cast sender the notification is reporting on; and per spec the client
+ * reference is spent by the navigation, so the `focus()` that followed
+ * could reject and leave a closed notification and no window. Focus is the
+ * whole job for a window that exists. The url is only used to decide what
+ * to open when there is nothing to focus. */
 async function focusApp(url) {
   const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   for (const c of all) {
     if ('focus' in c) {
-      if (url && 'navigate' in c) { try { await c.navigate(url); } catch (e) { /* cross-origin or gone */ } }
-      return c.focus();
+      try { return await c.focus(); } catch (e) { /* gone between listing and focusing */ }
     }
   }
-  if (self.clients.openWindow) return self.clients.openWindow(url || '/');
+  if (self.clients.openWindow) {
+    try { return await self.clients.openWindow(url || '/'); } catch (e) { return null; }
+  }
   return null;
+}
+
+/* ---- The buttons in the shade ----------------------------------------
+ *
+ * Pause and Stop cannot be performed here. The Cast session lives in the
+ * page's SDK and the <video> element lives in the page, so this worker can
+ * only ever be a courier: it hands the tap to a page and the page acts.
+ *
+ * The bug that made them do nothing was treating "a window client exists"
+ * as "a page is listening". Neither half holds on a phone. The app is
+ * usually not running at all when the notification matters — the previous
+ * version opened the app and dropped the tap on the floor — and Android
+ * freezes a backgrounded PWA within minutes, so postMessage to it is
+ * QUEUED, not delivered, and the film carries on playing while the shade
+ * says it was paused.
+ *
+ * So a tap is delivered, waited on for an acknowledgement, and if none
+ * comes it is written down and the app is opened to perform it on wake.
+ * Every tap carries an id and the page refuses an id twice, because the
+ * frozen page WILL thaw and process its queued copy as well. */
+const ACTION_TTL = 90000;            // older than this and it is not what they meant
+const ACK_MS = 1500;                 // a live page answers in single-digit ms
+const PENDING_KEY = '/__pending-action';
+
+let seq = 0;
+function actionId() {
+  seq += 1;
+  return Date.now().toString(36) + '-' + seq;
+}
+
+/* Written to the cache, not to a variable: this worker can be shut down
+   between opening the app and the app booting, and a tap that survives
+   only in memory is the same dropped tap with more steps. */
+async function writePending(job) {
+  try {
+    const c = await caches.open(CACHE);
+    await c.put(new Request(PENDING_KEY),
+      new Response(JSON.stringify(job), { headers: { 'content-type': 'application/json' } }));
+  } catch (e) { /* storage refused; the app opening is still the right outcome */ }
+}
+
+async function takePending() {
+  try {
+    const c = await caches.open(CACHE);
+    const hit = await c.match(PENDING_KEY);
+    if (!hit) return null;
+    await c.delete(PENDING_KEY);
+    const job = await hit.json();
+    if (!job || typeof job.at !== 'number') return null;
+    if (Date.now() - job.at > ACTION_TTL) return null;   // stale: they moved on
+    return job;
+  } catch (e) { return null; }
+}
+
+async function clearPending(id) {
+  const job = await takePending();
+  if (job && job.id !== id) await writePending(job);     // not the one acknowledged
+}
+
+/* One client, one channel, one answer. Resolves false on silence rather
+   than hanging, because silence is the case this exists to handle. */
+function askClient(client, msg) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    let ch = null;
+    try { ch = new MessageChannel(); } catch (e) { ch = null; }
+    if (ch) {
+      ch.port1.onmessage = (ev) => {
+        const d = ev.data || {};
+        finish(d.type === 'NOTIFY_ACTION_ACK' && d.id === msg.id);
+      };
+    }
+    try { client.postMessage(msg, ch ? [ch.port2] : undefined); } catch (e) { finish(false); }
+    setTimeout(() => finish(false), ACK_MS);
+  });
+}
+
+async function deliverAction(action, tag, data) {
+  const msg = { type: 'NOTIFY_ACTION', id: actionId(), action, tag, data };
+  const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+
+  const acked = all.length
+    ? (await Promise.all(all.map((c) => askClient(c, msg)))).some(Boolean)
+    : false;
+  if (acked) return;
+
+  /* Nobody performed it. Write it down and bring the app up — on boot it
+     asks for this and runs it against a live Cast session. */
+  await writePending({ id: msg.id, action, tag, data, at: Date.now() });
+  await focusApp(data && data.url);
 }
 
 self.addEventListener('notificationclick', (e) => {
@@ -121,13 +224,7 @@ self.addEventListener('notificationclick', (e) => {
      state, and a closed notification cannot be updated, it can only be
      replaced with a second one that slides in from the top. */
   if (action) {
-    e.waitUntil((async () => {
-      const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      for (const c of all) c.postMessage({ type: 'NOTIFY_ACTION', action, tag: e.notification.tag, data });
-      /* Nothing is listening. The buttons are lies without a page behind
-         them, so open one — it will pick up where the session left off. */
-      if (!all.length) await focusApp(data.url);
-    })());
+    e.waitUntil(deliverAction(action, e.notification.tag, data));
     return;
   }
 
@@ -150,6 +247,11 @@ self.addEventListener('notificationclose', (e) => {
    doubt — the useful one is what this installed copy is running. */
 self.addEventListener('message', (e) => {
   const data = e.data || {};
+  const reply = (msg) => {
+    if (e.ports && e.ports[0]) e.ports[0].postMessage(msg);
+    else if (e.source) e.source.postMessage(msg);
+  };
+
   if (data.type === 'SKIP_WAITING') { self.skipWaiting(); return; }
   /* Draw, update or clear one. Kept deliberately dumb: the page decides
      what to say and when, because the page is the only thing that knows
@@ -159,14 +261,27 @@ self.addEventListener('message', (e) => {
     self.registration.showNotification(data.title || 'Cast Bridge', o);
     return;
   }
+  /* One subject, or the lot. The tagless form is what a page sends when it
+     comes to the front: everything in the shade is about a screen the
+     person is now looking at, including anything drawn by a PREVIOUS
+     instance of this app — which the fresh one has no record of and could
+     not otherwise clear. */
   if (data.type === 'NOTIFY_CLOSE') {
-    self.registration.getNotifications({ tag: data.tag })
+    const filter = data.tag ? { tag: data.tag } : undefined;
+    self.registration.getNotifications(filter)
       .then((list) => list.forEach((n) => n.close()));
     return;
   }
-  if (data.type === 'GET_BUILD') {
-    const reply = { build: BUILD };
-    if (e.ports && e.ports[0]) e.ports[0].postMessage(reply);
-    else if (e.source) e.source.postMessage(reply);
+  /* A page that thawed and performed its queued copy, so the written-down
+     one must not fire a second time. */
+  if (data.type === 'NOTIFY_ACTION_ACK') {
+    e.waitUntil ? e.waitUntil(clearPending(data.id)) : clearPending(data.id);
+    return;
   }
+  /* Asked on boot: "was a button tapped while I was not running?" */
+  if (data.type === 'GET_PENDING_ACTION') {
+    takePending().then((job) => reply({ type: 'PENDING_ACTION', job: job || null }));
+    return;
+  }
+  if (data.type === 'GET_BUILD') reply({ build: BUILD });
 });

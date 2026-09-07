@@ -939,3 +939,46 @@
       banner exists to carry, to protect a button whose label is guessable
       from context. It is on its own row now, and the text is clamped to two
       lines rather than one.
+- [x] Task 41: The cover, which the app was already being handed and threw
+      away. `/api/scan` and `/api/extract` both return the page's
+      `<video poster>` / `og:image` as `poster`, and nothing on the client
+      ever read it — which is why every notification was a grey app icon
+      over a film with a perfectly good cover. `assets/js/artwork.js` now
+      owns the chain: the page's cover if it PROVES it loads (a hotlinked
+      poster that 403s for our referer is a broken-image glyph on a lock
+      screen and there is no second chance), a frame of the film if the
+      pixels are ours to read, the app icon last. It reaches the
+      notification's `icon` and `image`, the Media Session artwork, and the
+      Chromecast's own metadata — that one only when it is an address the
+      television can fetch for itself, because a captured frame is a data:
+      URL and would be a broken image on the wall.
+- [x] Task 42: Pause and Stop that did nothing. The worker treated "a window
+      client exists" as "a page is listening". Neither half holds on a
+      phone: the app is usually not running at all when the notification
+      matters — the old code opened it and dropped the tap on the floor —
+      and Android freezes a backgrounded PWA within minutes, so postMessage
+      to it is QUEUED, not delivered, and the film carries on playing while
+      the shade says it was paused. A tap is now delivered, waited on for an
+      acknowledgement, and if none comes it is written to the cache and the
+      app is opened to perform it on wake. Every tap carries an id and no id
+      runs twice, because the frozen page thaws and processes its copy too.
+- [x] Task 43: A replayed tap must not act on the phone. It arrives before
+      the Cast SDK has rejoined, so `castState` is not CONNECTED and the old
+      branch fell through to the local element — tapping Pause in the shade
+      would have started the film playing out loud in your pocket. It waits
+      up to eight seconds for the session and says so if it never comes.
+- [x] Task 44: A tap on the notification itself. It called `navigate()` on
+      the open window before focusing it: navigating reloads the page, which
+      drops the Cast sender the notification is reporting on, and per spec
+      spends the client reference so the `focus()` after it can reject —
+      leaving a closed notification and no window, which is exactly "it just
+      disappears". Focus is the whole job for a window that exists.
+- [x] Task 45: The lock screen read the wrong player. `playbackState` came
+      from the local `<video>`, which is deliberately paused while a film is
+      on the television, so the widget drew a Play button over a film that
+      was playing on the wall. It follows the television when there is one,
+      and `playbackRate` is 1 there rather than this element's.
+- [x] Task 46: A notification outliving the page that drew it. Opening the
+      app from a tap left the old one in the shade, reporting on the screen
+      now in front of you — the fresh page has no record of it and cannot
+      name its tag. Coming to the front now sends a registration-wide close.

@@ -56,10 +56,27 @@ not by its name.
   screen; one tag per subject, so the upload is one notification that changes
   rather than twenty-four. Pause and Stop ride on the cast one. Off by default
   and asked for from the Notifications row in More, never on boot.
+  A tapped button is a courier problem, not a control problem: the Cast
+  session lives in the page, so the worker delivers the tap, waits for an
+  acknowledgement, and — when the app is frozen or was not running, which is
+  most of the time a notification matters — writes the tap down and opens the
+  app to perform it on wake. Every tap carries an id and no id runs twice,
+  because a frozen page thaws and processes its queued copy as well. A tap on
+  the notification itself focuses the app; it never navigates it, which would
+  reload the page and drop the very Cast session being reported on.
+- **The cover, not the app icon** — `/api/scan` and `/api/extract` already read
+  each page's `<video poster>` and `og:image`; `assets/js/artwork.js` decides
+  what to do with it. The page's own cover if it proves it loads, a frame of
+  the film if the pixels are ours to read, the app icon last. It goes to the
+  notification's icon and wide image, to the lock screen, and — only when it
+  is an address a television can fetch for itself — to the Chromecast.
 - **Lock-screen controls** — Media Session: title, artwork, scrubber and the
   transport keys, including headphone and car-stereo buttons. It exists while
   this tab is playing audio, which means it goes away once a film is on the
   television — that case is what the cast notification's buttons are for.
+  While a film IS on the television the state is read from the television and
+  not from the local element, which is deliberately paused: reading it off the
+  element drew a Play button over a film that was playing on the wall.
 - **AirPlay** — Remote Playback API, where the browser has it (Safari, iOS).
 - **Open in VLC** — hands the link to VLC on the phone (Android intent, iOS
   x-callback). This is the route to Samsung, LG, Roku and Fire TV, which no
@@ -115,6 +132,7 @@ lib/     media.js  — fetch guards, extraction, probing, HLS expansion
          nowplaying.js — the live session: shaping, freshness, resume point
          db.js · auth.js · users.js
 assets/  app.js  — nine screens behind a five-entry bottom bar, one job each
+         artwork.js — which picture the shade and the lock screen show
          qr.js   — byte-mode QR encoder, versions 1-10, level L (Bilibili)
          app.css — neumorphism, one dark surface: the on-air panel
 db/      001_castbridge_schema.sql          — users, history
@@ -123,7 +141,8 @@ db/      001_castbridge_schema.sql          — users, history
 scripts/ dev.js — local server that routes the functions like Vercel does
          stamp-build.mjs — assembles public/ and stamps sw.js BUILD
          test-all.js — runs every suite and never hides a red one
-         test-{unpack,reissue,cookies,subs,crawl,nowplaying}.js — 146 assertions
+         test-{unpack,reissue,cookies,subs,crawl,nowplaying,notify}.js
+                       — 174 assertions
 sw.js    app shell, plus the notifications the page asks it to draw
 server/  stream-server.js — runs api/stream.js as a service on our own box
 deploy/  stream.jrvsystems.app.conf — the nginx vhost in front of it

@@ -208,6 +208,7 @@
         found.plays = (found.plays || 0) + 1;
         if (meta.title) found.title = meta.title;
         if (meta.from) found.from = meta.from;
+        if (meta.poster) found.poster = meta.poster;
         found.kind = kindOf(url);
         d.items.unshift(found);
         if (d.items.length > CAP) d.items.length = CAP;
@@ -467,7 +468,7 @@
 
     function setOff() { writePref('0'); clearAll(); announce(); }
 
-    function setReg(r) { reg = r; paint(); }
+    function setReg(r) { reg = r; paint(); clearShade(); }
 
     function post(msg) {
       var w = (reg && (reg.active || reg.waiting)) || navigator.serviceWorker.controller;
@@ -483,13 +484,22 @@
       var o = {
         body: n.body || '',
         tag: n.tag,
-        icon: '/assets/icon-192.png',
+        /* Three separate pictures, and they are not interchangeable.
+           `badge` is the monochrome stencil in the status bar and must stay
+           the app's mark — a film's cover reduced to one colour is a smear.
+           `icon` is the small square beside the text: the cover when there
+           is one, because that is what tells two notifications apart at a
+           glance. `image` is the wide picture Android draws when the shade
+           is expanded, and it is the cover or nothing — the app icon
+           stretched across it says nothing and costs a whole row. */
+        icon: n.art || '/assets/icon-192.png',
         badge: '/assets/icon-192.png',
         silent: n.urgent ? false : true,
         renotify: false,
         requireInteraction: Boolean(n.ongoing),
         data: { url: n.url || '/', tag: n.tag }
       };
+      if (n.art) o.image = n.art;
       if (n.actions && n.actions.length) o.actions = n.actions.slice(0, 2);
       return o;
     }
@@ -520,6 +530,17 @@
       paint();
     }
 
+    /* Change one field of a notification that is already up — the cover
+       arriving a second after the film started is the case this exists
+       for. Silent by tag: the shade replaces it in place. */
+    function update(tag, patch) {
+      if (!wanted[tag] || !patch) return;
+      for (var k in patch) {
+        if (Object.prototype.hasOwnProperty.call(patch, k)) wanted[tag][k] = patch[k];
+      }
+      paint();
+    }
+
     function close(tag) {
       delete wanted[tag];
       delete swiped[tag];
@@ -536,7 +557,52 @@
     function onAction(fn) { listeners.push(fn); }
     function onChange(fn) { changed.push(fn); }
 
-    document.addEventListener('visibilitychange', paint);
+    /* Coming to the front clears the shade.
+     *
+     * paint() only takes down what THIS page put up, and after a tap that
+     * opened the app there is a notification up that no live page owns —
+     * drawn by an instance that has since been shut down. It would sit
+     * there reporting on the screen now in front of them. The tagless
+     * close is registration-wide, so it gets that one too. */
+    function clearShade() {
+      if (document.hidden) return;
+      post({ type: 'NOTIFY_CLOSE' });
+      for (var tag in painted) {
+        if (Object.prototype.hasOwnProperty.call(painted, tag)) painted[tag] = false;
+      }
+    }
+
+    document.addEventListener('visibilitychange', function () {
+      paint();
+      clearShade();
+    });
+
+    /* Every tap carries an id and no id is performed twice.
+     *
+     * A tap can arrive here by two roads and often by both: the worker
+     * posts it to this page, and — when this page was frozen or shut and
+     * could not answer in time — it also writes it down and opens the app,
+     * which asks for it on boot. A phone that was merely frozen then thaws
+     * and delivers the queued copy as well. Without this set, one tap on
+     * Pause is a pause and then a play. */
+    var done = {};
+
+    function perform(d, ack) {
+      if (!d || !d.action) return;
+      if (d.id) {
+        if (done[d.id]) { ack(); return; }
+        done[d.id] = true;
+      }
+      /* Acknowledged BEFORE the work, not after: the worker is counting
+         milliseconds to decide whether anybody is alive, and a Stop that
+         tears down a Cast session can take longer than that. The claim
+         being made is "a page has this", which is true at this line. */
+      ack();
+      for (var i = 0; i < listeners.length; i++) {
+        try { listeners[i](d.action, d.tag, { replayed: Boolean(d.replayed) }); }
+        catch (err) { /* keep going */ }
+      }
+    }
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('message', function (e) {
@@ -547,16 +613,40 @@
           return;
         }
         if (d.type !== 'NOTIFY_ACTION') return;
-        for (var i = 0; i < listeners.length; i++) {
-          try { listeners[i](d.action, d.tag); } catch (err) { /* keep going */ }
-        }
+        perform(d, function () {
+          var msg = { type: 'NOTIFY_ACTION_ACK', id: d.id };
+          /* The port answers the worker that is still awake waiting for it;
+             the controller answers one that has since been shut down and
+             restarted, which is where the written-down copy lives. */
+          if (e.ports && e.ports[0]) { try { e.ports[0].postMessage(msg); } catch (err) {} }
+          post(msg);
+        });
       });
+    }
+
+    /* "Was a button tapped while I was not running?" Asked once, on boot,
+       after the rest of the app has wired itself up — a Pause performed
+       before there is a Cast session to pause is the dropped tap again. */
+    function drainPending() {
+      if (!('serviceWorker' in navigator)) return;
+      var ch;
+      try { ch = new MessageChannel(); } catch (e) { return; }
+      ch.port1.onmessage = function (ev) {
+        var d = ev.data || {};
+        if (d.type !== 'PENDING_ACTION' || !d.job) return;
+        perform({ id: d.job.id, action: d.job.action, tag: d.job.tag, replayed: true },
+          function () {});
+      };
+      var w = (reg && reg.active) || navigator.serviceWorker.controller;
+      if (!w) return;
+      try { w.postMessage({ type: 'GET_PENDING_ACTION' }, [ch.port2]); } catch (e) {}
     }
 
     return {
       setReg: setReg, state: state, on: on, ask: ask, off: setOff,
-      show: show, close: close, clearAll: clearAll,
-      onAction: onAction, onChange: onChange, standalone: standalone
+      show: show, update: update, close: close, clearAll: clearAll,
+      onAction: onAction, onChange: onChange, standalone: standalone,
+      drainPending: drainPending
     };
   })();
 
@@ -1169,7 +1259,14 @@
       video.src = forceProxy ? streamUrl(u) : u;
     }
 
-    var record = store.touch(u, { title: currentTitle, from: meta.from || '' });
+    var record = store.touch(u, {
+      title: currentTitle, from: meta.from || '', poster: meta.poster || ''
+    });
+    /* The cover the scan found, or the one remembered from the last time
+       this address was played — which is what makes a film opened from
+       History or resumed from the TV arrive with its picture rather than
+       only the ones opened from a fresh scan. */
+    artwork.set(meta.poster || (record && record.poster) || '');
     /* Local first so the list is instant, then up to the server, which is
        the copy that survives a reinstall or a different phone. */
     recordPlay(u, { title: currentTitle, kind: record && record.kind });
@@ -1261,6 +1358,13 @@
   /* The lock screen's own transport state. Cheap, and it has to be exact:
      a widget showing a play triangle over a film that is playing is a tap
      that stops what you wanted. */
+  /* A film with no cover gets one from itself, once there are pixels to
+     read. `loadeddata` is the first moment a frame exists; `seeked` covers
+     the resume case, where the first frame is a black second of leader and
+     the frame they actually came back to is the better picture. */
+  video.addEventListener('loadeddata', function () { artwork.tryFrame(); });
+  video.addEventListener('seeked', function () { artwork.tryFrame(); });
+
   video.addEventListener('play', function () { mediaSession.update({ state: 'playing' }); });
   video.addEventListener('pause', function () { mediaSession.update({ state: 'paused' }); });
   video.addEventListener('loadedmetadata', function () { mediaSession.position(); });
@@ -1942,6 +2046,14 @@
     }
     info.metadata = new M.GenericMediaMetadata();
     info.metadata.title = currentTitle || nameOf(u);
+    /* The television draws this behind the film while it is paused and on
+       the idle screen after it ends, and it fetches the picture itself —
+       so only an address it can reach is any use. A frame captured from
+       this phone is a data: URL and would be a broken image on the wall. */
+    var remoteArt = artwork.remote();
+    if (remoteArt) {
+      try { info.metadata.images = [new chrome.cast.Image(remoteArt)]; } catch (e) { /* older sender */ }
+    }
 
     /* A text track has to be declared when the media loads — there is no
        way to bolt one on afterwards, which is why turning subtitles on
@@ -2183,6 +2295,10 @@
     if (remotePlayer.playerState !== lastPlayerState) {
       lastPlayerState = remotePlayer.playerState;
       logCast('TV player state: ' + (lastPlayerState || 'idle') + idleTail());
+      /* The lock screen is drawing a Play or a Pause for this same film.
+         It follows the television now, so it has to be told when the
+         television changes its mind. */
+      mediaSession.update();
       var PSx = window.chrome.cast.media.PlayerState;
       if (lastPlayerState === PSx.PLAYING) {
         disarmStallWatch();
@@ -2287,6 +2403,22 @@
    * working for the second or two before it goes away.
    * ------------------------------------------------------------------ */
 
+  /* ------------------------------------------------------------------ *
+   * Artwork — the cover, and what to do when there isn't one
+   *
+   * The rules live in assets/js/artwork.js so they can be proven without a
+   * phone; what is decided here is only which pieces of this page it is
+   * allowed to look at. See that file for why a poster is loaded before it
+   * is trusted and why a captured frame is never offered to a television.
+   * ------------------------------------------------------------------ */
+
+  var artwork = window.CBArtwork.create({
+    document: document,
+    Image: window.Image,
+    setTimeout: function (fn, ms) { return setTimeout(fn, ms); },
+    video: video
+  });
+
   var mediaSession = (function () {
     var ms = navigator.mediaSession;
     if (!ms || typeof window.MediaMetadata !== 'function') {
@@ -2344,6 +2476,7 @@
     function update(opts) {
       opts = opts || {};
       if (!current) { clear(); return; }
+      var art = artwork.current();
       try {
         ms.metadata = new window.MediaMetadata({
           title: currentTitle || nameOf(current),
@@ -2353,13 +2486,29 @@
              screen than a repeat of the filename. */
           artist: currentFrom || hostOf(current) || 'Cast Bridge',
           album: 'Cast Bridge',
-          artwork: [
+          /* The film's own cover first, when there is one. `sizes` is
+             deliberately omitted for it: the OS treats that list as a
+             promise and a poster whose real dimensions are not 192x192
+             gets picked for a slot it does not fit. The icons keep their
+             sizes because those are measured. */
+          artwork: (art ? [{ src: art }] : []).concat([
             { src: '/assets/icon-192.png', sizes: '192x192', type: 'image/png' },
             { src: '/assets/icon-512.png', sizes: '512x512', type: 'image/png' }
-          ]
+          ])
         });
       } catch (e) { /* an older MediaMetadata — the transport still works */ }
-      ms.playbackState = opts.state || (video.paused ? 'paused' : 'playing');
+      /* Whose "paused" is being reported matters. While a film is on the
+         television this element is deliberately paused — it is not a second
+         speaker in the same room — so reading the state off it puts a Play
+         button on the lock screen over a film that is playing on the wall.
+         The television owns the state; the element only owns it when the
+         television is not involved. */
+      if (casting()) {
+        var PS = window.chrome.cast.media.PlayerState;
+        ms.playbackState = remotePlayer.playerState === PS.PAUSED ? 'paused' : 'playing';
+      } else {
+        ms.playbackState = opts.state || (video.paused ? 'paused' : 'playing');
+      }
       position();
     }
 
@@ -2380,7 +2529,10 @@
         ms.setPositionState({
           duration: dur,
           position: Math.min(at, dur),
-          playbackRate: video.playbackRate || 1
+          /* A television plays at 1x and knows nothing of this element's
+             rate; using it here would draw a scrubber that runs at the
+             wrong speed against the film on the wall. */
+          playbackRate: live ? 1 : (video.playbackRate || 1)
         });
       } catch (e) { /* refused — the transport keys still work */ }
     }
@@ -2393,6 +2545,16 @@
 
     return { update: update, position: position, clear: clear };
   })();
+
+  /* The cover usually arrives a moment after the film does — a probe over
+     the network, or a frame that had not decoded yet. Everything already
+     showing is told, rather than waiting for the next cast event.
+     Registered HERE, below both modules it calls: the video listeners above
+     are wired at boot, and `artwork` does not exist yet at that line. */
+  artwork.onChange(function (art) {
+    mediaSession.update();
+    notify.update('cast', { art: art });
+  });
 
   /* ------------------------------------------------------------------ *
    * Reporting — the same events, said out loud when nobody is watching
@@ -2428,6 +2590,7 @@
     notify.show('cast', {
       title: headline,
       body: detail || currentTitle || (current ? nameOf(current) : ''),
+      art: artwork.current(),
       actions: opts.urgent ? [] : castActions(),
       ongoing: !opts.urgent,
       urgent: Boolean(opts.urgent)
@@ -2451,8 +2614,39 @@
 
   /* The buttons in the shade, performed here because the worker has no
      Cast session and no <video> — it only knows which button was tapped. */
-  notify.onAction(function (action, tag) {
+  function castReady() {
+    return castState === 'CONNECTED' && remoteCtl && remotePlayer && remotePlayer.isMediaLoaded;
+  }
+
+  /* A tap that had to open the app first arrives before the Cast SDK has
+     rejoined the session — the television is still playing, this app just
+     does not have the remote back yet. So a replayed tap waits for it
+     rather than acting immediately, and if the session never comes back it
+     says so instead of quietly doing the same thing to the phone. That
+     substitution is the one to avoid: tapping Pause in the shade and having
+     the film start playing out loud in your pocket. */
+  function withCast(replayed, act) {
+    if (castReady()) { act(); return; }
+    if (!replayed) { act(); return; }
+
+    var waited = 0;
+    var tick = setInterval(function () {
+      if (castReady()) { clearInterval(tick); act(); return; }
+      waited += 250;
+      if (waited < 8000) return;
+      clearInterval(tick);
+      notify.close('cast');
+      toast({ text: 'That film is no longer on a television this phone can see.' });
+    }, 250);
+  }
+
+  notify.onAction(function (action, tag, how) {
+    var replayed = Boolean(how && how.replayed);
+
     if (tag === 'upload' && action === 'cancel') {
+      /* An upload does not survive the app being closed, so a cancel that
+         arrives after a restart has nothing to cancel — and saying
+         "stopped" about something that stopped on its own is a lie. */
       if (uploadXhr) uploadXhr.abort();
       notify.close('upload');
       return;
@@ -2460,24 +2654,28 @@
     if (tag !== 'cast') return;
 
     if (action === 'stop') {
-      stopCasting('from the notification');
-      notify.close('cast');
+      withCast(replayed, function () {
+        if (castReady()) stopCasting('from the notification');
+        notify.close('cast');
+      });
       return;
     }
     if (action !== 'toggle') return;
 
-    /* Casting: the television owns the position, so the phone asks it.
-       Not casting: this element is the thing making the sound. */
-    if (castState === 'CONNECTED' && remoteCtl && remotePlayer && remotePlayer.isMediaLoaded) {
-      remoteCtl.playOrPause();
-      /* Redraw with the button's new word rather than waiting for the TV's
-         next ANY_CHANGE — a Pause that still says "Pause" afterwards reads
-         as a tap that did nothing. */
-      setTimeout(syncRemote, 0);
-      return;
-    }
-    if (video.paused) video.play().catch(function () { /* policy */ });
-    else video.pause();
+    withCast(replayed, function () {
+      /* Casting: the television owns the position, so the phone asks it.
+         Not casting: this element is the thing making the sound. */
+      if (castReady()) {
+        remoteCtl.playOrPause();
+        /* Redraw with the button's new word rather than waiting for the
+           TV's next ANY_CHANGE — a Pause that still says "Pause"
+           afterwards reads as a tap that did nothing. */
+        setTimeout(syncRemote, 0);
+        return;
+      }
+      if (video.paused) video.play().catch(function () { /* policy */ });
+      else video.pause();
+    });
   });
 
   /* ------------------------------------------------------------------ *
@@ -2959,6 +3157,7 @@
             title: only.label || body.title || nameOf(only.url),
             label: only.label || '',
             from: body.direct ? '' : body.finalUrl,
+            poster: body.poster || '',
             proxy: Boolean(only.viaProxy)
           });
           $('linkHint').hidden = true;
@@ -3958,6 +4157,7 @@
         title: m.label || page.title || nameOf(m.url),
         label: m.label || '',
         from: page.finalUrl,
+        poster: page.poster || '',
         proxy: Boolean(m.viaProxy)
       });
       showTab('link');
@@ -4751,7 +4951,7 @@
     play.className = 'btn btn-secondary btn-sm';
     play.textContent = 'Play';
     play.addEventListener('click', function () {
-      load(it.url, { title: it.title, from: it.from });
+      load(it.url, { title: it.title, from: it.from, poster: it.poster || '' });
       $('linkHint').hidden = true;
       showTab('link');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -4952,6 +5152,9 @@
            until it exists. Anything the app wanted to report before this
            point is already held in `wanted` and paints on the next tick. */
         notify.setReg(reg);
+        /* A button tapped while this app was not running is performed here,
+           once the worker is known and the player is wired. */
+        notify.drainPending();
         if (reg.waiting) offerUpdate(reg.waiting);
 
         reg.addEventListener('updatefound', function () {

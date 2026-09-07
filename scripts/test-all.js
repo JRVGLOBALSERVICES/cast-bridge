@@ -19,7 +19,8 @@ const SUITES = [
   ['cookies', 'test-cookies.js'],
   ['subs', 'test-subs.js'],
   ['crawl', 'test-crawl.js'],
-  ['nowplaying', 'test-nowplaying.js']
+  ['nowplaying', 'test-nowplaying.js'],
+  ['notify', 'test-notify.js']
 ];
 
 const results = [];
