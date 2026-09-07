@@ -30,6 +30,8 @@ const fs = require('fs');
 const path = require('path');
 
 const streamApi = require('../api/stream.js');
+const storage = require('./storage.js');
+const ticket = require('../lib/ticket.js');
 
 const PORT = Number(process.env.PORT || 7801);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -119,25 +121,233 @@ function gb(bytes) {
 const started = Date.now();
 let inFlight = 0;
 
+/* The app lives on another origin, so every call it makes here is a
+   cross-origin one and the browser asks first. Named rather than starred:
+   `*` would let any page on the internet spend this box's disk with a
+   ticket it stole from a tab. The television is not a browser and asks
+   nothing, so /f/ is exempt and says `*` for the Cast receiver's benefit. */
+const APP_ORIGINS = (process.env.CAST_APP_ORIGINS ||
+  'https://cast-bridge.vercel.app,http://127.0.0.1:3400,http://localhost:3400')
+  .split(',').map((o) => o.trim()).filter(Boolean);
+
+function cors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && APP_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader('Access-Control-Max-Age', '600');
+}
+
+/* Every route below this line is gated the same way, and a route that
+   forgets to call it is a route with no gate — so it returns the ticket
+   rather than a boolean, and the caller cannot use it without checking. */
+function gate(req, res, scope) {
+  if (!ticket.configured()) {
+    json(res, 503, { ok: false, error: 'This host has no STREAM_UPLOAD_SECRET set, so file casting is off.' });
+    return null;
+  }
+  const t = ticket.check(ticket.fromRequest(req), scope);
+  if (!t) {
+    json(res, 401, { ok: false, error: 'That ticket is not valid any more. Reload the app and try again.' });
+    return null;
+  }
+  return t;
+}
+
+/* Range-serving a file off local disk. The television asks for windows and
+   nothing else — an answer without 206 and Accept-Ranges is an answer it
+   cannot seek in. */
+function serveFile(req, res, meta) {
+  const file = storage.pathOf(meta);
+  let st;
+  try {
+    st = fs.statSync(file);
+  } catch (e) {
+    return json(res, 404, { ok: false, error: 'That file is not here any more.' });
+  }
+
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Content-Type', meta.type || 'application/octet-stream');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  /* Uploads are immutable and short-lived; the id never names two files. */
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+
+  const range = req.headers.range;
+  const m = range && /^bytes=(\d*)-(\d*)$/.exec(String(range).trim());
+  if (!m || (!m[1] && !m[2])) {
+    res.statusCode = 200;
+    res.setHeader('Content-Length', String(st.size));
+    if (req.method === 'HEAD') return res.end();
+    return fs.createReadStream(file).pipe(res);
+  }
+
+  let start;
+  let end;
+  if (m[1]) {
+    start = Number(m[1]);
+    end = m[2] ? Number(m[2]) : st.size - 1;
+  } else {
+    /* bytes=-N — the last N bytes. Used by players sniffing an MP4 whose
+       moov atom is at the end of the file, which is most of them. */
+    start = Math.max(0, st.size - Number(m[2]));
+    end = st.size - 1;
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= st.size) {
+    res.statusCode = 416;
+    res.setHeader('Content-Range', 'bytes */' + st.size);
+    return res.end();
+  }
+  end = Math.min(end, st.size - 1);
+
+  res.statusCode = 206;
+  res.setHeader('Content-Range', 'bytes ' + start + '-' + end + '/' + st.size);
+  res.setHeader('Content-Length', String(end - start + 1));
+  if (req.method === 'HEAD') return res.end();
+  fs.createReadStream(file, { start: start, end: end }).pipe(res);
+}
+
+async function readJsonBody(req, cap) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > (cap || 8192)) throw new Error('Too much data.');
+    chunks.push(chunk);
+  }
+  if (!chunks.length) return {};
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+/* The disk gets back to zero on its own. The buttons in the app are for
+   not waiting, not for remembering. */
+const sweepTimer = setInterval(() => {
+  storage.sweep().then((r) => {
+    if (r && ((r.files && r.files.removed) || (r.tmp && r.tmp.removed))) {
+      console.log('[sweep] removed ' +
+        ((r.files && r.files.removed) || 0) + ' expired, ' +
+        ((r.tmp && r.tmp.removed) || 0) + ' partial');
+    }
+  });
+}, 15 * 60 * 1000);
+sweepTimer.unref();
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
   const sentSoFar = meter(res);
   const t0 = Date.now();
+
+  cors(req, res);
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204;
+    return res.end();
+  }
 
   if (url.pathname === '/healthz') {
     const day = today();
     const month = day.slice(0, 7);
     let monthBytes = 0;
     for (const d of Object.keys(usage)) if (d.startsWith(month)) monthBytes += usage[d];
+    let disk = null;
+    try { disk = await storage.usage(); } catch (e) { disk = null; }
     json(res, 200, {
       ok: true,
       uptime_s: Math.round((Date.now() - started) / 1000),
       in_flight: inFlight,
       window_mb: Number(process.env.STREAM_RANGE_WINDOW_MB) || 8,
       served_today_gb: gb(usage[day] || 0),
-      served_this_month_gb: gb(monthBytes)
+      served_this_month_gb: gb(monthBytes),
+      uploads_enabled: ticket.configured(),
+      storage: disk
     });
     return;
+  }
+
+  /* ---------- Files from a phone ----------
+   *
+   *   POST /api/upload?name=…&size=…   raw body, ticket in the header
+   *   GET  /f/<id>                     what the television fetches
+   *   GET  /api/storage                what is on the disk
+   *   POST /api/storage/clear          { what: tmp|expired|files|all }
+   *   POST /api/storage/delete         { ids: [...] }
+   */
+
+  if (url.pathname === '/api/upload') {
+    if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'Use POST.' });
+    const t = gate(req, res, 'upload');
+    if (!t) return;
+    try {
+      const meta = await storage.receive(req, {
+        name: url.searchParams.get('name'),
+        declaredBytes: url.searchParams.get('size'),
+        uploader: t.uid
+      });
+      const base = process.env.STREAM_PUBLIC_HOST || 'https://stream.jrvsystems.app';
+      console.log(new Date().toISOString() + ' upload ' + meta.id + ' ' + meta.bytes + 'B ' + meta.name);
+      return json(res, 201, { ok: true, file: meta, url: base + '/f/' + meta.id });
+    } catch (e) {
+      return json(res, e.status || 500, { ok: false, error: e.message || 'That upload failed.' });
+    }
+  }
+
+  const fileMatch = /^\/f\/([0-9a-f]{32})$/.exec(url.pathname);
+  if (fileMatch) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return json(res, 405, { ok: false, error: 'Use GET.' });
+    }
+    /* No ticket here on purpose. A Chromecast fetches this with no headers
+       we control and no way to carry one; the 32-hex id IS the credential,
+       and it is deleted within the day. */
+    const meta = await storage.metaOf(fileMatch[1]);
+    if (!meta) return json(res, 404, { ok: false, error: 'That file is not here any more.' });
+    inFlight++;
+    res.on('close', () => {
+      inFlight--;
+      const bytes = sentSoFar();
+      record(bytes);
+      console.log([new Date().toISOString(), res.statusCode, (req.headers.range || '-'),
+        bytes + 'B', (Date.now() - t0) + 'ms',
+        (res.writableFinished ? 'complete' : 'aborted'), 'file:' + meta.id].join(' '));
+    });
+    return serveFile(req, res, meta);
+  }
+
+  if (url.pathname === '/api/storage') {
+    if (!gate(req, res, 'storage')) return;
+    const [use, files] = await Promise.all([storage.usage(), storage.list()]);
+    const base = process.env.STREAM_PUBLIC_HOST || 'https://stream.jrvsystems.app';
+    return json(res, 200, {
+      ok: true,
+      usage: use,
+      files: files.map((f) => Object.assign({}, f, { url: base + '/f/' + f.id }))
+    });
+  }
+
+  if (url.pathname === '/api/storage/clear' || url.pathname === '/api/storage/delete') {
+    if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'Use POST.' });
+    if (!gate(req, res, 'storage')) return;
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (e) {
+      return json(res, 400, { ok: false, error: 'That request was not readable.' });
+    }
+    try {
+      if (url.pathname.endsWith('/delete')) {
+        const ids = Array.isArray(body.ids) ? body.ids.slice(0, 200) : [];
+        let removed = 0;
+        for (const id of ids) if (await storage.removeOne(id)) removed++;
+        console.log('[storage] deleted ' + removed + ' of ' + ids.length);
+        return json(res, 200, { ok: true, removed: removed, usage: await storage.usage() });
+      }
+      const result = await storage.clear(String(body.what || ''));
+      console.log('[storage] cleared ' + String(body.what));
+      return json(res, 200, { ok: true, cleared: result, usage: await storage.usage() });
+    } catch (e) {
+      return json(res, e.status || 500, { ok: false, error: e.message || 'That could not be done.' });
+    }
   }
 
   if (url.pathname !== '/api/stream') {
