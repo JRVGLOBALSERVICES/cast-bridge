@@ -232,6 +232,68 @@ check('a source list of images is still not media', () => {
   assert.strictEqual(parsed.media.length, 0, 'a jpg was reported as something to cast');
 });
 
+/* ------------------------------------------------------------------ *
+ * emptyVerdict — what to say when the scan finished with nothing
+ *
+ * The case Rj hit: a page whose only player sits in a frame on a second
+ * host. The old rule counted VISIBLE frames only, so a player kept in a
+ * collapsed panel counted as none, and the app told him a page that plainly
+ * carries an embed had "no video on it at all — check the address". The
+ * address was fine. Sending someone to re-check a correct address is worse
+ * than saying nothing, because it is a specific instruction to do the wrong
+ * thing.
+ * ------------------------------------------------------------------ */
+
+check('nothing at all: check the address', () => {
+  const v = m.emptyVerdict({ players: 0, frames: 0, embeds: 0 });
+  assert.strictEqual(v.why, 'nothing');
+  assert.ok(/Check the address/.test(v.error));
+});
+
+check('an embed with no visible box is still an embed', () => {
+  /* Zero by zero is what a player inside a collapsed source-picker measures,
+     and it is the exact shape that produced the wrong sentence. */
+  const v = m.emptyVerdict({ players: 0, frames: 0, embeds: 1 });
+  assert.strictEqual(v.why, 'elsewhere');
+  assert.ok(!/Check the address/.test(v.error), 'still telling him to re-check a good address');
+  assert.ok(!/no video on it at all/.test(v.error));
+});
+
+check('every empty verdict offers a way out rather than ending on a dead stop', () => {
+  /* state-and-danger.md §4.2 — never a bare failure. */
+  for (const saw of [{ players: 0, frames: 0, embeds: 1 },
+                     { players: 1, frames: 0, embeds: 0 },
+                     { players: 0, frames: 0, embeds: 0 }]) {
+    const v = m.emptyVerdict(saw);
+    assert.ok(/paste|Check the address|sign-in/.test(v.error),
+      v.why + ' ends with no action: ' + v.error);
+  }
+});
+
+check('the hand-off names the host it hands off to', () => {
+  const v = m.emptyVerdict({ players: 0, frames: 0, embeds: 1, embedHost: 'player.example' });
+  assert.ok(v.error.includes('player.example'), v.error);
+});
+
+check('a player that fetched nothing is a different problem from an absent one', () => {
+  const v = m.emptyVerdict({ players: 1, frames: 0, embeds: 0 });
+  assert.strictEqual(v.why, 'quiet');
+  assert.ok(/sign-in|encrypted/.test(v.error));
+});
+
+check('a refusal outranks every reading of the wreckage underneath it', () => {
+  /* The wall replaced the page, so the zero counts describe the wall. */
+  const v = m.emptyVerdict({ players: 0, frames: 0, embeds: 0, botWall: 'Verify you are human' });
+  assert.strictEqual(v.why, 'walled');
+  assert.ok(v.error.includes('Verify you are human'));
+  assert.ok(!/Check the address/.test(v.error));
+});
+
+check('a missing evidence object does not throw', () => {
+  assert.strictEqual(m.emptyVerdict(undefined).why, 'nothing');
+  assert.strictEqual(m.emptyVerdict(null).why, 'nothing');
+});
+
 console.log('');
 if (failures.length) {
   console.log(failures.length + ' failed, ' + passed + ' passed');

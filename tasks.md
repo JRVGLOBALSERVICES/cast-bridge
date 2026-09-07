@@ -1026,3 +1026,31 @@
       what became of the last tap. The worker writes down the road each tap
       took, the page writes down what it managed to do, and one sentence under
       the Notifications switch names which of the three places it died in.
+
+## Round 8 — 2026-09-07 (Rj: "still can't scan", resume card shown while casting)
+
+- [x] Task 55: The banner never offers to restart a film that is playing.
+      `assets/js/resume.js` owns the precedence lib/nowplaying.js already
+      states in a comment — a live Cast session outranks the stored row —
+      and `renderResume()` asks it on EVERY render instead of once at boot
+      and once on a single SESSION_RESUMED. CAST_STATE_CHANGED re-decides it
+      too, because that is the event every rejoin fires whatever the session
+      event calls itself. Seen red on the shipped rule: 5 assertions.
+- [x] Task 56: Recognising a running film cannot re-send it. The session
+      handler reads `current` into `hadTarget` BEFORE anything can adopt,
+      and `askedForSession` keeps a session this page requested from being
+      mistaken for a rejoin.
+- [x] Task 57: One clock, in resume.js. The inherited one rendered the
+      string "NaN:NaN" for a non-finite input — reachable, because a <video>
+      reports currentTime and duration as NaN until it has metadata and this
+      formatter has twelve callers on that side.
+- [x] Task 58: The empty-scan verdict distinguishes an embed it could not
+      reach from a page with no video. `lib/media.js emptyVerdict()`, four
+      answers, tested without a browser. The old rule counted VISIBLE frames
+      only, so a player in a collapsed panel (0x0 box) read as "no embed,
+      check the address" — a specific instruction to do the wrong thing.
+- [x] Task 59: A tap replayed into a COLD app is no longer dropped.
+      `drainPending()` returned when there was no active worker and no
+      controller, which is the state of a page the worker just opened; and
+      because the tap opened the app, the visibilitychange retry never fires.
+      It waits on `navigator.serviceWorker.ready` and asks again.

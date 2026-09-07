@@ -66,14 +66,9 @@
     return new Date(t).toLocaleDateString();
   }
 
-  function clock(sec) {
-    sec = Math.max(0, Math.floor(sec || 0));
-    var h = Math.floor(sec / 3600);
-    var m = Math.floor((sec % 3600) / 60);
-    var s = sec % 60;
-    var pad = function (n) { return n < 10 ? '0' + n : String(n); };
-    return h ? h + ':' + pad(m) + ':' + pad(s) : m + ':' + pad(s);
-  }
+  /* One implementation, in resume.js, so the suite exercises the formatter
+     this app actually renders with rather than a copy of it. */
+  function clock(sec) { return window.CBResume.clock(sec); }
 
   function isHttp(u) { return /^https?:\/\//i.test(String(u).trim()); }
 
@@ -383,6 +378,9 @@
   var notify = (function () {
     var PREF_KEY = 'cb.notify';
     var reg = null;
+    /* One outstanding wait at a time. drainPending() is called from three
+       places and a cold open can hit two of them within a tick. */
+    var drainWaiting = false;
     var wanted = {};      // tag -> the notification that SHOULD be up
     var painted = {};     // tag -> is up right now
     var swiped = {};      // tag -> the person dismissed it; stop redrawing
@@ -657,7 +655,26 @@
           function () {});
       };
       var w = (reg && reg.active) || navigator.serviceWorker.controller;
-      if (!w) return;
+
+      /* No worker to ask YET is not the same as nothing to ask for, and
+         `return` here dropped the tap on the one path the whole replay
+         exists for. A tap that had to open the app arrives at a page whose
+         registration is still installing: `reg.active` is null and there is
+         no controller on the first load after an update. The old code gave
+         up there — and because the tap OPENED the app, the page is already
+         visible, so the visibilitychange retry never fires either. The tap
+         sat in the cache until it went stale.
+
+         `ready` resolves only once a worker is active, which is exactly the
+         condition being waited for. */
+      if (!w) {
+        if (drainWaiting) return;
+        drainWaiting = true;
+        navigator.serviceWorker.ready
+          .then(function () { drainWaiting = false; drainPending(); })
+          .catch(function () { drainWaiting = false; });
+        return;
+      }
       try { w.postMessage({ type: 'GET_PENDING_ACTION' }, [ch.port2]); } catch (e) {}
     }
 
@@ -1686,22 +1703,41 @@
       castState = e.castState;
       logCast('Cast state: ' + castState);
       updateCastUi();
+      /* CONNECTED fires for every route into a live session, including the
+         ones that never produce a SESSION_RESUMED. Re-deciding the banner
+         here is what stops "Pick it back up" surviving a rejoin. */
+      renderResume();
     });
     ctx.addEventListener(window.cast.framework.CastContextEventType.SESSION_STATE_CHANGED, function (e) {
       var SS = window.cast.framework.SessionState;
       logCast('Session: ' + e.sessionState);
 
+      /* Read BEFORE anything below can adopt: adoption sets `current`, and
+         the SESSION_STARTED branch below casts `current`. Without this the
+         act of recognising a film already on the television would re-send
+         it, jumping it back to the remembered position. */
+      var hadTarget = !!current;
+
       if (e.sessionState === SS.SESSION_STARTED || e.sessionState === SS.SESSION_RESUMED) {
         logCast('Connected to ' + deviceName());
-        /* A RESUMED session is the SDK handing back a cast that was already
-           running when the app opened. It carries no title, so without the
-           stored row the panel appears over a film it cannot name — which is
+        /* A rejoin is the SDK handing back a cast that was already running
+           when the app opened. It carries no title, so without the stored
+           row the panel appears over a film it cannot name — which is
            precisely what "can't see it back after closing the app" looked
-           like from the sofa. */
-        if (e.sessionState === SS.SESSION_RESUMED && restored) adoptIfRejoined();
+           like from the sofa.
+
+           RESUMED is the documented flavour, but it is not the only one that
+           arrives: a session this page did not ask for (`current` is empty,
+           because nothing has been sent yet in this page's life) is a rejoin
+           whatever the SDK calls it. Gating on RESUMED alone left the banner
+           up over a live film. */
+        var handedBack = e.sessionState === SS.SESSION_RESUMED || !askedForSession;
+        askedForSession = false;
+        if (restored && handedBack) adoptIfRejoined();
         showSending();
+        renderResume();
       }
-      if (e.sessionState === SS.SESSION_STARTED && current) {
+      if (e.sessionState === SS.SESSION_STARTED && hadTarget) {
         video.pause();
         stallRetried = false;
         /* A cast that began as "pick it back up" carries the position the
@@ -1714,12 +1750,14 @@
         startBeating();
       }
       if (e.sessionState === SS.SESSION_START_FAILED) {
+        askedForSession = false;
         disarmStallWatch();
         screenEl.classList.remove('is-onair');
         setStatus('That device refused the connection. Check it is on the same Wi\u2011Fi.', 'bad');
         openCastLog(true);
       }
       if (e.sessionState === SS.SESSION_ENDED) {
+        askedForSession = false;
         disarmStallWatch();
         lastPlayerState = null;
         screenEl.classList.remove('is-onair');
@@ -1775,6 +1813,12 @@
   var beatTimer = null;
   var lastBeatKey = '';
   var restored = null;        // the row read at boot, until it is used or cleared
+  /* Set the instant this page calls requestSession(), cleared when the SDK
+     answers. A SESSION_STARTED with this false is a session nobody on this
+     screen asked for — which is what an auto-join looks like. Without it,
+     tapping "Cast to TV" with nothing loaded would adopt the stored row and
+     announce a film it had not sent. */
+  var askedForSession = false;
   /* Where a resume should start once a device has been picked. Held
      across requestSession(), because the cast does not happen here — it
      happens in the SESSION_STARTED handler, several seconds and one
@@ -1948,28 +1992,19 @@
     var el = $('resume');
     if (!el) return;
 
-    if (!restored) { el.hidden = true; return; }
+    /* The precedence is asked on EVERY render, not once at boot and once on
+       one event. That is the whole fix for "shows this but cast still
+       ongoing": the SDK's rejoin lands at a moment nobody can predict, so
+       the banner has to look at the session each time it is drawn rather
+       than trust that some earlier handler already did. */
+    var v = window.CBResume.view(restored, castSession(), nameOf);
+    if (v.adopt) adoptIfRejoined();
 
-    var title = restored.title || nameOf(restored.url);
-    var where = restored.device || 'the TV';
-    var at = restored.position > 0 ? clock(restored.position) : '';
+    if (!v.show || !restored) { el.hidden = true; return; }
 
-    var head, sub, action;
-    if (restored.freshness === 'live') {
-      head = 'Still playing on ' + where;
-      sub = title + (at ? ' · ' + at + ' in' : '');
-      action = 'Take the remote';
-    } else {
-      /* Not "still playing". The app stopped talking to it and does not
-         know — offering to look is honest, asserting is not. */
-      head = 'You were watching this';
-      sub = title + (at ? ' · stopped ' + at + ' in' : '') + ' · on ' + where;
-      action = 'Pick it back up';
-    }
-
-    $('resumeTitle').textContent = head;
-    $('resumeSub').textContent = sub;
-    $('resumeGo').textContent = action;
+    $('resumeTitle').textContent = v.head;
+    $('resumeSub').textContent = v.sub;
+    $('resumeGo').textContent = v.action;
     el.hidden = false;
   }
 
@@ -2003,8 +2038,10 @@
     pendingResumeAt = row.resume_at;
     setStatus('Pick a TV to carry on from ' + clock(row.resume_at) + '.', '');
     try {
-      window.cast.framework.CastContext.getInstance().requestSession().catch(function () {});
+      askedForSession = true;
+      window.cast.framework.CastContext.getInstance().requestSession().catch(function () { askedForSession = false; });
     } catch (e) {
+      askedForSession = false;
       setStatus('Cast is not available in this browser.', 'bad');
     }
   }
@@ -2306,7 +2343,8 @@
       else toast({ text: 'Connected — now pick something to play.' });
       return;
     }
-    window.cast.framework.CastContext.getInstance().requestSession().catch(function () {});
+    askedForSession = true;
+    window.cast.framework.CastContext.getInstance().requestSession().catch(function () { askedForSession = false; });
   });
 
   /* ------------------------------------------------------------------ *

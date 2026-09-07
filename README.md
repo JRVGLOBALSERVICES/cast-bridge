@@ -136,6 +136,9 @@ assets/  app.js  — nine screens behind a five-entry bottom bar, one job each
                       and the second attempt when a site refuses the first
          castaction.js — what a button on a notification is allowed to act
                       on: the television, or nothing
+         resume.js — what the banner above the player may say. A live Cast
+                      session outranks the stored row, so it never offers to
+                      restart a film that is playing. Also the one clock.
          qr.js   — byte-mode QR encoder, versions 1-10, level L (Bilibili)
          app.css — neumorphism, one dark surface: the on-air panel
 db/      001_castbridge_schema.sql          — users, history

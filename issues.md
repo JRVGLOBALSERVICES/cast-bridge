@@ -1030,3 +1030,42 @@ allowance Chrome gives a notificationclick to focus or open a window.
 **Worth your eye:** I have not measured Chrome's actual allowance on your
 handset, and I am not claiming 1500ms exceeded it. This is hardening against
 a plausible cause, not a diagnosed one. The diagnosed one is Task 52.
+
+## Task 58: I stopped short on the site itself
+
+**Question:** should I make the scanner resolve the stream on
+desi-serials.to?
+**Assumption made:** no. The page parses correctly and yields its embed
+(`desi-serials.cc/dsvid/`); that host then refuses this server at the TLS
+handshake — `sslv3 alert handshake failure`, before any HTTP request. The
+only things that would change that answer are spoofing a browser's TLS
+fingerprint or forging a referer into the embed host, and on a site
+redistributing broadcast serials that is defeating an access control on
+content that is not ours. I fixed what is generic instead: the app now says
+the hand-off is where it stopped, rather than telling you to re-check a
+perfectly good address.
+**Worth your eye:** if you have a direct file link, pasting it still works —
+that path was never broken.
+
+## Task 55: the two-count evidence is untested against a real browser
+
+**Question:** does `embeds` actually rise on a page whose player sits in a
+collapsed panel?
+**Assumption made:** yes — the counter now takes every non-tracking iframe
+with an http src regardless of its box, and `frames` keeps the >40px test as
+the separate on-screen signal. `emptyVerdict()` is proved without a browser;
+the DOM half that feeds it is not, because the deep scan needs Chromium and a
+page to run it on.
+**Worth your eye:** if a scan now says "hands off to another host" on a page
+that genuinely has nothing, that counter is over-counting and the >40px test
+should come back as a floor.
+
+## Task 59: the cold-open drain is proved structurally, not behaviourally
+
+**Question:** can I show a replayed tap being collected by a page whose
+worker is still installing?
+**Assumption made:** no — not without dispatching a real notificationclick,
+which no CDP command does. The two checks in test-notify.js read app.js and
+say so in their group heading. What they prove is that the abandonment is
+gone and the retry cannot stack; what they do not prove is the timing on your
+handset.

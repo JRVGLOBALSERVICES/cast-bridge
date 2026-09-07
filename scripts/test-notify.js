@@ -718,6 +718,36 @@ check('a frozen page is given up on quickly enough to still open a window', asyn
   assert.strictEqual(w.log.focused.length, 1);
 });
 
+/* ------------------------------------------------------------------ *
+ * the cold open (STRUCTURAL — this reads app.js, it does not run it)
+ *
+ * The path the whole replay exists for: the app was NOT running, the worker
+ * wrote the tap down and opened a window to perform it. That window arrives
+ * with its registration still installing — no `reg.active`, no controller —
+ * and the old drain returned there. Because the tap opened the app, the
+ * page is already visible, so the visibilitychange retry never fires. The
+ * tap sat in the cache until it went stale, which is indistinguishable from
+ * a button that does nothing.
+ * ------------------------------------------------------------------ */
+
+const APP_SRC = fs.readFileSync(path.join(__dirname, '..', 'assets', 'js', 'app.js'), 'utf8');
+
+check('a drain with no worker yet waits for one instead of giving up', () => {
+  const at = APP_SRC.indexOf('function drainPending()');
+  assert.ok(at > -1, 'drainPending is gone');
+  const body = APP_SRC.slice(at, at + 1800);
+  assert.ok(/navigator\.serviceWorker\.ready/.test(body),
+    'the drain still abandons the tap when the worker is not active yet');
+  assert.ok(/drainPending\(\);/.test(body.slice(body.indexOf('ready'))),
+    'it waits but never asks again');
+});
+
+check('the wait cannot stack up', () => {
+  const at = APP_SRC.indexOf('function drainPending()');
+  const body = APP_SRC.slice(at, at + 1800);
+  assert.ok(/if \(drainWaiting\) return;/.test(body), 'three callers, no guard');
+});
+
 (async () => {
   console.log('\nnotify — the cover, the tap, and who performs it');
   for (const step of queue) await step();

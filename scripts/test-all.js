@@ -20,7 +20,8 @@ const SUITES = [
   ['subs', 'test-subs.js'],
   ['crawl', 'test-crawl.js'],
   ['nowplaying', 'test-nowplaying.js'],
-  ['notify', 'test-notify.js']
+  ['notify', 'test-notify.js'],
+  ['resume', 'test-resume.js']
 ];
 
 const results = [];

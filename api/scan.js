@@ -17,7 +17,7 @@
 const {
   MAX_RESULTS, MEDIA_EXT, assertPublic, kindOf, labelFor, rank,
   expandHlsMaster, walledService, walledMessage,
-  DEFERRED_SRC_ATTRS, NOT_A_PLAYER, botWallPhrase
+  DEFERRED_SRC_ATTRS, NOT_A_PLAYER, botWallPhrase, emptyVerdict
 } = require('../lib/media');
 const auth = require('../lib/auth');
 
@@ -456,7 +456,7 @@ async function collect(page, target) {
 
      Kept as a high-water mark rather than a final reading, because clicking
      can destroy the very thing being counted. */
-  let evidence = { players: 0, frames: 0, botWall: null };
+  let evidence = { players: 0, frames: 0, embeds: 0, embedHost: null, botWall: null };
 
   const sampleEvidence = async () => {
     let nested = 0;
@@ -485,23 +485,38 @@ async function collect(page, target) {
     try {
       const top = await page.evaluate((attrs, notPlayer) => {
         const re = new RegExp(notPlayer, 'i');
-        const frames = Array.from(document.querySelectorAll('iframe')).filter((f) => {
-          const src = attrs
-            .map((a) => f.getAttribute(a) || '')
-            .find((v) => /^(https?:)?\/\//i.test(v)) || '';
-          if (!src || re.test(src)) return false;
-          const r = f.getBoundingClientRect();
+        /* Two counts, not one. `frames` is what is on screen right now;
+           `embeds` is every player-shaped frame the page carries, on screen
+           or not. A page that keeps its player in a collapsed panel until
+           you pick a source has a zero-by-zero box, and reporting that as
+           "no embed" told Rj to go and check a perfectly good address. The
+           size test still earns its keep against 1x1 tracking frames, so it
+           stays — as one of the two answers rather than the only one. */
+        const srcOf = (f) => attrs
+          .map((a) => f.getAttribute(a) || '')
+          .find((v) => /^(https?:)?\/\//i.test(v)) || '';
+        const all = Array.from(document.querySelectorAll('iframe'))
+          .map((f) => ({ f: f, src: srcOf(f) }))
+          .filter((x) => x.src && !re.test(x.src));
+        const frames = all.filter((x) => {
+          const r = x.f.getBoundingClientRect();
           return r.width > 40 && r.height > 40;
         });
         return {
           players: document.querySelectorAll('video,audio').length,
           frames: frames.length,
+          embeds: all.length,
+          embedSrc: all.length ? all[0].src : '',
           text: (document.body && document.body.innerText || '').slice(0, 2000)
         };
       }, ['src'].concat(DEFERRED_SRC), NOT_A_PLAYER.source);
 
       evidence.players = Math.max(evidence.players, nested + top.players);
       evidence.frames = Math.max(evidence.frames, top.frames);
+      evidence.embeds = Math.max(evidence.embeds, top.embeds || 0);
+      if (!evidence.embedHost && top.embedSrc) {
+        try { evidence.embedHost = new URL(top.embedSrc, target).hostname; } catch (e) { /* unparseable */ }
+      }
       /* First refusal wins and is never cleared. The wall replaces the page,
          so a later sample of the wreckage says nothing at all — and a signal
          that can be overwritten by its own aftermath is not a signal. */
@@ -672,31 +687,12 @@ module.exports = async function handler(req, res) {
     const media = result.media.slice(0, MAX_RESULTS);
 
     if (!media.length) {
-      const saw = result.evidence || { players: 0, frames: 0, botWall: null };
-      const noPlayer = !saw.players && !saw.frames;
+      const saw = result.evidence || { players: 0, frames: 0, embeds: 0, botWall: null };
 
-      /* A site that recognised the scanner and said so gets quoted, because
-         the alternative is telling someone to hunt for a password on a page
-         that never wanted one. This outranks both other answers: the wall
-         takes the page down, so the evidence underneath it is the wall's
-         wreckage, not a reading of the site. */
-      let error;
-      if (saw.botWall) {
-        error = 'That site refuses automated browsers, and said so: "' +
-          saw.botWall + '". It is not a sign-in and it is not encryption — ' +
-          'the page recognised the scanner and stopped before asking for the ' +
-          'video at all. Nothing this app can run on a server gets past that, ' +
-          'because the check is on whether a person is holding the browser.';
-      } else if (noPlayer) {
-        error = 'Ran the page in a browser. There is no video on it at all — ' +
-          'no player, no embed, nothing to cast. Check the address is the one ' +
-          'you meant to send.';
-      } else {
-        error = 'Ran the page in a browser, opened its player and watched ' +
-          'every request. The player is there but never fetched anything ' +
-          'playable. It probably needs a sign-in, or it is encrypted the way ' +
-          'the big streaming apps are.';
-      }
+      /* One sentence per genuinely different problem, composed in
+         lib/media.js so it can be proved without a browser. */
+      const verdict = emptyVerdict(saw);
+      const error = verdict.error;
 
       res.statusCode = 200;
       res.end(JSON.stringify({
@@ -706,6 +702,7 @@ module.exports = async function handler(req, res) {
         finalUrl: target,
         saw,
         botWall: saw.botWall || null,
+        why: verdict.why,
         error
       }));
       return;
