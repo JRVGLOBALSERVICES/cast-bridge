@@ -861,6 +861,16 @@
 
   video.addEventListener('error', function () {
     if (!current) return;
+    /* A file picked off the phone is not a link, and telling someone to go
+       and scan the page it came from is advice about a page that does not
+       exist. The cause is different too: an address that fails is usually
+       the wrong kind of address, a file that fails is a codec this browser
+       does not have. */
+    if (localPick && !localPick.remote) {
+      setStatus('This browser can\'t decode that file. A television may still ' +
+        'manage it — send it over and see.', 'bad');
+      return;
+    }
     setStatus('This link won\'t play here. It has to be the media file itself, not a webpage.', 'bad');
     toast({
       text: 'Nothing played. Try scanning the page it came from.',
@@ -2169,6 +2179,14 @@
     if (adminTab) adminTab.hidden = !isOwner();
     var allToggle = $('histScopeRow');
     if (allToggle) allToggle.hidden = !isOwner();
+    /* What the stream host is holding is everybody's files at once, so the
+       panel is the owner's. The endpoint behind it checks the same thing —
+       this only stops it being drawn, it is not the gate. */
+    var host = $('hostPanel');
+    if (host) {
+      host.hidden = !isOwner();
+      if (!isOwner()) host.open = false;
+    }
 
     /* Revealing People re-flexes the strip. The observer would catch it a
        frame later; a frame of the pill on the wrong tab is the whole bug. */
@@ -3806,6 +3824,466 @@
     host.addEventListener('touchend', release, { passive: true });
     host.addEventListener('touchcancel', release, { passive: true });
   }
+
+  /* ------------------------------------------------------------------ *
+   * A file on this phone
+   *
+   * The honest constraint first: a Chromecast fetches over the network, and
+   * a phone is not a server, so there is no address on the handset a
+   * television can reach. blob: is local to this document; file: is local to
+   * the device; neither leaves the browser. That is not a gap in this app,
+   * it is what the platform is.
+   *
+   * So there are two halves and they are told apart on screen. Playing here
+   * is instant and costs nothing — a blob URL into the same <video>. Sending
+   * it to the television means the bytes have to exist somewhere the
+   * television can fetch from, which is the stream host, which means an
+   * upload and a wait. The panel says which one is happening and what it
+   * costs before either starts.
+   * ------------------------------------------------------------------ */
+
+  var localPick = null;        // { file, blobUrl, remote }
+  var uploadXhr = null;
+
+  /* Trades this origin's session for a short signed ticket the stream host
+     will accept. Every call to that host goes through here. */
+  function streamTicket(scope) {
+    return fetch('/api/ticket?scope=' + encodeURIComponent(scope), {
+      headers: { accept: 'application/json' }
+    }).then(function (r) {
+      return r.json().then(function (b) {
+        if (r.status === 401) { handleAuthLapse(); throw new Error('signed out'); }
+        if (!r.ok || !b || !b.ok) throw new Error((b && b.error) || 'No ticket.');
+        return b;
+      });
+    });
+  }
+
+  function releaseLocal() {
+    if (localPick && localPick.blobUrl) {
+      try { URL.revokeObjectURL(localPick.blobUrl); } catch (e) { /* already gone */ }
+    }
+    localPick = null;
+  }
+
+  $('btnPickFile').addEventListener('click', function () { $('fileInput').click(); });
+
+  $('fileInput').addEventListener('change', function () {
+    var file = this.files && this.files[0];
+    /* Picking, then cancelling, must not wipe what is already playing. */
+    if (!file) return;
+    /* Chrome keeps the same file selected, so re-picking the same video
+       would not fire change again without this. */
+    this.value = '';
+    playLocalFile(file);
+  });
+
+  function playLocalFile(file) {
+    releaseLocal();
+    var url = URL.createObjectURL(file);
+    localPick = { file: file, blobUrl: url, remote: null };
+
+    teardownHls();
+    clearSubs();
+    current = url;
+    currentTitle = file.name;
+    currentFrom = 'this phone';
+    hlsProxied = false;
+    video.src = url;
+    screenEl.classList.remove('is-idle');
+    screenEl.classList.add('is-live');
+    $('linkHint').hidden = true;
+    /* Nothing else may act on a blob: the TV cannot fetch it, VLC cannot
+       open it and there is nothing worth copying. Send to TV is the only
+       way out, and it is in the panel below. */
+    $('btnVlc').disabled = true;
+    $('btnCopy').disabled = true;
+    setStatus('Playing from this phone. It is not on the television yet.', '');
+    renderLocalPick();
+    video.play().catch(function () { /* autoplay refused; the controls are there */ });
+  }
+
+  function renderLocalPick(state) {
+    var box = $('deviceResult');
+    box.textContent = '';
+    if (!localPick) return;
+
+    var wrap = document.createElement('div');
+    wrap.className = 'cb-pick';
+
+    var head = document.createElement('p');
+    head.className = 'cb-pick-name';
+    head.textContent = localPick.file.name;
+    wrap.appendChild(head);
+
+    var sub = document.createElement('p');
+    sub.className = 'cb-pick-sub';
+    wrap.appendChild(sub);
+
+    if (localPick.remote) {
+      sub.textContent = fmtSize(localPick.file.size) +
+        ' — on the stream host and playing from there. Cast to TV will work now.';
+      var done = document.createElement('p');
+      done.className = 'cb-pick-note';
+      done.textContent = 'It is deleted from the host within a day. Send it again after that.';
+      wrap.appendChild(done);
+      box.appendChild(wrap);
+      return;
+    }
+
+    if (state && state.uploading) {
+      sub.textContent = 'Sending to the stream host so the television can fetch it.';
+
+      var track = document.createElement('div');
+      track.className = 'cb-scan-track';
+      track.setAttribute('role', 'progressbar');
+      track.setAttribute('aria-label', 'Upload progress');
+      track.setAttribute('aria-valuemin', '0');
+      track.setAttribute('aria-valuemax', '100');
+      var fill = document.createElement('div');
+      fill.className = 'cb-scan-fill';
+      fill.style.width = (state.pct || 0) + '%';
+      track.setAttribute('aria-valuenow', String(Math.round(state.pct || 0)));
+      track.appendChild(fill);
+      wrap.appendChild(track);
+
+      var clock = document.createElement('p');
+      clock.className = 'cb-pick-clock';
+      clock.textContent = state.line || '';
+      wrap.appendChild(clock);
+
+      var stop = document.createElement('button');
+      stop.type = 'button';
+      stop.className = 'cb-linkbtn is-danger';
+      stop.textContent = 'Stop sending';
+      stop.addEventListener('click', function () {
+        if (uploadXhr) { uploadXhr.abort(); uploadXhr = null; }
+      });
+      wrap.appendChild(stop);
+
+      box.appendChild(wrap);
+      return;
+    }
+
+    sub.textContent = fmtSize(localPick.file.size) +
+      ' — playing here. The television cannot reach a file on a phone, so ' +
+      'sending it copies it to the stream host first.';
+
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'btn btn-secondary btn-sm';
+    go.innerHTML = '<span class="cb-label">Send to the TV</span>' +
+      '<span class="cb-spin" aria-hidden="true"></span>';
+    go.addEventListener('click', function () { uploadLocal(); });
+    wrap.appendChild(go);
+
+    if (state && state.error) {
+      var err = document.createElement('p');
+      err.className = 'cb-pick-error';
+      err.setAttribute('role', 'alert');
+      err.textContent = state.error;
+      wrap.appendChild(err);
+    }
+
+    box.appendChild(wrap);
+  }
+
+  function uploadLocal() {
+    if (!localPick || uploadXhr) return;
+    var file = localPick.file;
+
+    renderLocalPick({ uploading: true, pct: 0, line: 'Asking for a ticket…' });
+
+    streamTicket('upload').then(function (t) {
+      var started = Date.now();
+      var xhr = new XMLHttpRequest();
+      uploadXhr = xhr;
+
+      xhr.open('POST', t.host + '/api/upload' +
+        '?name=' + encodeURIComponent(file.name) +
+        '&size=' + encodeURIComponent(file.size));
+      xhr.setRequestHeader('Authorization', 'Bearer ' + t.token);
+
+      xhr.upload.addEventListener('progress', function (e) {
+        if (!e.lengthComputable) return;
+        var pct = (e.loaded / e.total) * 100;
+        var secs = (Date.now() - started) / 1000;
+        var rate = secs > 0.5 ? e.loaded / secs : 0;
+        /* An estimate is only offered once there is enough of a run to base
+           one on. A number that swings between four minutes and forty in the
+           first second is worse than no number. */
+        var left = rate > 0 ? (e.total - e.loaded) / rate : 0;
+        renderLocalPick({
+          uploading: true,
+          pct: pct,
+          line: fmtSize(e.loaded) + ' of ' + fmtSize(e.total) +
+            (rate ? ' · ' + fmtRate(rate * 8) : '') +
+            (rate && left > 2 ? ' · about ' + fmtLength(left) + ' left' : '')
+        });
+      });
+
+      xhr.addEventListener('load', function () {
+        uploadXhr = null;
+        var body = null;
+        try { body = JSON.parse(xhr.responseText); } catch (e) { body = null; }
+        if (xhr.status === 201 && body && body.ok) {
+          localPick.remote = body.url;
+          /* From here it is an ordinary address, so everything an address
+             can do comes back: cast, VLC, copy, history. */
+          load(body.url, { title: file.name, from: 'this phone' });
+          renderLocalPick();
+          toast({ text: 'On the stream host. Tap Cast to TV.' });
+          return;
+        }
+        renderLocalPick({
+          error: (body && body.error) ||
+            'The stream host refused that file (' + xhr.status + ').'
+        });
+      });
+
+      xhr.addEventListener('error', function () {
+        uploadXhr = null;
+        renderLocalPick({ error: 'Could not reach the stream host.' });
+      });
+      xhr.addEventListener('abort', function () {
+        uploadXhr = null;
+        renderLocalPick({ error: 'Stopped. Nothing was left on the host.' });
+      });
+
+      xhr.send(file);
+    }).catch(function (e) {
+      uploadXhr = null;
+      if (e && e.message === 'signed out') return;
+      renderLocalPick({ error: (e && e.message) || 'Could not get a ticket.' });
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * The stream host — what it is doing and what it is holding
+   *
+   * Owner only, and closed until opened: this is the one panel that costs a
+   * round trip to a second machine to draw, so it is not drawn for people
+   * who are not looking at it.
+   * ------------------------------------------------------------------ */
+
+  function hostRow(label, value, kind) {
+    var row = document.createElement('div');
+    row.className = 'cb-host-row' + (kind ? ' is-' + kind : '');
+    var k = document.createElement('span');
+    k.className = 'cb-host-k';
+    k.textContent = label;
+    var v = document.createElement('span');
+    v.className = 'cb-host-v';
+    v.textContent = value;
+    row.appendChild(k);
+    row.appendChild(v);
+    return row;
+  }
+
+  function setHostDot(kind) {
+    $('hostDot').className = 'cb-dot' + (kind ? ' is-' + kind : '');
+  }
+
+  /* Two opens in quick succession used to draw the list twice: renderHost
+     clears the panel synchronously, but renderHostFiles appends when its
+     request comes back, so the first run's answer landed in the second
+     run's panel. Measured — the file list and both clear buttons appeared
+     in duplicate. The token is what a late answer checks itself against. */
+  var hostRun = 0;
+
+  function renderHost() {
+    var body = $('hostBody');
+    var run = ++hostRun;
+    body.textContent = '';
+    var loading = document.createElement('p');
+    loading.className = 'cb-host-empty';
+    loading.textContent = 'Asking the stream host…';
+    body.appendChild(loading);
+
+    var host = STREAM_HOSTS[0] || location.origin;
+
+    fetch(host + '/healthz', { headers: { accept: 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (h) {
+        body.textContent = '';
+        setHostDot('live');
+        $('hostSummary').textContent = 'Stream host — up';
+
+        body.appendChild(hostRow('Up for', fmtLength(h.uptime_s || 0)));
+        body.appendChild(hostRow('Streams in flight', String(h.in_flight || 0)));
+        body.appendChild(hostRow('Read window', (h.window_mb || 0) + ' MiB'));
+        body.appendChild(hostRow('Served today', (h.served_today_gb || 0) + ' GB'));
+        body.appendChild(hostRow('Served this month', (h.served_this_month_gb || 0) + ' GB'));
+
+        var st = h.storage;
+        if (!st) {
+          body.appendChild(hostRow('Files', 'not reported'));
+          return;
+        }
+        body.appendChild(hostRow('Files held', fmtSize(st.files.bytes) +
+          ' in ' + st.files.count + (st.files.count === 1 ? ' item' : ' items')));
+        body.appendChild(hostRow('Half-finished uploads', fmtSize(st.tmp.bytes) +
+          ' in ' + st.tmp.count + (st.tmp.count === 1 ? ' item' : ' items')));
+        body.appendChild(hostRow('Free on the disk',
+          st.free_bytes === null ? 'unknown' : fmtSize(st.free_bytes)));
+        body.appendChild(hostRow('Deleted after', st.file_ttl_hours + ' hours'));
+
+        var folder = document.createElement('p');
+        folder.className = 'cb-host-path';
+        folder.textContent = st.root;
+        body.appendChild(folder);
+
+        renderHostFiles(body, run);
+      })
+      .catch(function () {
+        body.textContent = '';
+        setHostDot('bad');
+        $('hostSummary').textContent = 'Stream host — not answering';
+        var p = document.createElement('p');
+        p.className = 'cb-host-empty';
+        p.textContent = 'No answer from ' + host + '. Casting still works — the ' +
+          'app falls back to serving the film through this origin.';
+        body.appendChild(p);
+      });
+  }
+
+  /* The list and the buttons that empty it. Separate request from /healthz
+     because it needs a ticket and /healthz deliberately does not. */
+  function renderHostFiles(body, run) {
+    streamTicket('storage').then(function (t) {
+      return fetch(t.host + '/api/storage', {
+        headers: { authorization: 'Bearer ' + t.token, accept: 'application/json' }
+      }).then(function (r) { return r.json(); }).then(function (b) {
+        return { t: t, b: b };
+      });
+    }).then(function (res) {
+      if (run !== hostRun) return;          // a newer open has already drawn
+      var b = res.b;
+      if (!b || !b.ok) throw new Error((b && b.error) || 'Could not read the folder.');
+
+      var list = document.createElement('div');
+      list.className = 'cb-host-files';
+
+      if (!b.files.length) {
+        var empty = document.createElement('p');
+        empty.className = 'cb-host-empty';
+        empty.textContent = 'The folder is empty.';
+        list.appendChild(empty);
+      }
+
+      b.files.forEach(function (f) {
+        var row = document.createElement('div');
+        row.className = 'cb-host-file';
+
+        var name = document.createElement('span');
+        name.className = 'cb-host-fname';
+        name.textContent = f.name;
+        name.title = f.name;
+
+        var size = document.createElement('span');
+        size.className = 'cb-host-fsize';
+        size.textContent = fmtSize(f.bytes);
+
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'cb-linkbtn is-danger';
+        del.textContent = 'Delete';
+        /* Armed in place, same as removing a person. No modal, and the
+           second tap names what goes. */
+        del.addEventListener('click', function () {
+          if (del.dataset.armed === '1') {
+            hostPost('/api/storage/delete', { ids: [f.id] })
+              .then(function () {
+                toast({ text: 'Deleted ' + f.name + ' from the stream host.' });
+                renderHost();
+              })
+              .catch(function (e) { toast({ text: e.message || 'That did not work.' }); });
+            return;
+          }
+          del.dataset.armed = '1';
+          del.textContent = 'Delete for good?';
+          setTimeout(function () {
+            if (!del.isConnected) return;
+            del.dataset.armed = '';
+            del.textContent = 'Delete';
+          }, 5000);
+        });
+
+        row.appendChild(name);
+        row.appendChild(size);
+        row.appendChild(del);
+        list.appendChild(row);
+      });
+
+      var acts = document.createElement('div');
+      acts.className = 'cb-host-acts';
+      acts.appendChild(clearButton('Clear half-finished uploads', 'tmp',
+        'Clear half-finished uploads?'));
+      acts.appendChild(clearButton('Clear everything in the folder', 'all',
+        'Delete every file on the host?'));
+      list.appendChild(acts);
+
+      body.appendChild(list);
+    }).catch(function (e) {
+      if (run !== hostRun) return;
+      if (e && e.message === 'signed out') return;
+      var p = document.createElement('p');
+      p.className = 'cb-host-empty';
+      p.textContent = e && e.message ? e.message : 'Could not read the folder.';
+      body.appendChild(p);
+    });
+  }
+
+  function clearButton(label, what, armedLabel) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'cb-linkbtn is-danger';
+    b.textContent = label;
+    b.addEventListener('click', function () {
+      if (b.dataset.armed === '1') {
+        hostPost('/api/storage/clear', { what: what })
+          .then(function (body) {
+            var freed = 0;
+            var r = body.cleared || {};
+            ['files', 'tmp'].forEach(function (k) { if (r[k]) freed += r[k].bytes || 0; });
+            toast({ text: freed ? 'Freed ' + fmtSize(freed) + '.' : 'Nothing to clear.' });
+            renderHost();
+          })
+          .catch(function (e) { toast({ text: e.message || 'That did not work.' }); });
+        return;
+      }
+      b.dataset.armed = '1';
+      b.textContent = armedLabel;
+      setTimeout(function () {
+        if (!b.isConnected) return;
+        b.dataset.armed = '';
+        b.textContent = label;
+      }, 5000);
+    });
+    return b;
+  }
+
+  function hostPost(path, payload) {
+    return streamTicket('storage').then(function (t) {
+      return fetch(t.host + path, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer ' + t.token,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      }).then(function (r) { return r.json(); }).then(function (b) {
+        if (!b || !b.ok) throw new Error((b && b.error) || 'That did not work.');
+        return b;
+      });
+    });
+  }
+
+  /* Drawn on open, and again on every re-open — the numbers are a live
+     measurement, not a snapshot from sign-in. */
+  $('hostPanel').addEventListener('toggle', function () {
+    if ($('hostPanel').open) renderHost();
+  });
 
   /* The door goes up before anything else is usable. The gate is unhidden in
      the markup and the body starts .is-gated, so the app is never painted to

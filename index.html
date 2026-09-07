@@ -243,6 +243,20 @@
       <button type="button" class="cb-subs-off" id="subsOff" hidden>Turn subtitles off</button>
     </details>
 
+    <!-- ---------- Stream host ----------
+         Owner only. The box that carries the film is the one thing in this
+         app with a running cost and a finite disk, so both are readable
+         from the phone rather than from an ssh session. -->
+    <details class="cb-log cb-host" id="hostPanel" hidden>
+      <summary>
+        <span class="cb-dot" id="hostDot"></span>
+        <span id="hostSummary">Stream host</span>
+      </summary>
+      <div class="cb-host-body" id="hostBody">
+        <p class="cb-host-empty">Open to check.</p>
+      </div>
+    </details>
+
     <!-- ---------- Actions ---------- -->
     <div class="cb-actions">
       <button type="button" class="btn btn-primary" id="btnCast" disabled>
@@ -301,6 +315,28 @@
         </form>
 
         <div id="linkResult"></div>
+
+        <!-- ---------- A file on this phone ----------
+             A television fetches over the network and a phone is not a
+             server, so this plays here straight away and uploads to the
+             stream host only when it is actually being sent somewhere. -->
+        <div class="cb-device">
+          <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mp4,.mov,.webm,.m4v"
+                 hidden>
+          <button type="button" class="btn btn-primary btn-block" id="btnPickFile">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.4l-1.7-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"/>
+              <path d="m10 11 5 3-5 3z"/>
+            </svg>
+            <span class="cb-label">Choose a video on this phone</span>
+            <span class="cb-spin" aria-hidden="true"></span>
+          </button>
+          <p class="cb-device-note">Plays here straight away. Sending it to the television
+            copies it to the stream host first — it is deleted again within a day.</p>
+        </div>
+
+        <div id="deviceResult"></div>
 
         <div class="cb-empty mt-3" id="linkHint">
           <h3>Paste anything with a video on it</h3>

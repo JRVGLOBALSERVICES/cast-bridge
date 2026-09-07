@@ -32,6 +32,7 @@ const usersApi = require('../api/users.js');
 const historyApi = require('../api/history.js');
 const subsApi = require('../api/subs.js');
 const streamApi = require('../api/stream.js');
+const ticketApi = require('../api/ticket.js');
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
@@ -78,6 +79,17 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       if (!res.headersSent) { res.statusCode = 500; res.end(JSON.stringify({ ok: false, error: e.message })); }
       else res.end();
+    }
+    return;
+  }
+
+  if (pathname === '/api/ticket') {
+    req.query = Object.fromEntries(url.searchParams.entries());
+    try {
+      await ticketApi(req, res);
+    } catch (e) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ ok: false, error: e.message }));
     }
     return;
   }

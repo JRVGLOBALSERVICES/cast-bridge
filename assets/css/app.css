@@ -1870,3 +1870,139 @@ body.is-gated { overflow: hidden; }
   line-height: 1.5;
   color: var(--cb-ink-2);
 }
+
+/* ---------- A file on this phone ----------
+   The picker sits under the address field because it answers the same
+   question the field does — "what do you want to play" — and splitting the
+   two into separate tabs would have made five tabs on a 390px strip. */
+.cb-device {
+  margin-top: 0.75rem;
+}
+.cb-device .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 2.875rem;
+  text-transform: none;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+.cb-device-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--cb-ink-2);
+}
+
+.cb-pick {
+  margin-top: 0.75rem;
+  border-radius: var(--cb-radius);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+  padding: 14px 16px 16px;
+  scroll-margin: 16px;
+}
+.cb-pick-name {
+  margin: 0 0 0.25rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--cb-ink);
+  /* A phone camera's filename is 40 characters of nothing; the panel gives
+     way rather than the layout. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cb-pick-sub,
+.cb-pick-note,
+.cb-pick-clock {
+  margin: 0 0 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--cb-ink-2);
+}
+.cb-pick-clock {
+  /* The figures change four times a second. Proportional digits jitter the
+     whole line as they do it. */
+  font-variant-numeric: tabular-nums;
+  margin: 0.55rem 0 0.75rem;
+}
+.cb-pick-note { margin-bottom: 0; }
+.cb-pick-error {
+  margin: 0.75rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--cb-bad);
+}
+.cb-pick .btn {
+  text-transform: none;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  min-height: 2.5rem;
+  padding-left: 0.9rem;
+  padding-right: 0.9rem;
+}
+
+/* ---------- Stream host ---------- */
+.cb-host-body { padding: 0.25rem 0 0.75rem; }
+.cb-host-empty {
+  margin: 0.5rem 0;
+  font-size: 0.8125rem;
+  color: var(--cb-ink-2);
+}
+.cb-host-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--cb-line);
+  font-size: 0.8125rem;
+}
+.cb-host-row:last-of-type { border-bottom: 0; }
+.cb-host-k { color: var(--cb-ink-2); }
+.cb-host-v {
+  font-weight: 700;
+  color: var(--cb-ink);
+  /* Every value in this panel is a quantity, and they are read down the
+     column against each other. */
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.cb-host-path {
+  margin: 0.6rem 0 0;
+  font-family: var(--font-family-monospace, monospace);
+  font-size: 0.6875rem;
+  color: var(--cb-ink-2);
+  word-break: break-all;
+}
+.cb-host-files { margin-top: 0.9rem; }
+.cb-host-file {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--cb-line);
+  font-size: 0.8125rem;
+}
+.cb-host-fname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cb-ink);
+}
+.cb-host-fsize {
+  color: var(--cb-ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.cb-host-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--cb-line);
+}
