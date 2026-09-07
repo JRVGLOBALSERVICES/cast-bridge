@@ -31,7 +31,41 @@
  */
 
 const { Readable } = require('stream');
-const { once } = require('events');
+
+/* Backpressure that gives up when the far end does.
+ *
+ * `once(res, 'drain')` waits for a socket that has already gone away: a
+ * television that is switched off mid-film, or a viewer who hits Stop,
+ * closes the response without ever draining it. The await then never
+ * settles, and the async iterator holding the upstream body is never
+ * returned — so the connection to the origin stays open for as long as the
+ * process does.
+ *
+ * On Vercel that leak was invisible; the invocation was killed at 60
+ * seconds and took the whole isolate with it. This handler now also runs
+ * inside a long-lived server, where nothing comes along to clean up after
+ * it, so the wait has to lose the race to `close`. Rejecting unwinds the
+ * for-await, which returns the iterator, which destroys the source and
+ * aborts the fetch. */
+const CLIENT_GONE = 'client-gone';
+
+function drain(res) {
+  return new Promise((resolve, reject) => {
+    if (res.destroyed || res.writableEnded) {
+      reject(new Error(CLIENT_GONE));
+      return;
+    }
+    const done = (err) => {
+      res.off('drain', onDrain);
+      res.off('close', onClose);
+      err ? reject(err) : resolve();
+    };
+    const onDrain = () => done();
+    const onClose = () => done(new Error(CLIENT_GONE));
+    res.on('drain', onDrain);
+    res.on('close', onClose);
+  });
+}
 const { safeFetch, readCapped, UA } = require('../lib/media');
 
 /* Long enough for a segment on a slow CDN, short enough that a dead host
@@ -56,8 +90,17 @@ const STREAM_TIMEOUT_MS = 20000;
 
    8 MiB is about 17 seconds of that same encode: long enough that the
    round trips are rare, short enough to transfer well inside the limit
-   even from a slow origin. */
-const RANGE_WINDOW_BYTES = 8 * 1024 * 1024;
+   even from a slow origin.
+
+   The ceiling is a property of the host, not of the format, so it is
+   settable. Behind a server with no execution limit a wider window is
+   strictly better — the same film in fewer, longer reads — and
+   STREAM_RANGE_WINDOW_MB is how that host says so. Unset, this is the
+   8 MiB Vercel needs. */
+const RANGE_WINDOW_BYTES = (function () {
+  const mb = Number(process.env.STREAM_RANGE_WINDOW_MB);
+  return Number.isFinite(mb) && mb > 0 ? Math.round(mb * 1024 * 1024) : 8 * 1024 * 1024;
+})();
 
 /* Only a single well-formed byte range is narrowed. A suffix range
    (bytes=-N) is asking for the tail, which is how a player finds an mp4's
@@ -343,7 +386,7 @@ module.exports = async function handler(req, res) {
     let started = false;
 
     for await (const chunk of source) {
-      if (started) { if (!res.write(chunk)) await once(res, 'drain'); continue; }
+      if (started) { if (!res.write(chunk)) await drain(res); continue; }
 
       head = Buffer.concat([head, chunk]);
       if (head.length < HEAD_PEEK_BYTES) continue;
@@ -361,7 +404,7 @@ module.exports = async function handler(req, res) {
         res.statusCode = 200;
       }
       started = true;
-      if (!res.write(head.subarray(at))) await once(res, 'drain');
+      if (!res.write(head.subarray(at))) await drain(res);
     }
 
     /* A body shorter than the peek never reached the branch above. */
@@ -378,6 +421,12 @@ module.exports = async function handler(req, res) {
     }
     res.end();
   } catch (e) {
+    /* The viewer stopping is not a fault and must not be reported as one:
+       the socket is already gone, so there is nobody to tell. */
+    if (e && e.message === CLIENT_GONE) {
+      source.destroy();
+      return;
+    }
     if (!res.headersSent) fail(res, 502, 'That stream broke while being read.');
     else res.end();
   }

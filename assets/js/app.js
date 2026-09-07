@@ -605,8 +605,38 @@
    * and DASH to be served cross-origin-open, which a CDN that never
    * expected a television is not. Going through our own origin fixes both.
    */
+
+  /* WHERE THE TELEVISION FETCHES THROUGH.
+   *
+   * The proxy is the one endpoint that carries the film itself, and on
+   * Vercel every byte of it is billed twice — once function-to-CDN, once
+   * CDN-to-television — with no free allowance on the first leg. That is
+   * about $0.27 a gigabyte, so a 5 GB film costs $1.35 to watch, and since
+   * every HLS stream is proxied by definition, that is the ordinary case.
+   *
+   * The same bytes leave our own server in Singapore for nothing, a few
+   * milliseconds from the television asking for them. So that is the first
+   * address tried.
+   *
+   * The second entry is this origin — the Vercel function, unchanged and
+   * still deployed. It is not decoration: a box that is down, rebooting or
+   * mid-deploy would otherwise take casting down with it, and the fallback
+   * costs nothing while it is not being used. A stream that stalls or is
+   * refused on the first host is retried on the second before anyone is
+   * told it cannot be played.
+   */
+  var STREAM_HOSTS = ['https://stream.jrvsystems.app', ''];
+  var streamHostIndex = 0;
+
+  /* Moves to the next host, or reports that there is not one. */
+  function nextStreamHost() {
+    if (streamHostIndex + 1 >= STREAM_HOSTS.length) return false;
+    streamHostIndex++;
+    return true;
+  }
+
   function streamUrl(u, absolute) {
-    var out = '/api/stream?u=' + encodeURIComponent(u);
+    var out = STREAM_HOSTS[streamHostIndex] + '/api/stream?u=' + encodeURIComponent(u);
     if (currentFrom && /^https?:/i.test(currentFrom)) {
       out += '&r=' + encodeURIComponent(currentFrom);
     }
@@ -1063,6 +1093,17 @@
         return;
       }
 
+      /* Already going through a bridge and still not playing. That is as
+         likely to be the bridge as the film, so try the other one before
+         calling it dead — the two are different machines in different
+         places, and the log records which was in use. */
+      if (opts.viaProxy && nextStreamHost()) {
+        setStatus(name + ' still isn\'t starting — trying the backup bridge.', '');
+        logCast('Switching bridge', 'now serving from ' + (STREAM_HOSTS[streamHostIndex] || location.origin));
+        castLoad(u, { at: at, viaProxy: true });
+        return;
+      }
+
       setStatus(name + ' took the link but never started playing. The cast log below has what it reported.', 'bad');
       openCastLog(true);
       toast({
@@ -1168,6 +1209,14 @@
       if (!opts.viaProxy && src === u) {
         setStatus('The host blocked ' + name + ' — routing it through the bridge.', '');
         logCast('Retrying through the bridge.');
+        castLoad(u, { at: at, viaProxy: true });
+        return;
+      }
+
+      /* Refused while already proxied. The bridge itself is a suspect. */
+      if (opts.viaProxy && nextStreamHost()) {
+        setStatus('That bridge didn\'t work — trying the backup.', '');
+        logCast('Switching bridge', 'now serving from ' + (STREAM_HOSTS[streamHostIndex] || location.origin));
         castLoad(u, { at: at, viaProxy: true });
         return;
       }

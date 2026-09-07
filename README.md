@@ -53,6 +53,8 @@ assets/  app.js · app.css (neumorphism, one dark surface: the on-air panel)
 db/      001_castbridge_schema.sql
 scripts/ dev.js — local server that routes the functions like Vercel does
          stamp-build.mjs — assembles public/ and stamps sw.js BUILD
+server/  stream-server.js — runs api/stream.js as a service on our own box
+deploy/  stream.jrvsystems.app.conf — the nginx vhost in front of it
 ```
 
 ## Design system
@@ -98,3 +100,53 @@ line is missing.
 
 Confirm what is live by fetching `/sw.js` and reading its `BUILD`. On the phone,
 pull down to reload before judging a change.
+
+## The stream host
+
+Everything except the film is on Vercel. The film is not.
+
+`/api/stream` is the one endpoint that carries the media itself, and on Vercel
+every byte of it is billed twice — once function-to-CDN as Fast Origin Transfer,
+once CDN-to-television as Fast Data Transfer. The data leg has a terabyte
+included; the origin leg has no free allowance at all, so a proxied stream costs
+from its first byte, around **$0.27/GB** in Singapore. That is $1.35 to watch one
+5 GB film, and since every HLS stream goes through the proxy by definition, it is
+the ordinary case rather than the exception. Compute is noise next to it.
+
+So the same handler also runs on our own VPS, which is in Singapore, has no
+per-gigabyte charge, and is a few milliseconds from the television doing the
+fetching:
+
+```
+https://stream.jrvsystems.app/api/stream   nginx :443 → node :7801
+```
+
+`server/stream-server.js` **requires the same `api/stream.js`** rather than
+reimplementing it. There is one referer-forwarder, one playlist rewriter, one
+disguised-segment detector and one SSRF guard, and both hosts run it.
+
+Two things differ on the VPS, both by environment:
+
+- `STREAM_RANGE_WINDOW_MB=64`. The 8 MiB window exists because Vercel kills a
+  function at 60 seconds; with no execution limit a wider one means the same
+  film in fewer, longer reads.
+- Bytes served are counted per day into `/var/lib/cast-stream/usage.json` and
+  reported by `/healthz`, so "what does this cost" has a measured answer.
+
+`STREAM_HOSTS` in `assets/js/app.js` is the order they are tried: the VPS first,
+this origin second. The Vercel function stays deployed and is not decoration — a
+box that is rebooting would otherwise take casting with it. A stream that stalls
+or is refused on the first host is retried on the second, and the cast log names
+which one served it.
+
+Deploying the stream host:
+
+```
+git -C /opt/cast-stream pull && pm2 restart cast-stream
+curl -s https://stream.jrvsystems.app/healthz
+```
+
+The nginx vhost is scoped to `/api/stream` and `/healthz` and 404s everything
+else, on purpose: it is a new public hostname on a box that also runs the bridge
+and its admin console. `proxy_buffering off` is load-bearing — with buffering on,
+nginx reads the whole film to disk before sending any of it.

@@ -608,3 +608,18 @@
       bridge, then a named failure instead of a spinner.
 - [x] Stop casting available for the whole session, not only once media
       loads.
+
+## 2026-09-07 — the film moves off Vercel
+
+- [x] `/api/stream` now runs on our own VPS at `stream.jrvsystems.app`, from
+      the same `api/stream.js` the Vercel function runs — one implementation,
+      two hosts. Vercel's copy stays deployed as the fallback.
+- [x] Fixed a leak that only a long-lived process would ever show: backpressure
+      waited on `drain` from a socket that had already closed, so a television
+      switched off mid-film left the upstream connection open forever.
+- [x] Range window is now `STREAM_RANGE_WINDOW_MB`, set to 64 on the VPS. The
+      8 MiB default exists only because Vercel kills a function at 60s.
+- [x] Bytes served counted per day and reported on `/healthz`, so the cost
+      question has a measured answer rather than an estimate.
+- [x] Both cast retry paths escalate to the backup host instead of giving up,
+      and the cast log names which host served.
