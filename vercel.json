@@ -12,5 +12,6 @@
       "maxDuration": 10
     }
   },
-  "buildCommand": "node scripts/stamp-build.mjs"
+  "buildCommand": "node scripts/stamp-build.mjs",
+  "outputDirectory": "public"
 }
