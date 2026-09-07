@@ -612,6 +612,27 @@ summary:focus-visible {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
+  /* Two reasons, and the second one is the one that was reported.
+   *
+   * Proximity: everything above this acts on the film that is ALREADY
+   * loaded; the paste box below it starts a new one. Those are different
+   * groups, so the gap between them has to beat the 0.5rem gap inside this
+   * one — otherwise the four buttons and the form read as one block of
+   * five controls. Every other child of this section carries 0.75rem;
+   * these two carried nothing at all and touched at exactly 434px.
+   *
+   * Shadow: the Play button in the form below is neumorphic — 3px offsets
+   * under a 6px blur — so its highlight reaches 9px ABOVE its own box and
+   * was landing on the Cast button. A shadow crossing into a neighbouring
+   * control makes the two read as one raised surface and puts soft edges
+   * inside somebody else's 46px touch target.
+   *
+   * 1.75rem rather than a new number: that is the step this sheet already
+   * uses for a group boundary (.cb-help), it is more than double the 12px
+   * rhythm every other sibling carries, it is 3.5x the 0.5rem gap inside
+   * this grid — so the boundary is unambiguous — and it clears the
+   * shadow's 9px reach several times over. */
+  margin-bottom: 1.75rem;
 }
 .cb-actions .btn {
   display: inline-flex;

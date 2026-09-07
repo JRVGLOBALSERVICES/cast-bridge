@@ -982,3 +982,27 @@
       app from a tap left the old one in the shade, reporting on the screen
       now in front of you — the fresh page has no record of it and cannot
       name its tag. Coming to the front now sends a registration-wide close.
+- [x] Task 47: Pause and Stop still did nothing, and last turn's fix was only
+      half of it. The worker's fallback — write the tap down, bring the app
+      up — was right; the app asked for the written-down tap exactly once, at
+      boot. But the ordinary case on a phone is an app that is ALREADY
+      running and merely frozen: the worker gets no acknowledgement, writes
+      the tap down and focuses the page, which thaws, never boots again, and
+      so never asks. The tap sat in the cache until it went stale. Every road
+      back to the foreground asks now, not just the first one.
+- [x] Task 48: Still no cover. The address was being found, returned and
+      thrown away at the last inch — a hotlinked poster is exactly what a
+      site refuses, it answers 403 to a Referer that is not its own, the
+      <img> never fires onload and one refusal was being read as "there is no
+      picture". `GET /api/img?u=` fetches it again from our own server, with
+      the poster's own origin as the referer, and hands back a copy on our
+      origin that a Chromecast can fetch too.
+- [x] Task 49: The stale-cover guard could never fire. `mine !== poster`
+      compared the argument to itself, so a slow first film could still
+      overwrite a fast second one. It is a token now.
+- [x] Task 50: The Send button and the Play button below it were touching at
+      exactly 434px, and the Play button's neumorphic highlight — 3px offsets
+      under a 6px blur — reached 9px above its own box and landed on the Send
+      button. Two different groups with no gap between them, and a soft edge
+      inside somebody else's 46px touch target. 1.75rem, which is the step
+      this sheet already uses for a group boundary.

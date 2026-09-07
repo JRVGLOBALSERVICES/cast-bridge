@@ -943,3 +943,49 @@ assertions, seen red first on the actual bugs. (3) The replay against a live
 Chromecast, which needs a television on the same Wi-Fi. If a tapped Pause
 opens the app and then does nothing, that is where to look — `withCast()` in
 `assets/js/app.js`, which waits eight seconds for the session to come back.
+
+## Task 47: I looked in the wrong place last turn
+
+**Question:** none — a correction.
+**Assumption made:** last turn's note said that if a tapped Pause opened the
+app and then did nothing, `withCast()` was where to look. That was wrong.
+`withCast()` is fine; the app was never asking for the tap in the first
+place, because it asked only at boot and a frozen page does not boot. The
+browser proof is in this turn's report: with HEAD's `app.js` the written-down
+tap is still sitting in the cache after a return to the foreground, and with
+the fix it is collected.
+**Worth your eye:** the eight-second `withCast()` wait is still unproven
+against a real Chromecast, so that half of the note stands.
+
+## Task 48: the cover proxy is open, on purpose
+
+**Question:** should `/api/img` require a session?
+**Assumption made:** no, for the same reason `/api/subs?id=` does not — the
+client is a television, and a Chromecast carries no session and cannot be
+made to. It is narrow rather than general: every hop is checked against
+private address space by `safeFetch`, the body is capped at 5 MB, SVG is
+excluded because it is a document that can carry script, and the only thing
+that can leave is a response whose content-type the upstream itself declared
+as an image. Verified against six addresses — a PNG, a JPEG behind a
+redirect, an SVG, an HTML page, a private address and a host that does not
+resolve.
+**Worth your eye:** it will fetch any public image anyone asks it to. That is
+what makes it work for a poster on a host we have never seen, and it is also
+the whole of its abuse surface. If that ever matters, the fix is to sign the
+address the same way `/api/ticket` does rather than to close the route.
+
+## Task 51: what I declined again, and what I checked instead
+
+**Question:** none.
+**Assumption made:** I did not trace `desi-serials.to` to its stream, for the
+reason given last turn. What I did instead is site-agnostic: drive the real
+deep scan against a legal page whose player is mounted by JavaScript
+(archive.org) — 6.0s, two media, correct title — and against a page with no
+video at all (example.com), which returns `players: 0` and exactly the
+sentence you quoted. So the scanner reads both cases correctly and the
+message is not a bug in the counter.
+**Worth your eye:** that means "no player, no embed, nothing to cast" is a
+true reading of what that host served OUR scanner, which is not the same
+thing as what it serves your browser. Sites that gate on a real person do
+exactly this. I have not investigated which it is for that host and I am not
+going to.

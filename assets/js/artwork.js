@@ -35,9 +35,15 @@
     var timer = env.setTimeout;
 
     var video = function () { return env.video || null; };
+    /* How a cover gets fetched a second time, by us, when the site refused
+       to serve it to the phone. Injectable so the rules below can be
+       proven without a server. */
+    var proxy = env.proxy || function (u) { return '/api/img?u=' + encodeURIComponent(u); };
     var seen = {};      // url -> promise of the url, or of '' if it will not load
     var art = '';       // what the shade and the lock screen should use
     var source = '';    // 'poster' | 'frame' | ''
+    var poster = '';    // the address the cover came from, before any proxying
+    var token = 0;      // which set() is the current one
     var listeners = [];
 
     function announce() {
@@ -89,22 +95,46 @@
 
     /* A new film. The last one's cover is dropped in the same tick — the
        wrong picture is worse than no picture — and the new one is only
-       adopted once it has proven it loads. */
-    function set(poster) {
+       adopted once it has proven it loads.
+     *
+     * Two attempts, not one. The direct address first, because when it
+     * works it costs nothing. Then the same address fetched through this
+     * app's own server, because the single most common reason a real
+     * poster does not appear is hotlink protection: the site sees a Referer
+     * that is not its own and answers 403, the <img> never fires onload,
+     * and the shade falls back to the grey app mark over a film that has a
+     * perfectly good cover. One refusal is not "there is no picture".
+     *
+     * The stale-answer guard is a token rather than a comparison against
+     * the argument — the old `mine !== url` compared a value to itself and
+     * could never be true, so a slow first film could still overwrite a
+     * fast second one. */
+    function set(url) {
+      var mine = ++token;
       art = '';
       source = '';
+      poster = '';
       announce();
-      if (!poster) return Promise.resolve('');
-      var mine = poster;
-      return probe(poster).then(function (ok) {
-        /* Another film was loaded while this one was being fetched, or a
-           frame won the race. Either way this answer is stale. */
-        if (!ok || art || mine !== poster) return art;
-        art = ok;
-        source = 'poster';
-        announce();
-        return art;
-      });
+      if (!url) return Promise.resolve('');
+
+      var stale = function () { return mine !== token || Boolean(art); };
+
+      return probe(url)
+        .then(function (ok) {
+          if (stale()) return '';
+          if (ok) return ok;
+          return probe(proxy(url)).then(function (viaUs) {
+            return stale() ? '' : viaUs;
+          });
+        })
+        .then(function (ok) {
+          if (!ok || stale()) return art;
+          art = ok;
+          source = 'poster';
+          poster = url;
+          announce();
+          return art;
+        });
     }
 
     /* The fallback, tried once the element has pixels. Never overwrites a
@@ -127,8 +157,15 @@
       /* Only an address the television can fetch for itself. A captured
          frame is a data: URL: fine for this phone's lock screen, useless to
          a Chromecast, which has to go and get the picture over the network
-         like any other client. */
-      remote: function () { return source === 'poster' ? art : ''; },
+         like any other client.
+       *
+       * A real cover always goes through our own server on the way to the
+       * television, even when the phone loaded it direct. The receiver is
+       * a separate client on the same network with no session, no cookies
+       * and a referer of its own, so "the phone could fetch it" is not
+       * evidence the TV can — and our copy is the only one that carries
+       * the cross-origin header a receiver needs. */
+      remote: function () { return source === 'poster' && poster ? proxy(poster) : ''; },
       onChange: function (fn) { listeners.push(fn); }
     };
   }

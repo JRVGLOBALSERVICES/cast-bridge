@@ -41,6 +41,7 @@ const biliApi = require('../api/bilibili.js');
 const crawlApi = require('../api/crawl.js');
 const seriesApi = require('../api/series.js');
 const nowPlayingApi = require('../api/now-playing.js');
+const imgApi = require('../api/img.js');
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
@@ -89,6 +90,19 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       res.statusCode = 500;
       res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  /* The cover, fetched by us. Absent here, a local run cannot tell a
+     hotlink refusal from a poster that genuinely is not there. */
+  if (pathname === '/api/img') {
+    req.query = Object.fromEntries(url.searchParams.entries());
+    try {
+      await imgApi(req, res);
+    } catch (e) {
+      if (!res.headersSent) { res.statusCode = 500; res.end(JSON.stringify({ ok: false, error: e.message })); }
+      else res.end();
     }
     return;
   }

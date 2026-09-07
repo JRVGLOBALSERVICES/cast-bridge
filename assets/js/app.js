@@ -572,9 +572,27 @@
       }
     }
 
+    /* Coming to the front is also the moment to ask for a tap that could
+       not be delivered.
+
+       This is why Pause and Stop still did nothing. The worker's fallback
+       is "write the tap down and bring the app up", and the app asked for
+       the written-down tap exactly once, at boot. But the common case on a
+       phone is an app that is ALREADY running and merely frozen: the
+       worker gets no acknowledgement inside its window, writes the tap
+       down, and focuses the page — which thaws, never boots again, and so
+       never asks. The tap sat in the cache until it went stale. Every road
+       back to the foreground has to ask, not just the first one. */
     document.addEventListener('visibilitychange', function () {
       paint();
       clearShade();
+      if (!document.hidden) drainPending();
+    });
+
+    /* A page restored from the back/forward cache fires this and not
+       visibilitychange, and on iOS it is the usual way back in. */
+    window.addEventListener('pageshow', function (e) {
+      if (e && e.persisted) drainPending();
     });
 
     /* Every tap carries an id and no id is performed twice.
@@ -624,9 +642,10 @@
       });
     }
 
-    /* "Was a button tapped while I was not running?" Asked once, on boot,
-       after the rest of the app has wired itself up — a Pause performed
-       before there is a Cast session to pause is the dropped tap again. */
+    /* "Was a button tapped while I could not answer?" Asked on boot, and
+       again on every return to the foreground — see visibilitychange
+       above for why once was not enough. Safe to ask when there is
+       nothing: the worker replies with a null job. */
     function drainPending() {
       if (!('serviceWorker' in navigator)) return;
       var ch;
@@ -2416,7 +2435,13 @@
     document: document,
     Image: window.Image,
     setTimeout: function (fn, ms) { return setTimeout(fn, ms); },
-    video: video
+    video: video,
+    /* Absolute on purpose. This address is handed to a Chromecast as well
+       as to this page, and a receiver on the other side of the room has
+       nothing to resolve a leading slash against. */
+    proxy: function (u) {
+      return location.origin + '/api/img?u=' + encodeURIComponent(u);
+    }
   });
 
   var mediaSession = (function () {

@@ -38,6 +38,9 @@
     },
     "api/now-playing.js": {
       "maxDuration": 10
+    },
+    "api/img.js": {
+      "maxDuration": 15
     }
   },
   "buildCommand": "node scripts/stamp-build.mjs",

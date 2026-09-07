@@ -82,9 +82,13 @@ function art(opts) {
     Image: fakeImage(opts.rules || {}),
     setTimeout: (fn, ms) => setTimeout(fn, opts.probeMs || ms),
     probeMs: opts.probeMs || 40,
-    video: 'video' in opts ? opts.video : READY
+    video: 'video' in opts ? opts.video : READY,
+    proxy: opts.proxy || ((u) => 'https://app.test/api/img?u=' + encodeURIComponent(u))
   });
 }
+
+/* What the app's own server would be asked for, given a poster address. */
+const viaUs = (u) => 'https://app.test/api/img?u=' + encodeURIComponent(u);
 
 group('artwork — the cover, and what to do without one');
 
@@ -95,10 +99,34 @@ check('a cover that loads is used', async () => {
   assert.strictEqual(a.source(), 'poster');
 });
 
-check('a cover that 403s is dropped, not shown broken', async () => {
-  const a = art({ rules: { 'https://x.test/hotlink.jpg': 'error' } });
-  await a.set('https://x.test/hotlink.jpg');
+check('a cover that 403s is fetched again through our own server', async () => {
+  /* The whole reason the shade showed a grey app mark over a film with a
+     perfectly good cover: hotlink protection refuses the phone, and one
+     refusal was being read as "there is no picture". */
+  const url = 'https://x.test/hotlink.jpg';
+  const a = art({ rules: { [url]: 'error', [viaUs(url)]: 'ok' } });
+  await a.set(url);
+  assert.strictEqual(a.current(), viaUs(url));
+  assert.strictEqual(a.source(), 'poster');
+});
+
+check('a cover that fails BOTH ways is dropped, not shown broken', async () => {
+  const url = 'https://x.test/gone.jpg';
+  const a = art({ rules: { [url]: 'error', [viaUs(url)]: 'error' } });
+  await a.set(url);
   assert.strictEqual(a.current(), '');
+});
+
+check('a cover that loads direct is not fetched through us twice', async () => {
+  const url = 'https://x.test/cover.jpg';
+  const asked = [];
+  const a = art({
+    rules: { [url]: 'ok', [viaUs(url)]: 'ok' },
+    proxy: (u) => { asked.push(u); return viaUs(u); }
+  });
+  await a.set(url);
+  assert.strictEqual(a.current(), url);
+  assert.deepStrictEqual(asked, [], 'the direct address worked; nothing to retry');
 });
 
 check('a host that never answers gives up rather than waiting forever', async () => {
@@ -139,10 +167,35 @@ check('a captured frame is never offered to the television', () => {
   assert.strictEqual(a.remote(), '', 'a data: URL is useless to a Chromecast');
 });
 
-check('a real cover IS offered to the television', async () => {
-  const a = art({ rules: { 'https://x.test/cover.jpg': 'ok' } });
-  await a.set('https://x.test/cover.jpg');
-  assert.strictEqual(a.remote(), 'https://x.test/cover.jpg');
+check('a real cover reaches the television through our own server', async () => {
+  /* Even when the phone loaded it direct. The receiver is a separate
+     client with its own referer and no session, and ours is the only copy
+     carrying the cross-origin header a Chromecast needs. */
+  const url = 'https://x.test/cover.jpg';
+  const a = art({ rules: { [url]: 'ok' } });
+  await a.set(url);
+  assert.strictEqual(a.remote(), viaUs(url));
+});
+
+check('the television is given an absolute address', async () => {
+  const url = 'https://x.test/cover.jpg';
+  const a = art({ rules: { [url]: 'ok' } });
+  await a.set(url);
+  assert.ok(/^https:\/\//.test(a.remote()), 'a receiver has nothing to resolve a slash against');
+});
+
+check('a slow first film cannot overwrite a fast second one', async () => {
+  /* The old guard compared the argument to itself and could never fire. */
+  const slow = 'https://x.test/slow.jpg';
+  const fast = 'https://x.test/fast.jpg';
+  const a = art({
+    rules: { [slow]: 'ok', [fast]: 'ok' },
+    proxy: viaUs
+  });
+  const first = a.set(slow);
+  const second = a.set(fast);
+  await Promise.all([first, second]);
+  assert.strictEqual(a.current(), fast, 'the film actually loaded wins');
 });
 
 check('a new film drops the last one\'s cover in the same tick', async () => {
