@@ -29,12 +29,30 @@ not by its name.
   browser can reach.
 - **Accounts and history** — Supabase-backed, so what was watched and where it
   was paused survives a reinstall or a different phone.
+- **A file from the phone, and a link for it** — the upload lands on the stream
+  host and comes back with a public watch page,
+  `https://stream.jrvsystems.app/w/<slug>-<32 hex>`. Anyone with that address
+  watches it in a browser with no sign-in; the 32 hex characters are the whole
+  credential, so an address that is not given out cannot be found. You choose at
+  the point of sending how long it stays — 1 day, 7, 30, or until you delete it
+  — and **Library** lists everything you have up there with re-cast, copy-link,
+  re-date and delete.
+- **Bilibili** — QR sign-in, with the code **drawn in the app**
+  (`assets/js/qr.js`). What Bilibili's API returns is the payload of a QR, not a
+  page: offered as a link it opens a scan page that does nothing.
 - `?u=<encoded-url>` — deep-link straight into the player.
 
 ## What a browser cannot do, and this is honest about
 
-- **Screen mirroring.** No web API exposes the screen to a television. Chrome's
-  own menu → Cast → Cast screen does it; a page cannot.
+- **Screen mirroring.** No web API exposes the screen to a television. The Cast
+  sender API takes an address for the TV to fetch, never a live picture; the
+  Presentation API shows a *different* page on a registered receiver; and
+  `getDisplayMedia` can capture but cannot then hand the stream to a Chromecast.
+  Chrome's own menu → Cast → Cast screen does it, and a page cannot. The app
+  used to carry a panel of instructions for that menu, which was correct and
+  useless; it is gone. What is left is **Record this screen** — capture, stop,
+  upload, play — shown only where the browser can actually do it, which is
+  Chrome and Edge on a computer.
 - **A file on the phone.** The TV fetches over the network and cannot reach the
   phone's storage, so a locally-picked file has no address to be fetched from.
 - **DLNA discovery** (Samsung, LG) needs SSDP over UDP multicast, which is not
@@ -49,7 +67,9 @@ api/     extract · scan · subs · auth · users · history   (Vercel functions
 lib/     media.js  — fetch guards, extraction, probing, HLS expansion
          subs.js   — SRT → WebVTT
          db.js · auth.js · users.js
-assets/  app.js · app.css (neumorphism, one dark surface: the on-air panel)
+assets/  app.js  — nine screens behind a five-entry bottom bar, one job each
+         qr.js   — byte-mode QR encoder, versions 1-10, level L (Bilibili)
+         app.css — neumorphism, one dark surface: the on-air panel
 db/      001_castbridge_schema.sql
 scripts/ dev.js — local server that routes the functions like Vercel does
          stamp-build.mjs — assembles public/ and stamps sw.js BUILD
@@ -132,6 +152,25 @@ Two things differ on the VPS, both by environment:
   film in fewer, longer reads.
 - Bytes served are counted per day into `/var/lib/cast-stream/usage.json` and
   reported by `/healthz`, so "what does this cost" has a measured answer.
+
+It carries the uploaded files too, under one root and nothing outside it:
+
+```
+POST /api/upload?name=…&size=…&keep=<hours|0>   upload ticket
+GET  /f/<32 hex>                                what the television fetches
+GET  /w/<slug>-<32 hex>                         the page a person is given
+GET  /api/library                               my own uploads      library ticket
+POST /api/library/keep    { id, keep }          re-date one of mine
+POST /api/library/delete  { ids }               remove one of mine
+GET  /api/storage · /api/system                 the whole disk      storage ticket (owner)
+```
+
+`keep` is hours, `0` meaning until deleted by hand, clamped to
+`CAST_MAX_KEEP_HOURS` (30 days). It is written into the file's meta as an
+`expires`, and the sweeper reads that meta rather than mtime — two files
+uploaded in the same minute can now carry a one-day expiry and a never, and
+mtime cannot tell them apart. A meta from before retention existed has no
+`expires` and is treated as the old blanket day from when it landed.
 
 `STREAM_HOSTS` in `assets/js/app.js` is the order they are tried: the VPS first,
 this origin second. The Vercel function stays deployed and is not decoration — a
