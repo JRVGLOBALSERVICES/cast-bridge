@@ -27,6 +27,8 @@ const TYPES = {
 const extract = require('../api/extract.js');
 const scan = require('../api/scan.js');
 const authApi = require('../api/auth.js');
+const usersApi = require('../api/users.js');
+const historyApi = require('../api/history.js');
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
@@ -35,6 +37,17 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/auth') {
     try {
       await authApi(req, res);
+    } catch (e) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  if (pathname === '/api/users' || pathname === '/api/history') {
+    req.query = Object.fromEntries(url.searchParams.entries());
+    try {
+      await (pathname === '/api/users' ? usersApi : historyApi)(req, res);
     } catch (e) {
       res.statusCode = 500;
       res.end(JSON.stringify({ ok: false, error: e.message }));

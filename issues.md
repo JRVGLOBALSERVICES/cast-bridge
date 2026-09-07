@@ -83,3 +83,38 @@ media library with login, MEDIA_ROOT streaming and the TV-first UI) with **zero
 commits**. It exists only on the VPS. Nothing about it is deployed. If he wants
 it, it needs a repo and a push; if not, it should be deleted rather than left
 looking like it shipped.
+
+## Round 4 — 2026-09-07
+
+## Task 19: the two test links are not in the thread — BLOCKED
+
+**Question:** Rj: "I'm giving you 2 test links, instead of that you're testing
+with some shits that works for you." He is right that testing with links chosen
+because they pass is worthless. But I cannot find the two links.
+**What I actually did:** searched all 8,963 messages in
+`data/chats/47687122567393_lid.jsonl`, extracted every inbound URL, and read the
+last 25 inbound messages. There is no video link in the thread — the most
+recent inbound messages are `Stop`, `?????`, and the complaint itself.
+**Assumption made:** none, deliberately. Substituting links again is the exact
+thing he is angry about, so this one task waits rather than being faked green.
+**Context Rj needs to review:** send the two links and this finishes in one
+turn. If he pasted them into a message that also carried an image or was
+forwarded, the bridge may not have persisted the text — worth checking whether
+that path drops captions.
+
+## The service-role key is now in a link-pasting app's environment
+
+**Question:** should Cast Bridge hold `JRV_SUPABASE_SERVICE_ROLE_KEY`?
+**Assumption made:** yes, for now — `lib/db.js` is written against PostgREST
+with the service-role key and RLS is deny-all, so nothing else would work
+today, and the alternative blocks a login Rj has been waiting on.
+**Why it needs review:** that key bypasses RLS on the WHOLE `jrv-admin-new`
+project, not just the `castbridge` schema. `public` there holds the JRV admin
+data. So a leak in a personal casting app — one that runs headless Chromium
+against arbitrary user-supplied URLs in `/api/scan` — exposes far more than
+this app's own tables. The clean fix is a dedicated Postgres role granted only
+`castbridge`, reached with a JWT signed by the project's JWT secret; I did not
+do it because the Management API no longer exposes that secret and inventing a
+half-measure would be worse than naming the risk.
+**Context Rj needs to review:** `lib/db.js` `config()`, and the
+`CAST_SUPABASE_SERVICE_KEY` value on the cast-bridge Vercel project.

@@ -27,7 +27,8 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  if (!auth.guard(req, res)) return;
+  const user = await auth.guard(req, res);
+  if (!user) return;
 
   const raw = (req.query && req.query.url) ||
     new URL(req.url, 'http://localhost').searchParams.get('url');

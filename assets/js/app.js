@@ -330,7 +330,7 @@
    * Tabs
    * ------------------------------------------------------------------ */
 
-  var TABS = ['link', 'browse', 'history'];
+  var TABS = ['link', 'browse', 'history', 'users'];
   var activeTab = 'link';
   var scrollMemory = {};
 
@@ -364,6 +364,7 @@
     if (typeof y === 'number') window.scrollTo({ top: y, behavior: 'auto' });
 
     if (name === 'history') renderHistory();
+    if (name === 'users') renderUsers();
   }
 
   TABS.forEach(function (t) {
@@ -475,6 +476,9 @@
     }
 
     var record = store.touch(u, { title: currentTitle, from: meta.from || '' });
+    /* Local first so the list is instant, then up to the server, which is
+       the copy that survives a reinstall or a different phone. */
+    recordPlay(u, { title: currentTitle, kind: record && record.kind });
     updateHistCount();
 
     /* Pick up where they left off, and offer the way back. */
@@ -806,6 +810,9 @@
    * ------------------------------------------------------------------ */
 
   var signedIn = false;
+  var me = null; // { id, username, role } once signed in
+
+  function isOwner() { return Boolean(me && me.role === 'admin'); }
 
   /* Covering the app is not the same as taking it out of reach. Left as-is
      the shell keeps its tab stops and stays in the accessibility tree, so a
@@ -826,15 +833,39 @@
     }
   }
 
+  function gateError(message) {
+    var box = $('gateError');
+    var user = $('gateUser');
+    var pw = $('gatePw');
+    if (!box) return;
+
+    if (!message) {
+      box.textContent = '';
+      box.classList.remove('is-shown');
+      if (user) user.classList.remove('is-bad');
+      if (pw) pw.classList.remove('is-bad');
+      return;
+    }
+    box.textContent = message;
+    box.classList.add('is-shown');
+  }
+
   function showGate(message) {
     var gate = $('gate');
     if (!gate) return;
     gate.hidden = false;
     sealShell(true);
+    var themeBack = $('themeColor');
+    if (themeBack) themeBack.setAttribute('content', '#08070a');
     document.body.classList.add('is-gated');
-    if (message) fieldError($('gatePw'), $('gateError'), message, null);
+    if (message) gateError(message);
+
+    /* Land on the first empty field, not always the first field — coming
+       back from a lapsed session, the username is usually still filled. */
+    var user = $('gateUser');
     var pw = $('gatePw');
-    if (pw) { try { pw.focus(); } catch (e) { /* not focusable yet */ } }
+    var target = (user && !user.value) ? user : (pw || user);
+    if (target) { try { target.focus(); } catch (e) { /* not focusable yet */ } }
   }
 
   function hideGate() {
@@ -843,17 +874,38 @@
     gate.hidden = true;
     sealShell(false);
     document.body.classList.remove('is-gated');
+    var themeMeta = $('themeColor');
+    if (themeMeta) themeMeta.setAttribute('content', '#e6e7ee');
     signedIn = true;
     var out = $('btnSignOut');
     if (out) out.hidden = false;
+    reflectIdentity();
+  }
+
+  /* The header and the admin tab both depend on who signed in, and both are
+     wrong until told. One place decides, so they can never disagree. */
+  function reflectIdentity() {
+    var who = $('whoami');
+    if (who) {
+      who.textContent = me ? me.username : '';
+      who.hidden = !me;
+    }
+    var adminTab = $('tab-users');
+    if (adminTab) adminTab.hidden = !isOwner();
+    var allToggle = $('histScopeRow');
+    if (allToggle) allToggle.hidden = !isOwner();
   }
 
   /* A 401 from anywhere means the session lapsed while the tab sat open.
      Put the door back rather than letting the next tap fail silently. */
   function handleAuthLapse() {
     signedIn = false;
+    me = null;
+    reflectIdentity();
     var out = $('btnSignOut');
     if (out) out.hidden = true;
+    var pw = $('gatePw');
+    if (pw) pw.value = '';
     showGate('That session expired. Sign in again.');
   }
 
@@ -861,42 +913,106 @@
     var form = $('gateForm');
     if (!form) return;
 
+    var user = $('gateUser');
+    var pw = $('gatePw');
+    var btn = $('gateBtn');
+
+    /* Validation ladder: quiet until blur, then live for that field only,
+       so a correction is confirmed as it is typed rather than on the next
+       submit. Both fields share one message box — there are only two of
+       them, and two stacked errors on a phone push the button off-screen. */
+    function markLive(field, label) {
+      if (!field) return;
+      var live = false;
+      function judge() {
+        if (!field.value.trim()) {
+          field.classList.add('is-bad');
+          field.classList.remove('is-good');
+          gateError('Enter your ' + label + '.');
+          return false;
+        }
+        field.classList.remove('is-bad');
+        field.classList.add('is-good');
+        gateError(null);
+        return true;
+      }
+      field.addEventListener('blur', function () {
+        /* Blurring an untouched field on the way past should not accuse
+           anyone. Only judge a field the person actually left empty after
+           entering it, or one already known to be wrong. */
+        if (!field.value.trim() && !live) return;
+        live = true;
+        judge();
+      });
+      field.addEventListener('input', function () {
+        if (live) judge();
+      });
+    }
+    markLive(user, 'username');
+    markLive(pw, 'password');
+
+    var reveal = $('gateReveal');
+    if (reveal && pw) {
+      reveal.addEventListener('click', function () {
+        var shown = pw.type === 'text';
+        pw.type = shown ? 'password' : 'text';
+        reveal.setAttribute('aria-pressed', shown ? 'false' : 'true');
+        reveal.setAttribute('aria-label', shown ? 'Show password' : 'Hide password');
+        /* Keep the caret where it was; toggling type sends it to the end. */
+        try { pw.focus(); pw.setSelectionRange(pw.value.length, pw.value.length); }
+        catch (e) { /* some browsers refuse setSelectionRange on password */ }
+      });
+    }
+
+    var submitting = false;
+
     form.addEventListener('submit', function (e) {
       e.preventDefault();
-      var pw = $('gatePw');
-      var btn = $('gateBtn');
-      var value = pw ? pw.value : '';
+      if (submitting) return; // double-submit: the second tap is never a second intent
 
-      if (!value) {
-        fieldError(pw, $('gateError'), 'Enter the password.', null);
+      var username = user ? user.value.trim() : '';
+      var password = pw ? pw.value : '';
+
+      if (!username || !password) {
+        var missing = !username ? user : pw;
+        if (missing) missing.classList.add('is-bad');
+        gateError(!username ? 'Enter your username.' : 'Enter your password.');
+        if (missing) { try { missing.focus(); } catch (err) { /* ignore */ } }
         return;
       }
 
-      fieldError(pw, $('gateError'), null);
-      busy(btn, true);
+      gateError(null);
+      submitting = true;
+      if (btn) { btn.disabled = true; btn.classList.add('is-busy'); }
 
       fetch('/api/auth', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ password: value })
+        body: JSON.stringify({ username: username, password: password })
       })
         .then(function (r) {
           return r.json().then(function (body) { return { status: r.status, body: body }; });
         })
         .then(function (res) {
           if (res.body && res.body.ok) {
-            pw.value = '';
+            if (pw) { pw.value = ''; pw.classList.remove('is-good', 'is-bad'); }
+            if (user) user.classList.remove('is-good', 'is-bad');
+            me = res.body.user || null;
             hideGate();
-            toast({ text: 'Signed in.' });
+            toast({ text: 'Signed in as ' + (me ? me.username : 'you') + '.' });
+            refreshHistory();
             return;
           }
-          fieldError(pw, $('gateError'),
-            (res.body && res.body.error) || 'That password is wrong.', null);
+          if (pw) pw.classList.add('is-bad');
+          gateError((res.body && res.body.error) || 'That username and password do not match.');
         })
         .catch(function () {
-          fieldError(pw, $('gateError'), 'No connection to the sign-in service.', null);
+          gateError('No connection to the sign-in service.');
         })
-        .then(function () { busy(btn, false); });
+        .then(function () {
+          submitting = false;
+          if (btn) { btn.disabled = false; btn.classList.remove('is-busy'); }
+        });
     });
 
     var out = $('btnSignOut');
@@ -913,9 +1029,15 @@
     return fetch('/api/auth', { headers: { accept: 'application/json' } })
       .then(function (r) { return r.json(); })
       .then(function (body) {
-        if (body && body.signedIn) { hideGate(); return; }
+        if (body && body.signedIn) {
+          me = body.user || null;
+          hideGate();
+          refreshHistory();
+          return;
+        }
+        me = null;
         if (body && body.configured === false) {
-          showGate('No password is set for this app yet. Add CAST_PASSWORD in the project settings.');
+          showGate('This app has no accounts connected yet. Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CAST_ADMIN_USER and CAST_ADMIN_PASSWORD in the project settings.');
           return;
         }
         showGate(null);
@@ -1589,7 +1711,392 @@
     showBuild('no offline copy');
   }
 
-  /* The door goes up before anything else is usable. */
+  /* ------------------------------------------------------------------ *
+   * History sync
+   *
+   * The server is the record; localStorage is a cache so an installed copy
+   * still renders offline. A row the server has never heard of is a row that
+   * survives a reinstall only by luck, so every play is posted up and every
+   * boot pulls down.
+   * ------------------------------------------------------------------ */
+
+  var histScope = 'mine';
+  var everyone = [];   // owner's cross-account view, server-shaped
+
+  function recordPlay(url, meta) {
+    if (!signedIn || !url) return;
+    fetch('/api/history', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        url: url,
+        title: (meta && meta.title) || null,
+        kind: (meta && meta.kind) || null
+      })
+    })
+      .then(function (r) { if (r.status === 401) handleAuthLapse(); })
+      .catch(function () { /* offline: the local copy already has it */ });
+  }
+
+  function refreshHistory() {
+    if (!signedIn) return Promise.resolve();
+
+    var url = '/api/history' + (histScope === 'all' && isOwner() ? '?scope=all' : '');
+    return fetch(url, { headers: { accept: 'application/json' } })
+      .then(function (r) {
+        if (r.status === 401) { handleAuthLapse(); return null; }
+        return r.json();
+      })
+      .then(function (body) {
+        if (!body || !body.ok) return;
+
+        if (body.scope === 'all') {
+          everyone = body.items || [];
+          renderHistory();
+          return;
+        }
+
+        /* Fold the server's rows into the local store so the richer local
+           fields — position, star, play count — survive the merge. A row
+           the server does not have is left alone rather than deleted: it is
+           usually a play recorded while offline, waiting to go up. */
+        (body.items || []).forEach(function (row) {
+          if (!store.find(row.url)) {
+            store.touch(row.url, { title: row.title || '', from: 'server' });
+          }
+        });
+        everyone = [];
+        renderHistory();
+      })
+      .catch(function () { /* keep whatever is cached */ });
+  }
+
+  function wireHistoryScope() {
+    var mine = $('scopeMine');
+    var all = $('scopeAll');
+    if (!mine || !all) return;
+
+    function pick(next) {
+      histScope = next;
+      mine.classList.toggle('is-on', next === 'mine');
+      all.classList.toggle('is-on', next === 'all');
+      mine.setAttribute('aria-pressed', String(next === 'mine'));
+      all.setAttribute('aria-pressed', String(next === 'all'));
+      refreshHistory();
+    }
+    mine.addEventListener('click', function () { pick('mine'); });
+    all.addEventListener('click', function () { pick('all'); });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * People (owner only)
+   * ------------------------------------------------------------------ */
+
+  var USERNAME_OK = /^[a-zA-Z0-9._-]{3,32}$/;
+
+  function wireUsers() {
+    var form = $('userForm');
+    if (!form) return;
+
+    var name = $('newUser');
+    var pass = $('newPass');
+    var btn = $('btnAddUser');
+    var rules = $('newRules');
+
+    /* Prevention, not a post-submit error: the checklist ticks as they type
+       and the button is dead until both rules pass. */
+    function judge() {
+      var okName = USERNAME_OK.test((name.value || '').trim());
+      var okPass = (pass.value || '').length >= 8;
+      if (rules) {
+        var li = rules.querySelectorAll('li');
+        for (var i = 0; i < li.length; i++) {
+          var r = li[i].getAttribute('data-rule');
+          var on = r === 'len' ? okPass : okName;
+          li[i].classList.toggle('is-met', on);
+        }
+      }
+      if (btn) btn.disabled = !(okName && okPass);
+      return okName && okPass;
+    }
+    name.addEventListener('input', judge);
+    pass.addEventListener('input', judge);
+    judge();
+
+    var adding = false;
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (adding || !judge()) return;
+      adding = true;
+      busy(btn, true);
+      fieldError(null, $('userError'), null);
+
+      fetch('/api/users', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: name.value.trim(),
+          password: pass.value,
+          role: 'user'
+        })
+      })
+        .then(function (r) {
+          return r.json().then(function (b) { return { status: r.status, body: b }; });
+        })
+        .then(function (res) {
+          if (res.status === 401) { handleAuthLapse(); return; }
+          if (res.body && res.body.ok) {
+            toast({ text: name.value.trim() + ' can sign in now.' });
+            name.value = ''; pass.value = '';
+            judge();
+            renderUsers();
+            return;
+          }
+          fieldError(null, $('userError'),
+            (res.body && res.body.error) || 'That did not work.', null);
+        })
+        .catch(function () {
+          fieldError(null, $('userError'), 'No connection.', null);
+        })
+        .then(function () { adding = false; busy(btn, false); });
+    });
+  }
+
+  function userRow(u, meId) {
+    var row = document.createElement('div');
+    row.className = 'cb-userrow' + (u.active ? '' : ' is-off');
+
+    var main = document.createElement('div');
+    main.className = 'cb-userrow-main';
+
+    var nm = document.createElement('span');
+    nm.className = 'cb-userrow-name';
+    nm.textContent = u.username;
+    main.appendChild(nm);
+
+    var tag = document.createElement('span');
+    tag.className = 'cb-userrow-tag' + (u.role === 'admin' ? ' is-owner' : '');
+    tag.textContent = u.role === 'admin' ? 'Owner' : (u.active ? 'Member' : 'Switched off');
+    main.appendChild(tag);
+
+    row.appendChild(main);
+
+    /* You are not offered a way to lock yourself out — there is no second
+       owner to let you back in. */
+    if (u.id === meId) {
+      var you = document.createElement('span');
+      you.className = 'cb-userrow-you';
+      you.textContent = 'You';
+      row.appendChild(you);
+      return row;
+    }
+
+    var acts = document.createElement('div');
+    acts.className = 'cb-userrow-acts';
+
+    var toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'cb-linkbtn';
+    toggle.textContent = u.active ? 'Switch off' : 'Switch on';
+    toggle.addEventListener('click', function () {
+      fetch('/api/users?id=' + encodeURIComponent(u.id), {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ active: !u.active })
+      })
+        .then(function () { renderUsers(); })
+        .catch(function () { toast({ text: 'That did not go through.' }); });
+    });
+    acts.appendChild(toggle);
+
+    /* Delete names what goes and who it belongs to, then asks again in
+       place. No "Are you sure? Yes/No". */
+    var del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'cb-linkbtn is-danger';
+    del.textContent = 'Remove';
+    del.addEventListener('click', function () {
+      if (del.dataset.armed === '1') {
+        fetch('/api/users?id=' + encodeURIComponent(u.id), { method: 'DELETE' })
+          .then(function (r) { return r.json(); })
+          .then(function (b) {
+            if (b && b.ok) {
+              toast({ text: 'Removed ' + u.username + ' and their history.' });
+              renderUsers();
+            } else {
+              toast({ text: (b && b.error) || 'That did not work.' });
+            }
+          })
+          .catch(function () { toast({ text: 'No connection.' }); });
+        return;
+      }
+      del.dataset.armed = '1';
+      del.textContent = 'Remove ' + u.username + ' for good?';
+      setTimeout(function () {
+        if (!del.isConnected) return;
+        del.dataset.armed = '';
+        del.textContent = 'Remove';
+      }, 5000);
+    });
+    acts.appendChild(del);
+
+    row.appendChild(acts);
+    return row;
+  }
+
+  function renderUsers() {
+    var list = $('userList');
+    if (!list || !isOwner()) return;
+
+    return fetch('/api/users', { headers: { accept: 'application/json' } })
+      .then(function (r) {
+        if (r.status === 401) { handleAuthLapse(); return null; }
+        return r.json();
+      })
+      .then(function (body) {
+        if (!body || !body.ok) return;
+        list.innerHTML = '';
+        (body.users || []).forEach(function (u) {
+          list.appendChild(userRow(u, body.me));
+        });
+      })
+      .catch(function () { /* leave the last good list on screen */ });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Pull to refresh
+   *
+   * Rules, in order: never fire below the threshold; resist with a decaying
+   * curve so the sheet moves less than the finger; one continuous element
+   * from stretch to spinner; a haptic tick at the threshold BEFORE release
+   * so it can still be cancelled; overshoot and settle; and the list stays
+   * scrollable the whole time.
+   * ------------------------------------------------------------------ */
+
+  function wirePullToRefresh() {
+    var host = document.querySelector('.cb-shell');
+    var ind = $('ptr');
+    if (!host || !ind) return;
+
+    var ring = ind.querySelector('.cb-ptr-ring');
+    var THRESHOLD = 72;    // px of travel, after resistance
+    var MAX = 108;         // nothing moves past this
+    var startY = 0;
+    var pull = 0;
+    var tracking = false;
+    var armed = false;     // past the threshold, haptic already spent
+    var running = false;
+
+    var reduced = window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    /* Content moves less than the finger, and less and less the further it
+       goes. Linear travel is what makes a pull feel weightless and cheap. */
+    function resist(raw) {
+      return MAX * (1 - Math.exp(-raw / 140));
+    }
+
+    function paint(y) {
+      ind.style.transform = 'translate3d(-50%,' + y + 'px,0)';
+      ind.style.opacity = String(Math.min(1, y / 34));
+      if (ring) {
+        var pct = Math.min(1, y / THRESHOLD);
+        /* Stretch and ring are the same element: the arc grows with the
+           pull and becomes the spinner, it does not pop in. */
+        ring.style.setProperty('--cb-ptr-sweep', (pct * 360).toFixed(1) + 'deg');
+        ring.style.transform = 'rotate(' + (pct * 210).toFixed(1) + 'deg)';
+      }
+      ind.classList.toggle('is-armed', y >= THRESHOLD);
+    }
+
+    function settle() {
+      ind.style.transition = 'transform .34s cubic-bezier(.22,1.2,.36,1), opacity .2s ease';
+      ind.style.transform = 'translate3d(-50%,0,0)';
+      ind.style.opacity = '0';
+      setTimeout(function () { ind.style.transition = ''; }, 360);
+    }
+
+    function fire() {
+      running = true;
+      ind.classList.add('is-running');
+      ind.style.transition = 'transform .2s ease';
+      ind.style.transform = 'translate3d(-50%,' + THRESHOLD + 'px,0)';
+
+      var work = signedIn
+        ? Promise.all([refreshHistory(), isOwner() ? renderUsers() : null])
+        : checkSession();
+
+      /* A refresh that resolves in 40ms reads as a broken button, so hold
+         the ring long enough to be seen finishing. */
+      var floor = new Promise(function (r) { setTimeout(r, 480); });
+
+      Promise.all([work, floor])
+        .catch(function () {})
+        .then(function () {
+          running = false;
+          ind.classList.remove('is-running', 'is-armed');
+          settle();
+          toast({ text: 'Up to date.' });
+        });
+    }
+
+    host.addEventListener('touchstart', function (e) {
+      if (running || document.body.classList.contains('is-gated')) return;
+      /* Only from a genuine top. Starting a pull mid-list is a scroll. */
+      if (window.scrollY > 0) return;
+      if (e.touches.length !== 1) return;
+      startY = e.touches[0].clientY;
+      tracking = true;
+      armed = false;
+      pull = 0;
+    }, { passive: true });
+
+    host.addEventListener('touchmove', function (e) {
+      if (!tracking) return;
+      var raw = e.touches[0].clientY - startY;
+      if (raw <= 0) {
+        /* They went back up — hand the gesture back to the scroller. */
+        if (pull === 0) { tracking = false; return; }
+        raw = 0;
+      }
+      if (window.scrollY > 0) { tracking = false; settle(); return; }
+
+      pull = resist(raw);
+      paint(pull);
+
+      if (pull >= THRESHOLD && !armed) {
+        armed = true;
+        /* The tick fires at the threshold, not on release, so the user
+           learns it will fire while they can still cancel by sliding back.
+           iOS Safari has no vibration API; this is Android-only by nature. */
+        if (!reduced && navigator.vibrate) { try { navigator.vibrate(8); } catch (err) {} }
+      }
+      if (pull < THRESHOLD) armed = false;
+
+      /* Only claim the gesture once it is unambiguously a pull, so a normal
+         downward scroll is never swallowed. */
+      if (pull > 6 && e.cancelable) e.preventDefault();
+    }, { passive: false });
+
+    function release() {
+      if (!tracking) return;
+      tracking = false;
+      if (pull >= THRESHOLD) fire();
+      else settle();          // below the line: snap back, no reload
+      pull = 0;
+      armed = false;
+    }
+    host.addEventListener('touchend', release, { passive: true });
+    host.addEventListener('touchcancel', release, { passive: true });
+  }
+
+  /* The door goes up before anything else is usable. The gate is unhidden in
+     the markup and the body starts .is-gated, so the app is never painted to
+     someone who has not signed in; checkSession() takes it down. */
+  sealShell(true);
   wireGate();
+  wireHistoryScope();
+  wireUsers();
+  wirePullToRefresh();
   checkSession();
 })();

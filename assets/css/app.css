@@ -292,7 +292,13 @@ google-cast-launcher {
 .cb-tabs {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* Column count follows the tabs that are actually rendered. The People tab
+     is [hidden] for everyone but the owner, and a hidden child takes no grid
+     cell, so this is 3 columns for a member and 4 for the owner without the
+     stylesheet needing to know which. A fixed repeat(3) wrapped the 4th tab
+     onto its own row and left the indicator spanning both. */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 0;
   padding: 0.35rem;
   margin: 1.5rem 0 1rem;
@@ -308,9 +314,12 @@ google-cast-launcher {
   justify-content: center;
   gap: 0.4rem;
   min-height: 2.75rem; /* 44px */
-  padding: 0.5rem 0.4rem;
+  padding: 0.5rem 0.3rem;
   border-radius: var(--cb-radius);
-  font-size: 0.875rem;
+  /* Four tabs on a 360px phone: shrink with the container rather than
+     wrapping or truncating a label. */
+  font-size: clamp(0.78rem, 3.2vw, 0.875rem);
+  white-space: nowrap;
   font-weight: 600;
   color: var(--cb-ink-2);
   background: transparent;
@@ -680,49 +689,331 @@ google-cast-launcher {
   inset: 0;
   z-index: 90;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: var(--cb-surface);
+  /* Left-anchored and bottom-weighted on purpose. The previous door was a
+     card centred in a void with an indigo accent — the three things the
+     anti-slop checklist names first. Direction is what stops a screen
+     reading as a default. */
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: max(24px, env(safe-area-inset-top)) 22px max(30px, env(safe-area-inset-bottom));
+  overflow: hidden;
+  isolation: isolate;
+  /* The app is the light Neumorphism kit and stays that way. The door is not:
+     a casting app opens on the dark room it gets used in, then hands off to
+     the light workspace. */
+  background:
+    radial-gradient(140% 70% at 8% 108%, #241109 0%, #120a06 38%, #08070a 72%),
+    #08070a;
+  --cb-gate-ink: #f7f4f1;      /* 16.9:1 on #08070a */
+  --cb-gate-ink-2: #b9aea6;    /*  8.1:1 on #08070a — safe for real text */
+  --cb-gate-line: rgba(233, 190, 160, .16);
+  /* Ember, not indigo. A standby lamp is the one light a TV shows in a dark
+     room, and it is the colour this product is actually about. */
+  --cb-gate-accent: #ff6b35;
 }
 
 .cb-gate[hidden] { display: none; }
 
 body.is-gated { overflow: hidden; }
 
-.cb-gate-card {
+/* ---- the signal field ------------------------------------------------ */
+
+/* Eighteen bars, bottom-aligned, height driven by an index so they read as a
+   meter rather than a pattern. They breathe slowly and out of phase; nothing
+   here loops fast enough to ask for attention. */
+.cb-gate-field {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* Top half, sitting ON the line the form starts at. Two problems, one move:
+     the empty upper third stops being dead space, and the bars are no longer
+     behind the inputs, where they were showing through the translucent fill
+     and costing legibility. */
+  top: 0;
+  height: 46%;
+  z-index: -1;
+  display: flex;
+  align-items: flex-end;
+  /* Right-anchored, so the meter leans away from the left-hand form column
+     instead of sitting symmetrically over it. */
+  justify-content: flex-end;
+  gap: clamp(7px, 1.4vw, 20px);
+  padding: 0 22px;
+  pointer-events: none;
+  opacity: .42;
+  /* Fades upward into the background and never reaches the form below. */
+  mask-image: linear-gradient(to top, #000 0%, rgba(0,0,0,.35) 52%, transparent 94%);
+  -webkit-mask-image: linear-gradient(to top, #000 0%, rgba(0,0,0,.35) 52%, transparent 94%);
+}
+
+.cb-gate-field .cb-bar {
+  flex: 1 1 0;
+  /* Capped, or an 18-bar row across 1440px renders as a bar CHART — fat
+     blocks that read as data. A meter is thin strokes at any width. */
+  max-width: 11px;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(to top, var(--cb-gate-accent) 0%, rgba(255,107,53,0) 100%);
+  transform-origin: bottom;
+  animation: cb-meter 5.2s ease-in-out infinite;
+}
+
+/* A hand-set curve. An even ramp reads as a chart; this reads as signal. */
+.cb-gate-field .cb-bar:nth-child(1)  { height: 18%; animation-delay: -.2s; }
+.cb-gate-field .cb-bar:nth-child(2)  { height: 34%; animation-delay: -1.4s; }
+.cb-gate-field .cb-bar:nth-child(3)  { height: 26%; animation-delay: -.7s; }
+.cb-gate-field .cb-bar:nth-child(4)  { height: 52%; animation-delay: -2.1s; }
+.cb-gate-field .cb-bar:nth-child(5)  { height: 41%; animation-delay: -.5s; }
+.cb-gate-field .cb-bar:nth-child(6)  { height: 68%; animation-delay: -3.0s; }
+.cb-gate-field .cb-bar:nth-child(7)  { height: 47%; animation-delay: -1.1s; }
+.cb-gate-field .cb-bar:nth-child(8)  { height: 82%; animation-delay: -2.6s; }
+.cb-gate-field .cb-bar:nth-child(9)  { height: 58%; animation-delay: -.9s; }
+.cb-gate-field .cb-bar:nth-child(10) { height: 94%; animation-delay: -3.7s; }
+.cb-gate-field .cb-bar:nth-child(11) { height: 63%; animation-delay: -1.8s; }
+.cb-gate-field .cb-bar:nth-child(12) { height: 77%; animation-delay: -4.2s; }
+.cb-gate-field .cb-bar:nth-child(13) { height: 44%; animation-delay: -2.4s; }
+.cb-gate-field .cb-bar:nth-child(14) { height: 61%; animation-delay: -.3s; }
+.cb-gate-field .cb-bar:nth-child(15) { height: 33%; animation-delay: -3.3s; }
+.cb-gate-field .cb-bar:nth-child(16) { height: 49%; animation-delay: -1.6s; }
+.cb-gate-field .cb-bar:nth-child(17) { height: 24%; animation-delay: -2.9s; }
+.cb-gate-field .cb-bar:nth-child(18) { height: 15%; animation-delay: -.8s; }
+
+@keyframes cb-meter {
+  0%, 100% { transform: scaleY(.72); opacity: .55; }
+  50%      { transform: scaleY(1);   opacity: .95; }
+}
+
+/* Motion here is decorative and carries no information, so it stops entirely
+   rather than merely slowing down. The bar heights alone still read. */
+@media (prefers-reduced-motion: reduce) {
+  .cb-gate-field .cb-bar { animation: none; transform: none; }
+}
+
+/* ---- the column ------------------------------------------------------ */
+
+.cb-gate-inner {
+  position: relative;
   width: 100%;
-  max-width: 340px;
-  padding: 32px 26px 26px;
-  border-radius: var(--cb-radius-xl);
-  background: var(--cb-surface);
-  box-shadow: var(--cb-shadow-soft);
+  max-width: 380px;
 }
 
-.cb-gate-card .cb-wordmark {
-  margin: 0 0 6px;
-  font-size: 1.55rem;
+.cb-gate-head { margin-bottom: 26px; }
+
+.cb-gate-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--cb-gate-ink-2);
 }
 
-.cb-gate-sub {
-  margin: 0 0 22px;
-  font-size: .875rem;
-  line-height: 1.5;
-  color: var(--cb-ink-2);
+/* The standby lamp. It is the only thing on the screen that moves near the
+   text, which is why it is small and slow. */
+.cb-standby {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cb-gate-accent);
+  box-shadow: 0 0 0 0 rgba(255,107,53,.55);
+  animation: cb-standby 3.4s ease-in-out infinite;
 }
+
+@keyframes cb-standby {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,53,.5); opacity: .85; }
+  50%      { box-shadow: 0 0 0 6px rgba(255,107,53,0); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cb-standby { animation: none; }
+}
+
+/* Scale contrast does the work a display face would. Two words, stacked,
+   tight tracking, the second in the accent — so the identity is the largest
+   thing on the screen and the form is the next largest. Nothing else. */
+.cb-gate-mark {
+  margin: 0;
+  font-size: clamp(2.9rem, 15vw, 3.9rem);
+  font-weight: 700;
+  line-height: .92;
+  letter-spacing: -.045em;
+  color: var(--cb-gate-ink);
+}
+.cb-gate-mark em {
+  font-style: normal;
+  color: var(--cb-gate-accent);
+}
+
+/* ---- the form -------------------------------------------------------- */
+
+.cb-gate-form { position: relative; }
+
+.cb-field { margin-bottom: 14px; }
 
 .cb-gate-label {
   display: block;
-  margin-bottom: 6px;
-  font-size: .75rem;
-  font-weight: 600;
-  letter-spacing: .04em;
+  margin-bottom: 7px;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .14em;
   text-transform: uppercase;
-  color: var(--cb-ink-2);
+  color: var(--cb-gate-ink-2);
 }
 
-.cb-gate-card .form-control { margin-bottom: 4px; }
-.cb-gate-card .btn { margin-top: 16px; }
+.cb-input-wrap { position: relative; }
+
+.cb-input {
+  width: 100%;
+  /* 16px min, or iOS Safari zooms the viewport on focus and the layout jumps. */
+  font-size: 1rem;
+  line-height: 1.4;
+  padding: 14px 15px;
+  color: var(--cb-gate-ink);
+  /* Opaque, not translucent: a translucent field over any background is a
+     legibility gamble, and this screen has a moving one. */
+  background: #14100e;
+  border: 1px solid var(--cb-gate-line);
+  border-radius: 10px;
+  transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.cb-input-wrap .cb-input { padding-right: 48px; }
+
+.cb-input::placeholder { color: #8d8079; }
+
+.cb-input:hover { border-color: rgba(233,190,160,.30); }
+
+.cb-input:focus,
+.cb-input:focus-visible {
+  outline: none;
+  background: #1a1512;
+  border-color: var(--cb-gate-accent);
+  box-shadow: 0 0 0 3px rgba(255,107,53,.20);
+}
+
+/* A field that has already errored turns live (JS switches it to on-input),
+   so the ring must read as "still wrong" until the fix lands. */
+.cb-input.is-bad,
+.cb-input.is-bad:focus {
+  border-color: #ff8a94;
+  box-shadow: 0 0 0 3px rgba(255,138,148,.18);
+}
+.cb-input.is-good {
+  border-color: rgba(90,206,150,.55);
+}
+
+.cb-reveal {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--cb-gate-ink-2);
+  cursor: pointer;
+}
+.cb-reveal:hover { color: var(--cb-gate-ink); }
+.cb-reveal:focus-visible {
+  outline: 2px solid var(--cb-gate-accent);
+  outline-offset: 2px;
+}
+/* Pressed = password is visible = the slash is off. */
+.cb-reveal .cb-eye-slash { display: none; }
+.cb-reveal[aria-pressed="false"] .cb-eye-slash { display: block; }
+
+.cb-gate-form .cb-fielderror {
+  margin: -2px 0 0;
+  color: #ffa9b1;
+}
+
+.cb-gate-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  margin-top: 18px;
+  /* 48px: a thumb target, not a mouse target. */
+  min-height: 50px;
+  padding: 14px 18px;
+  font-size: .95rem;
+  font-weight: 700;
+  letter-spacing: .01em;
+  /* Near-black ink on ember, not white on blue. Measured on the rendered DOM:
+     white on #ff6b35 is 2.84:1 and fails outright; this pairing is 6.69:1 and
+     passes AA, while reading as a deliberate brand rather than a stock button. */
+  color: #1b0d06;
+  background: var(--cb-gate-accent);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: 0 12px 30px -12px rgba(255,107,53,.75);
+  cursor: pointer;
+  transition: transform .12s ease, box-shadow .16s ease, filter .16s ease;
+}
+.cb-gate-btn:hover { filter: brightness(1.08); }
+.cb-gate-btn:active { transform: translateY(1px); }
+.cb-gate-btn:focus-visible {
+  outline: 2px solid #ffc7ad;
+  outline-offset: 3px;
+}
+.cb-gate-btn[disabled] {
+  cursor: default;
+  filter: saturate(.5) brightness(.8);
+  box-shadow: none;
+}
+
+.cb-gate-btn-arrow { transition: transform .16s ease; }
+.cb-gate-btn:hover .cb-gate-btn-arrow { transform: translateX(3px); }
+/* While it is working the arrow would say "go" twice. */
+.cb-gate-btn.is-busy .cb-gate-btn-arrow { display: none; }
+
+.cb-gate-spinner {
+  display: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(27,13,6,.35);
+  border-top-color: #1b0d06;
+  border-radius: 50%;
+  animation: cb-spin .7s linear infinite;
+}
+.cb-gate-btn.is-busy .cb-gate-spinner { display: block; }
+
+@keyframes cb-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .cb-gate-spinner { animation-duration: 1.6s; }
+}
+
+.cb-gate-foot {
+  margin: 16px 0 0;
+  font-size: .75rem;
+  line-height: 1.5;
+  color: var(--cb-gate-ink-2);
+}
+
+/* Short landscape phone: the meter is the first thing worth losing, and the
+   mark stops being the largest thing on a 380px-tall screen. */
+@media (max-height: 560px) {
+  .cb-gate-field { display: none; }
+  .cb-gate-mark { font-size: 2.2rem; }
+  .cb-gate-head { margin-bottom: 18px; }
+}
+
+/* Desktop: the column stays left. A wide screen is not a reason to centre a
+   380px form in 1400px of nothing. */
+@media (min-width: 720px) {
+  .cb-gate { padding-left: clamp(40px, 8vw, 120px); }
+  .cb-gate-mark { font-size: 4.6rem; }
+}
 
 /* Build stamp — quiet, but present, so "did my change ship" is a glance
    rather than an argument. --cb-mute is 2.04:1 and banned for text, so this
@@ -760,3 +1051,179 @@ body.is-gated { overflow: hidden; }
   line-height: 1.55;
   color: var(--cb-ink-2);
 }
+
+/* ------------------------------------------------------------------ *
+ * Pull to refresh
+ *
+ * The ring is drawn with a conic gradient masked to an annulus, so the
+ * same element that stretches with the finger is the one that spins. A
+ * separate spinner swapped in at release is the tell of a fake gesture.
+ * ------------------------------------------------------------------ */
+
+.cb-ptr {
+  position: fixed;
+  top: max(6px, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  opacity: 0;
+  transform: translate3d(-50%, 0, 0);
+  border-radius: 50%;
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+  pointer-events: none;
+}
+
+.cb-ptr-ring {
+  --cb-ptr-sweep: 0deg;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: conic-gradient(var(--cb-accent) var(--cb-ptr-sweep), transparent 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2.5px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2.5px));
+}
+
+/* Past the threshold: the ring is full and the plate lifts slightly, so
+   "let go now and it fires" is legible before the finger leaves. */
+.cb-ptr.is-armed { box-shadow: var(--cb-shadow-soft); }
+.cb-ptr.is-armed .cb-ptr-ring { --cb-ptr-sweep: 360deg; }
+
+.cb-ptr.is-running .cb-ptr-ring {
+  --cb-ptr-sweep: 300deg;
+  animation: cb-spin .8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-ptr.is-running .cb-ptr-ring { animation-duration: 1.8s; }
+}
+
+/* ------------------------------------------------------------------ *
+ * Owner surfaces — scope switch and the People list
+ * ------------------------------------------------------------------ */
+
+.cb-whoami {
+  margin-left: .5rem;
+  font-weight: 600;
+  color: var(--cb-ink-2);
+}
+.cb-whoami::before { content: '· '; color: var(--cb-ink-2); }
+
+.cb-scoperow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.cb-scoperow-label {
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--cb-ink-2);
+}
+
+.cb-segment {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-inset);
+}
+
+.cb-segment-btn {
+  min-height: 34px;
+  padding: 6px 15px;
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--cb-ink-2);
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color .16s ease, box-shadow .16s ease;
+}
+.cb-segment-btn.is-on {
+  color: var(--cb-accent);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+}
+.cb-segment-btn:focus-visible {
+  outline: 2px solid var(--cb-accent);
+  outline-offset: 2px;
+}
+
+.cb-sub {
+  margin: 22px 0 4px;
+  font-size: .95rem;
+  font-weight: 600;
+  color: var(--cb-ink);
+}
+.cb-adduser .cb-sub { margin-top: 0; }
+
+.cb-hint {
+  margin: 0 0 16px;
+  font-size: .82rem;
+  line-height: 1.5;
+  color: var(--cb-ink-2);
+}
+
+/* Live checklist. Unmet is stated plainly rather than coloured red — it is
+   not an error yet, it is a rule not reached. */
+.cb-rules {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: .78rem;
+  line-height: 1.7;
+  color: var(--cb-ink-2);
+}
+.cb-rules li { display: flex; gap: 7px; align-items: baseline; }
+.cb-rules li::before {
+  content: '○';
+  color: var(--cb-ink-2);
+}
+.cb-rules li.is-met { color: var(--cb-ok); }
+.cb-rules li.is-met::before { content: '✓'; color: var(--cb-ok); }
+
+.cb-userrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 13px 15px;
+  margin-bottom: 9px;
+  border-radius: var(--cb-radius);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-light);
+}
+.cb-userrow.is-off { opacity: .62; }
+
+.cb-userrow-main { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+
+.cb-userrow-name {
+  font-weight: 600;
+  color: var(--cb-ink);
+  overflow-wrap: anywhere;
+}
+
+.cb-userrow-tag {
+  font-size: .7rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--cb-ink-2);
+}
+.cb-userrow-tag.is-owner { color: var(--cb-accent); }
+
+.cb-userrow-you {
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--cb-ink-2);
+}
+
+.cb-userrow-acts { display: flex; gap: 14px; align-items: center; }

@@ -7,7 +7,7 @@
  * identical sw.js is never re-installed by the browser, so bump this on
  * every deploy that touches index.html or anything under assets/.
  */
-const BUILD = '2026-09-07.4';
+const BUILD = '2026-09-07.5';
 const CACHE = 'cast-bridge-' + BUILD;
 
 const SHELL = [
@@ -18,6 +18,11 @@ const SHELL = [
   '/assets/js/app.js',
   '/assets/icon.svg',
   '/assets/icon-maskable.svg',
+  '/assets/icon-192.png',
+  '/assets/icon-512.png',
+  '/assets/icon-maskable-192.png',
+  '/assets/icon-maskable-512.png',
+  '/assets/apple-touch-icon.png',
   '/manifest.json'
 ];
 

@@ -38,3 +38,48 @@
 - [x] Task 11: Build stamp read from the running service worker + a reload
       prompt, and BUILD stamped from the commit at deploy time so an installed
       copy can never silently keep serving an old shell.
+
+## Round 4 — 2026-09-07 (Rj: login broken, multi-user, dull login, PWA, pull-to-refresh, video test)
+
+- [x] Task 12: Login for `rjnflix1` fixed. Root cause was NOT the hash or the
+      code: the Vercel project carried only the dead v1 vars (`CAST_PASSWORD`,
+      `CAST_SECRET`) and none of the four the v2 auth path reads, so
+      `db.configured()` was false and `/api/auth` answered 503 before it ever
+      compared a password. Set `CAST_SUPABASE_URL`, `CAST_SUPABASE_SERVICE_KEY`,
+      `CAST_ADMIN_USER`, `CAST_ADMIN_PASSWORD` on all three environments.
+      Verified end to end: correct password signs in, wrong password refused,
+      cookie issued, session reads back.
+- [x] Task 13: Auth hole found and closed. `byUsername()` queried PostgREST with
+      `ilike.`, where `%` and `_` are wildcards, and the username pattern is only
+      enforced on CREATE, never on sign-in — so `rjnfli%` plus the owner's
+      password signed the caller in AS the owner. Proved against a running
+      server before the fix and again after. Now `eq.` on a normalised
+      lowercase value, with a unique index on `lower(username)` and a CHECK
+      constraint so no other write path can reintroduce a second spelling.
+- [x] Task 14: Multi-user isolation verified live on 9 vectors — own-history-only,
+      `scope=all` refused, `?user=<other id>` refused, cross-user DELETE refused,
+      `/api/users` refused, privilege escalation refused, forged `user_id` in the
+      POST body ignored (the row landed under the caller), admin sees all with
+      names, no-cookie refused.
+- [x] Task 15: Schema committed to the repo as `db/001_castbridge_schema.sql`.
+      It previously existed ONLY in the database — applied by hand, recorded
+      nowhere, so no fresh environment could reach a working state.
+- [x] Task 16: Login screen rebuilt. The old one tripped three named anti-slop
+      signals at once: centred-everything symmetry, an indigo/violet accent, and
+      a decorative arc that read as nothing. Now asymmetric and left-anchored,
+      ember accent, an 18-bar signal meter occupying what was dead space, type
+      scale carrying the identity. Contrast measured on the rendered DOM, not
+      from the token table: mark 18.34:1, ember 7.09:1, button ink 6.69:1,
+      inputs 16.52:1 at 16px so iOS cannot zoom the viewport on focus.
+- [x] Task 17: PWA verified installable in-browser rather than assumed from the
+      manifest: manifest 200, `standalone`, root scope, all five icons resolve
+      200 including maskable 192 + 512, service worker registered AND active.
+      Splash and theme colour moved off the dead navy `#0d1120` to `#08070a` so
+      the launch screen matches the first surface painted. Removed a duplicated
+      `/manifest.json` from the precache list — `addAll()` rejects atomically,
+      so a duplicate is a needless way for the whole install to fail.
+- [x] Task 18: Pull-to-refresh audited against RJ-Design-Skill
+      §navigation-and-feedback §6 and left alone — it already satisfies all six
+      rules and guards double-fire. Working code was not rewritten.
+- [ ] Task 19: Video extraction against Rj's two test links — BLOCKED, see
+      issues.md. The links are not in the thread.

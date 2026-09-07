@@ -3,38 +3,108 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#e6e7ee">
+<!-- Starts dark because the sign-in screen is the first surface painted.
+     app.js swaps it to the light app colour once a session is confirmed. -->
+<meta name="theme-color" content="#08070a" id="themeColor">
 <meta name="description" content="Paste or find a video link, play it, and send it to the TV.">
 <title>Cast Bridge</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.ico" sizes="32x32">
-<link rel="apple-touch-icon" href="assets/icon.svg">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<!-- iOS reads these, not the manifest, for a home-screen launch. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cast Bridge">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/css/neumorphism.css">
 <link rel="stylesheet" href="assets/css/app.css">
 </head>
-<body>
+<body class="is-gated">
 
 <!-- The gate. Present in the markup so it is up before any script runs, and
      removed only once /api/auth confirms a session. Every endpoint refuses an
      unauthenticated caller on its own, so this is the door, not the lock. -->
-<div class="cb-gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle" hidden>
-  <form class="cb-gate-card" id="gateForm" novalidate>
-    <p class="cb-wordmark" id="gateTitle">Cast<span>&nbsp;Bridge</span></p>
-    <p class="cb-gate-sub">This one is private. Enter the password to use it.</p>
+<div class="cb-gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
 
-    <label class="cb-gate-label" for="gatePw">Password</label>
-    <input class="form-control" type="password" id="gatePw" name="password"
-           autocomplete="current-password" aria-describedby="gateError" required>
-    <p class="cb-fielderror" id="gateError" role="alert"></p>
+  <!-- The signal field. Not ornament: the bars are a transmission meter, the
+       thing this app actually does. It reads bottom-anchored and left-weighted
+       so the screen has a direction instead of being symmetric about nothing. -->
+  <div class="cb-gate-field" aria-hidden="true">
+    <span class="cb-bar"></span><span class="cb-bar"></span><span class="cb-bar"></span>
+    <span class="cb-bar"></span><span class="cb-bar"></span><span class="cb-bar"></span>
+    <span class="cb-bar"></span><span class="cb-bar"></span><span class="cb-bar"></span>
+    <span class="cb-bar"></span><span class="cb-bar"></span><span class="cb-bar"></span>
+    <span class="cb-bar"></span><span class="cb-bar"></span><span class="cb-bar"></span>
+    <span class="cb-bar"></span><span class="cb-bar"></span><span class="cb-bar"></span>
+  </div>
 
-    <button class="btn btn-secondary btn-block" type="submit" id="gateBtn">Sign in</button>
-  </form>
+  <div class="cb-gate-inner">
+
+    <header class="cb-gate-head">
+      <p class="cb-gate-eyebrow">
+        <span class="cb-standby" aria-hidden="true"></span>
+        Private
+      </p>
+      <h1 class="cb-gate-mark" id="gateTitle">Cast<br><em>Bridge</em></h1>
+    </header>
+
+    <form class="cb-gate-form" id="gateForm" novalidate>
+
+      <div class="cb-field">
+        <label class="cb-gate-label" for="gateUser">Username</label>
+        <input class="cb-input" type="text" id="gateUser" name="username"
+               autocomplete="username" autocapitalize="none" autocorrect="off"
+               spellcheck="false" enterkeyhint="next"
+               aria-describedby="gateError" required>
+      </div>
+
+      <div class="cb-field">
+        <label class="cb-gate-label" for="gatePw">Password</label>
+        <div class="cb-input-wrap">
+          <input class="cb-input" type="password" id="gatePw" name="password"
+                 autocomplete="current-password" enterkeyhint="go"
+                 aria-describedby="gateError" required>
+          <button class="cb-reveal" type="button" id="gateReveal"
+                  aria-pressed="false" aria-label="Show password">
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18">
+              <path class="cb-eye-open" d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"
+                    fill="none" stroke="currentColor" stroke-width="1.6"></path>
+              <circle class="cb-eye-open" cx="12" cy="12" r="2.6"
+                      fill="none" stroke="currentColor" stroke-width="1.6"></circle>
+              <path class="cb-eye-slash" d="M4 4l16 16" fill="none"
+                    stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <p class="cb-fielderror" id="gateError" role="alert"></p>
+
+      <button class="cb-gate-btn" type="submit" id="gateBtn">
+        <span class="cb-gate-btn-label">Sign in</span>
+        <svg class="cb-gate-btn-arrow" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+          <path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+        <span class="cb-gate-spinner" aria-hidden="true"></span>
+      </button>
+
+      <p class="cb-gate-foot">Accounts are made by the owner. There is no sign-up.</p>
+    </form>
+  </div>
 </div>
 
+
+<!-- Pull-to-refresh indicator. One element for the whole gesture: it
+     stretches with the pull, its ring fills to the threshold, and the same
+     ring becomes the spinner. Nothing pops in. -->
+<div class="cb-ptr" id="ptr" aria-hidden="true">
+  <span class="cb-ptr-ring"></span>
+</div>
 
 <a class="cb-skip" href="#main">Skip to the player</a>
 
@@ -111,6 +181,9 @@
       <button type="button" class="nav-link" role="tab" id="tab-history" aria-controls="pane-history" aria-selected="false">
         History<span class="cb-tabcount" id="histCount" hidden>0</span>
       </button>
+      <button type="button" class="nav-link" role="tab" id="tab-users" aria-controls="pane-users" aria-selected="false" hidden>
+        People
+      </button>
     </div>
 
     <div class="tab-content">
@@ -174,6 +247,16 @@
           <button type="button" class="cb-chip" id="chipStarred" aria-pressed="false">Starred</button>
         </div>
 
+        <!-- Owner only. A normal account never receives this row, and the API
+             refuses the wider scope regardless of what the markup says. -->
+        <div class="cb-scoperow" id="histScopeRow" hidden>
+          <span class="cb-scoperow-label">Showing</span>
+          <div class="cb-segment" role="group" aria-label="Whose history to show">
+            <button type="button" class="cb-segment-btn is-on" id="scopeMine" aria-pressed="true">Mine</button>
+            <button type="button" class="cb-segment-btn" id="scopeAll" aria-pressed="false">Everyone</button>
+          </div>
+        </div>
+
         <div class="cb-list list-group" id="histList"></div>
 
         <div class="cb-empty" id="histEmpty">
@@ -190,6 +273,38 @@
           <button type="button" class="cb-linkbtn is-danger" id="btnClearHist">Clear all history</button>
           <button type="button" class="btn btn-primary btn-sm ml-3" id="btnExportHist">Export as JSON</button>
         </div>
+      </section>
+
+      <!-- ---------- Pane: people (owner only) ---------- -->
+      <section class="tab-pane" id="pane-users" role="tabpanel" aria-labelledby="tab-users" tabindex="-1">
+        <form class="cb-adduser" id="userForm" novalidate>
+          <h3 class="cb-sub">Add someone</h3>
+          <p class="cb-hint">They get their own sign-in and their own history. They cannot see anyone else&rsquo;s, and you can see all of it.</p>
+
+          <div class="cb-field">
+            <label class="cb-gate-label" for="newUser">Username</label>
+            <input class="form-control" id="newUser" name="username" type="text"
+                   autocomplete="off" autocapitalize="none" spellcheck="false" required>
+          </div>
+
+          <div class="cb-field">
+            <label class="cb-gate-label" for="newPass">Password</label>
+            <input class="form-control" id="newPass" name="password" type="text"
+                   autocomplete="new-password" spellcheck="false" required>
+            <!-- A live checklist, not a post-submit error. The button stays
+                 disabled until both rules are met. -->
+            <ul class="cb-rules" id="newRules">
+              <li data-rule="len">At least 8 characters</li>
+              <li data-rule="name">Username is 3&ndash;32 letters, numbers, dot, dash or underscore</li>
+            </ul>
+          </div>
+
+          <p class="cb-fielderror" id="userError" role="alert"></p>
+          <button class="btn btn-secondary btn-block" type="submit" id="btnAddUser" disabled>Add person</button>
+        </form>
+
+        <h3 class="cb-sub">People with access</h3>
+        <div class="cb-list list-group" id="userList"></div>
       </section>
 
     </div>
@@ -210,6 +325,7 @@
 
     <p class="cb-build">
       <span id="buildStamp">build —</span>
+      <span class="cb-whoami" id="whoami" hidden></span>
       <button type="button" class="cb-linkbtn" id="btnSignOut" hidden>Sign out</button>
     </p>
 
