@@ -675,3 +675,32 @@
       `—`, a host-unreachable error with no way out, an armed delete that
       stayed tappable through its request, and a clear action that named no
       blast radius. hallmark: 0 critical, down from 2 at the session baseline.
+
+## 2026-09-07 — health, runtime and the VPS dashboard
+
+- [x] The deploy clone `/opt/cast-stream` was **six commits behind** the app
+      it serves. Pulled to current, restarted, verified on loopback and on
+      public HTTPS. The panel below now shows how far behind it is, so this
+      cannot go unnoticed again.
+- [x] `/api/system` on the stream host: load per core, memory, host uptime,
+      node, pid, port, state dir and the commit read out of `.git`, plus a
+      14-day byte ledger. Owner-only behind the same ticket as the file
+      list — `/healthz` stays public and unchanged, because a Chromecast
+      asks it with no headers.
+- [x] The app's Stream host panel renders those under a heading of their
+      own, with an amber-on-warning read for load ≥ 1.0 per core and memory
+      ≥ 90%. `--cb-warn` is a fill colour at 1.52:1; the text uses a new
+      `--cb-warn-ink` at 5.61:1.
+- [x] Bridge dashboard: a **Stream** section below Terminal. Service state,
+      uptime, restarts, CPU, memory, pid; deploy commit and drift; served
+      today/this month, in flight, read window; machine vitals; the folder
+      with per-file delete and copy-address; a bordered clearing block last;
+      and a pm2 log tail with the ANSI stripped.
+- [x] `/api/stream/{status,logs,restart,deploy,storage/clear,storage/delete}`
+      on the dashboard. Mints its storage ticket with the host's own
+      `lib/ticket.js` rather than restating the protocol.
+- [x] The stream host's env lived nowhere but pm2's dump — one `pm2 delete`
+      and file casting would have gone silently off (503 on every upload).
+      It now reads `<repo>/.env` first, with the environment still winning.
+      Proven by deleting the pm2 entry and starting it clean: window 64 MiB
+      and uploads enabled, from the file alone.

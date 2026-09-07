@@ -627,3 +627,24 @@ vendor a tested library.
 
 **Context Rj needs to review:** `lib/bilibili.js`, `api/bilibili.js`. Open the
 Bilibili panel, tap Sign in, confirm on the phone, then paste a members-only link.
+
+## 2026-09-07 — the stream panel
+
+**hallmark on `index.html` reports five [73] "form posts nowhere" and a
+multiple-H1.** Pre-existing and not touched by this session's commits: the
+forms are wired by listeners in `app.js`, which the checker cannot see. Left
+alone rather than silenced — a `<form action>` added only to quiet a gate is
+worse than the finding. Worth a real look at the two H1s.
+
+**The stream host's `.env` is not in the repo, by design.** It is at
+`/opt/cast-stream/.env`, `chmod 600`, gitignored, and it carries
+`STREAM_UPLOAD_SECRET`. If that box is ever rebuilt, that file is the thing
+to restore first — the README's first-time block writes it.
+
+**One em-dash finding stands on purpose.** `hallmark` counts em-dashes as a
+copy smell; RJ-Design-Skill §data-display 1.5 requires an em-dash for a
+missing value, never a blank. The correctness layer wins, as its own
+ordering says it should.
+
+**Context Rj needs to review:** dashboard → **Stream** (below Terminal), and
+the app's own **Stream host** panel for the same numbers from the phone.
