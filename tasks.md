@@ -538,3 +538,57 @@
       Chrome       window.chrome object    → "Cast to TV", the normal cast
                    state machine, untouched
       ```
+
+### 2026-09-07 — Rj: "no loader when scan runs, Scan turns full blue, Device Ready shows as device ready"
+
+- [x] The scan loader was never invisible — it was **off-screen**. Measured on
+      a 390x664 iPhone-class viewport, mid-scan:
+
+      ```
+      Scan button    y=658          ← the only thing in view
+      Progress panel y=711..836     ← 47px past the fold, for the whole run
+      ```
+
+      The panel scrolls itself into view now, and does so *after* the first
+      tick rather than straight after `appendChild`: an empty panel is ~60px
+      and a filled one 95px, so scrolling to fit the empty one left the filled
+      one hanging 21px past the fold again. `block: 'nearest'` does the
+      minimum, plus `scroll-margin: 16px` so it doesn't sit flush on the edge
+      with its shadow clipped. On a screen tall enough to have shown it
+      anyway the call is a no-op — desktop is untouched.
+
+      ```
+      390x664   panel 553..648 of 664   fully visible   scan button still visible
+      412x730   panel 619..714 of 730   fully visible   scan button still visible
+      1280x800  panel 689..784 of 800   fully visible   no scroll (no-op)
+      ```
+
+- [x] "Turns full blue" was the spinner being painted in the button's own
+      colour. `.cb-spin` used `border-top-color: var(--cb-accent)` — `#2d4cc8`
+      — and `.btn-secondary`'s background IS `#2d4cc8`. Measured at **1.00:1**.
+      `.btn.is-busy` also hides the label, so Scan, Play and Add spent every
+      run as a blank blue slab. Now `currentColor`, which is the one value
+      already correct on every variant:
+
+      ```
+      btnScan / btnSubs / btnPlay  filled blue   1.00:1 → 6.15:1
+      btnCast                      light kit     ——     → 3.55:1
+      ```
+
+      The gate button's own spinner was checked and was already correct
+      (`#ecf0f3` on the dark gate) — the fault was confined to `.cb-spin`.
+
+- [x] The device pill had six possible values written in two different cases:
+      five hand-written lower-case strings, and — in the connected state — a
+      TV's own name, which arrives capitalised and cannot be argued with. So
+      the same pill read `device ready` one second and `Living Room TV` the
+      next. All six are sentence case now, matching the buttons, the status
+      line and the scan stages.
+
+      ```
+      looking…    → Looking…              no devices → No devices
+      device ready→ Device ready          connecting → Connecting…
+      no cast     → Casting unavailable   <TV name>  → unchanged
+      ```
+
+      None clips at 390px; the longest measures 145px against a 215px cap.

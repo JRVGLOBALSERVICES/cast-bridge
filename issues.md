@@ -511,3 +511,29 @@ Rj's phone the fallback still fires after 1.4s and copies the link, so the
 tap is never silent. Worth one real test on his phone.
 
 **Context Rj needs to review:** `assets/js/app.js`, `handOffToChrome()`.
+
+## 2026-09-07: "no cast" was rewritten, not just capitalised
+
+**Question:** the Firefox pill said `no cast`. Sentence-casing it gives
+`No cast`, which reads like a missing noun.
+**Assumption made:** rewrote it to **"Casting unavailable"**. It is the one
+pill value that states a browser limitation rather than a device state, and
+"No cast" invites the reading "casting is switched off" — which is wrong, it
+is Google shipping the sender SDK for Chrome and Edge only. Measured at 145px
+against the pill's 215px cap on a 390px phone, so it does not clip.
+**Context you need to review:** `assets/js/app.js:679`. If you want it shorter,
+"No casting" fits the family better and is one word from the same fix.
+
+## 2026-09-07: hallmark's two criticals are the same two as last pass
+
+**Question:** the sweep still prints 2 critical.
+**Assumption made:** neither is a finding against this diff and neither blocks
+— the source sweep exits 0. [79] wants a privacy policy and terms route; Cast
+Bridge is a sign-in-gated private app for you, not a public site collecting
+visitor data. The other is the profiling-analytics gate matching your own
+tracker *blocklist* in `lib/media.js` — it is matching the list of things the
+app refuses to load. [107] "form with no submitting state" fires on the gate
+form at `index.html:55`, which has had a spinner and a disabled state the whole
+time; the checker is pattern-matching for the string "Sending…".
+**Context you need to review:** nothing, unless you want the legal routes
+added anyway — say so and it is a small job.

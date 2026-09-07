@@ -470,6 +470,16 @@
     statusBox.classList.toggle('is-bad', kind === 'bad');
   }
 
+  /* One pill, six possible values, and they used to be written in two
+     different cases: five hand-written strings in lower case ("looking…",
+     "no devices", "device ready", "connecting", "no cast") and, in the
+     connected state, a TV's own name — "Living Room TV" — which arrives
+     capitalised and cannot be talked out of it. So the same component said
+     `device ready` one second and `Living Room TV` the next.
+     Sentence case is the app's convention everywhere else (buttons, status
+     line, scan stages); the pill now follows it. Any new value goes in
+     sentence case too — the device name is the reason, and it is not
+     going to change. */
   function setPill(text, kind) {
     const el = $('devicePillText');
     el.textContent = text;
@@ -676,7 +686,7 @@
        button is the ONLY one on show, so Firefox opened the app on a single
        dead control — which reads as the app being broken rather than as one
        feature being somewhere else. Give the button a job it can do. */
-    setPill('no cast', '');
+    setPill('Casting unavailable', '');
 
     /* Chrome and Edge both define window.chrome and both can cast, so a false
        here from one of them is the SDK having a bad start, not the wrong
@@ -897,9 +907,9 @@
     if (!window.cast || !window.cast.framework) { btn.disabled = true; return; }
 
     var map = {
-      NO_DEVICES_AVAILABLE: ['No cast devices on this Wi‑Fi.', '', true, 'no devices', ''],
-      NOT_CONNECTED: ['A cast device is ready — tap Cast to TV.', 'ready', false, 'device ready', 'ready'],
-      CONNECTING: ['Connecting…', 'ready', true, 'connecting', 'ready'],
+      NO_DEVICES_AVAILABLE: ['No cast devices on this Wi‑Fi.', '', true, 'No devices', ''],
+      NOT_CONNECTED: ['A cast device is ready — tap Cast to TV.', 'ready', false, 'Device ready', 'ready'],
+      CONNECTING: ['Connecting…', 'ready', true, 'Connecting…', 'ready'],
       CONNECTED: ['Connected to ' + deviceName() + '.', 'live', false, deviceName(), 'live']
     };
     var m = map[castState] || map.NO_DEVICES_AVAILABLE;
@@ -1552,6 +1562,30 @@
     };
 
     tick();
+
+    /* Being rendered is not the same as being seen. The panel sits under the
+       Scan field, and on a 390x664 phone that put its top edge at y=711 —
+       47px past the fold, for the whole run. The button above it is the only
+       thing on screen, and .is-busy blanks its label, so the app read as
+       frozen while the panel counted away out of sight.
+       This runs AFTER the first tick, not after appendChild: an empty panel
+       is about 60px and a filled one 95px, and scrolling to fit the empty
+       one left the filled one hanging 21px past the fold again — measured.
+       `block: 'nearest'` then scrolls the least amount that brings it in,
+       and is a no-op on a screen tall enough to have shown it anyway, so the
+       desk case is untouched and only the phone case moves. */
+    try {
+      var reduced = window.matchMedia
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      wrap.scrollIntoView({
+        block: 'nearest',
+        behavior: reduced ? 'auto' : 'smooth'
+      });
+    } catch (e) {
+      /* Older Safari takes only the object form's absence seriously. */
+      try { wrap.scrollIntoView(false); } catch (e2) {}
+    }
+
     var timer = setInterval(tick, 250);
     return function () { clearInterval(timer); };
   }

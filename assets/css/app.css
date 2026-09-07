@@ -447,7 +447,19 @@ google-cast-launcher {
   flex: none;
 }
 
-/* Buttons: lock the width so an in-place spinner moves nothing. */
+/* Buttons: lock the width so an in-place spinner moves nothing.
+ *
+ * The spinner used to be drawn in --cb-accent (#2d4cc8) on a track of
+ * rgba(68,71,106,.25). That is fine on the light kit buttons and a lie on
+ * the filled ones: .btn-secondary's background IS #2d4cc8, so the arc came
+ * out at 1.00:1 against the button it was spinning on. Measured, not
+ * guessed. Since .btn.is-busy also hides the label, Scan and Play spent
+ * their entire run as a blank blue slab with no sign of life in it — the
+ * single most-reported "is this thing working" in the app.
+ *
+ * currentColor is the fix, because it is the one value that is already
+ * correct on every button variant: near-white on the filled ones, ink on
+ * the light ones. Never name a colour here again. */
 .btn.is-busy { pointer-events: none; }
 .btn.is-busy .cb-label { visibility: hidden; }
 .cb-spin {
@@ -457,10 +469,19 @@ google-cast-launcher {
   width: 1.1rem;
   height: 1.1rem;
   margin: -0.55rem 0 0 -0.55rem;
-  border: 2px solid rgba(68, 71, 106, 0.25);
-  border-top-color: var(--cb-accent);
+  /* Fallback: a ring with one side cut out. Legible anywhere, no alpha. */
+  border: 2px solid currentColor;
+  border-top-color: transparent;
   border-radius: 50%;
   display: none;
+}
+/* Preferred: faint full track, solid leading arc — the kit's original look,
+   just in a colour that can actually be seen on the button underneath. */
+@supports (border-color: color-mix(in srgb, currentColor 25%, transparent)) {
+  .cb-spin {
+    border-color: color-mix(in srgb, currentColor 25%, transparent);
+    border-top-color: currentColor;
+  }
 }
 .btn.is-busy .cb-spin { display: block; animation: cb-rotate 0.7s linear infinite; }
 @keyframes cb-rotate { to { transform: rotate(360deg); } }
@@ -1681,6 +1702,11 @@ body.is-gated { overflow: hidden; }
   background: var(--cb-surface);
   box-shadow: var(--cb-shadow-light);
   padding: 14px 16px 16px;
+  /* The panel scrolls itself into view when a scan starts (see
+     startScanProgress). `block: 'nearest'` does the minimum, which parked it
+     flush on the bottom edge of a 664px phone — in view, but reading as cut
+     off, and its soft shadow clipped. This buys the gap. */
+  scroll-margin: 16px;
 }
 
 .cb-scan-head {
