@@ -1977,10 +1977,45 @@
    * scrollable the whole time.
    * ------------------------------------------------------------------ */
 
+  /* A pull on the gate is a reload, and a reload that leaves a superseded
+     worker in charge is not one. Ask for the update first, give it a beat to
+     take over, then go — but never hang on it, because offline the update
+     never resolves and the reload still has to happen. */
+  function reloadShell() {
+    var updated = Promise.resolve();
+    if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistration) {
+      updated = navigator.serviceWorker.getRegistration()
+        .then(function (reg) {
+          if (!reg) return null;
+          return reg.update().then(function () {
+            if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          });
+        })
+        .catch(function () {});
+    }
+    var cap = new Promise(function (r) { setTimeout(r, 1500); });
+    return Promise.race([updated, cap]).then(function () {
+      location.reload();
+    });
+  }
+
   function wirePullToRefresh() {
-    var host = document.querySelector('.cb-shell');
+    /* Listening on .cb-shell meant the gesture died on the login screen: the
+       shell carries `inert` while the gate is up, so no touch inside it ever
+       dispatched. The document hears both surfaces; the scroll guards below
+       are what keep a normal scroll from being read as a pull. */
+    var host = document;
     var ind = $('ptr');
-    if (!host || !ind) return;
+    if (!ind) return;
+
+    /* A pull that starts inside a list which is itself scrolled down is a
+       scroll, not a refresh — window.scrollY alone cannot see that. */
+    function scrolledInner(node) {
+      for (var el = node; el && el !== document.body; el = el.parentElement) {
+        if (el.scrollTop > 0) return true;
+      }
+      return false;
+    }
 
     var ring = ind.querySelector('.cb-ptr-ring');
     var THRESHOLD = 72;    // px of travel, after resistance
@@ -2026,9 +2061,12 @@
       ind.style.transition = 'transform .2s ease';
       ind.style.transform = 'translate3d(-50%,' + THRESHOLD + 'px,0)';
 
-      var work = signedIn
-        ? Promise.all([refreshHistory(), isOwner() ? renderUsers() : null])
-        : checkSession();
+      /* Signed in, there is data to re-read. On the gate there is none, so
+         "pull to reload" means what it says — take the newest build. */
+      var gated = document.body.classList.contains('is-gated');
+      var work = gated
+        ? reloadShell()
+        : Promise.all([refreshHistory(), isOwner() ? renderUsers() : null]);
 
       /* A refresh that resolves in 40ms reads as a broken button, so hold
          the ring long enough to be seen finishing. */
@@ -2037,6 +2075,7 @@
       Promise.all([work, floor])
         .catch(function () {})
         .then(function () {
+          if (gated) return;          // the page is on its way out
           running = false;
           ind.classList.remove('is-running', 'is-armed');
           settle();
@@ -2045,10 +2084,11 @@
     }
 
     host.addEventListener('touchstart', function (e) {
-      if (running || document.body.classList.contains('is-gated')) return;
+      if (running) return;
       /* Only from a genuine top. Starting a pull mid-list is a scroll. */
       if (window.scrollY > 0) return;
       if (e.touches.length !== 1) return;
+      if (scrolledInner(e.target)) return;
       startY = e.touches[0].clientY;
       tracking = true;
       armed = false;

@@ -58,20 +58,24 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  /* Shell assets: serve from cache, refresh in the background. */
+  /* Shell assets: network first, cache only as the offline fallback.
+   *
+   * This was cache-first with a background refresh, and that pairs a FRESH
+   * index.html (navigations are network-first) with the PREVIOUS build's
+   * app.css and app.js on the first launch after every deploy. Not merely
+   * stale — mismatched, which is how a shipped layout fix can be invisible
+   * on the phone and present everywhere else. The stale copy only ever
+   * appears now when the network genuinely fails. */
   e.respondWith(
-    caches.match(req).then((hit) => {
-      const live = fetch(req)
-        .then((res) => {
-          if (res && res.ok) {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => hit);
-      return hit || live;
-    })
+    fetch(req)
+      .then((res) => {
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(req))
   );
 });
 

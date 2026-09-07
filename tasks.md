@@ -156,3 +156,31 @@
       still correctly reports no video at all.
       desicinema still yields nothing, and now for a proven reason rather than
       a guess: see issues.md.
+
+- [x] Task 24: The pill fix was real and invisible. Source measures clean at
+      390/360/320 — pill capped at 215px, right edge 374, document scrollWidth
+      exactly 390, nothing overflowing. What Rj sees on his phone is the
+      SERVICE WORKER: shell assets were cache-first with a background refresh,
+      while navigations are network-first. Every deploy therefore paired a
+      FRESH index.html with the PREVIOUS build's app.css and app.js on the
+      first launch. Not merely stale — mismatched, which is how a shipped
+      layout fix stays invisible on the phone and measures clean everywhere
+      else. This is the same fault that made an earlier local check pass
+      falsely, so it has now cost two verifications. Shell assets are
+      network-first; the cache is the offline fallback only.
+
+- [x] Task 25: Pull to reload works on the login screen. Two independent
+      reasons it could not: the listeners were bound to `.cb-shell`, which
+      carries `inert` while the gate is up so no touch inside it dispatched;
+      and touchstart bailed outright on `body.is-gated`. Bound to the document
+      instead, with a scrolled-ancestor guard so a pull that starts inside a
+      list scrolled down is still read as a scroll. The ring was also painted
+      at z-index 60 under a gate at 90 — raised to 95. On the gate there is no
+      data to re-read, so the pull means what it says: ask the worker for an
+      update, then reload. Verified with a real CDP touch drag on the gate —
+      ring reaches full opacity, arms at the threshold, page reloads on
+      release. Threshold, resistance, handoff, haptic, overshoot and a live
+      list are all unchanged.
+
+- [ ] Task 26: desicinema. Not done, and not going to be by this route —
+      see issues.md. The scanner is unchanged; the answer is a decision.

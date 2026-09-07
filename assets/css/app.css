@@ -1082,7 +1082,9 @@ body.is-gated { overflow: hidden; }
   position: fixed;
   top: max(6px, env(safe-area-inset-top));
   left: 50%;
-  z-index: 60;
+  /* Above the gate (90). At 60 the gesture fired on the login screen and the
+     ring was painted underneath it, which reads as nothing happening. */
+  z-index: 95;
   display: grid;
   place-items: center;
   width: 34px;

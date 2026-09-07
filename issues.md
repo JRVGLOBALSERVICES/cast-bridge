@@ -196,3 +196,40 @@ the same title, or a source that isn't scrambled.
 
 **Context Rj needs to review:** `api/scan.js`, the `INSTRUMENT` block and
 `readInstrumented()`.
+
+## desicinema, second pass: the answer is no, and the alternative does not exist either
+
+**Question:** Rj asked for two things — enable the host decryption, or add an
+in-app browser that loads the page so that pressing play there hands the video
+to the cast.
+
+**What I did:** neither, and the second one for a reason worth writing down
+rather than quietly dropping.
+
+The in-app browser cannot work in this app. Cast Bridge is a web app. A
+cross-origin iframe is opaque to it: the page cannot read that frame's DOM,
+cannot see its network requests, and cannot reach its video element. And the
+Cast Web Sender SDK only ever sends a media URL to the receiver — there is no
+web API for mirroring a rendered tab. Tab mirroring is a feature of the Chrome
+browser itself, not something a page can call. So "load it in the app and grab
+what it plays" is not an easier version of the same job; it is the same job
+minus the only vantage point that made it possible.
+
+Doing it server-side is what the deep scan already is, and it is already as
+good as this route gets.
+
+**Assumption made:** none — this one is a decision, unchanged from last pass
+and now explicit. Recovering the key and reimplementing that host cipher is
+the only remaining path, and I am not writing it.
+
+**What actually gets the episode on the TV today:** Chrome's own tab cast.
+Open the page in Chrome on the phone or the laptop, press play there, then
+Cast from the browser menu. It mirrors pixels, so a scrambled address is
+irrelevant to it. It costs nothing and needs no code.
+
+**Context Rj needs to review:** the success criterion, not a file. Two links
+were picked as the proof the app works, and one of them is a scrambled embed
+on an unlicensed host — it fails for reasons that have nothing to do with the
+quality of the app. groundbanks has no video on it at all and is reported
+correctly. Neither is a test of Cast Bridge. A plain .mp4 or .m3u8, a Drive or
+Dropbox share, or any ordinary embed host is.
