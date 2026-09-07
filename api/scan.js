@@ -17,7 +17,7 @@
 const {
   MAX_RESULTS, MEDIA_EXT, assertPublic, kindOf, labelFor, rank,
   expandHlsMaster, walledService, walledMessage,
-  DEFERRED_SRC_ATTRS, NOT_A_PLAYER
+  DEFERRED_SRC_ATTRS, NOT_A_PLAYER, botWallPhrase
 } = require('../lib/media');
 const auth = require('../lib/auth');
 
@@ -449,7 +449,7 @@ async function collect(page, target) {
 
      Kept as a high-water mark rather than a final reading, because clicking
      can destroy the very thing being counted. */
-  let evidence = { players: 0, frames: 0 };
+  let evidence = { players: 0, frames: 0, botWall: null };
 
   const sampleEvidence = async () => {
     let nested = 0;
@@ -464,9 +464,14 @@ async function collect(page, target) {
       if (frame === page.mainFrame()) continue;
       if (NOT_A_PLAYER.test(frame.url())) continue;
       try {
-        nested += await frame.evaluate(
-          () => document.querySelectorAll('video,audio').length
-        );
+        const seen = await frame.evaluate(() => ({
+          n: document.querySelectorAll('video,audio').length,
+          /* Capped: a refusal is a sentence, not a document, and the whole
+             innerText of a real page is megabytes we would pay to move. */
+          text: (document.body && document.body.innerText || '').slice(0, 2000)
+        }));
+        nested += seen.n;
+        if (!evidence.botWall) evidence.botWall = botWallPhrase(seen.text);
       } catch (e) { /* detached or locked — it simply does not count */ }
     }
 
@@ -483,12 +488,17 @@ async function collect(page, target) {
         });
         return {
           players: document.querySelectorAll('video,audio').length,
-          frames: frames.length
+          frames: frames.length,
+          text: (document.body && document.body.innerText || '').slice(0, 2000)
         };
       }, ['src'].concat(DEFERRED_SRC), NOT_A_PLAYER.source);
 
       evidence.players = Math.max(evidence.players, nested + top.players);
       evidence.frames = Math.max(evidence.frames, top.frames);
+      /* First refusal wins and is never cleared. The wall replaces the page,
+         so a later sample of the wreckage says nothing at all — and a signal
+         that can be overwritten by its own aftermath is not a signal. */
+      if (!evidence.botWall) evidence.botWall = botWallPhrase(top.text);
     } catch (e) {
       /* an unreadable top document still leaves what the frames reported */
       evidence.players = Math.max(evidence.players, nested);
@@ -617,8 +627,32 @@ module.exports = async function handler(req, res) {
     const media = result.media.slice(0, MAX_RESULTS);
 
     if (!media.length) {
-      const saw = result.evidence || { players: 0, frames: 0 };
+      const saw = result.evidence || { players: 0, frames: 0, botWall: null };
       const noPlayer = !saw.players && !saw.frames;
+
+      /* A site that recognised the scanner and said so gets quoted, because
+         the alternative is telling someone to hunt for a password on a page
+         that never wanted one. This outranks both other answers: the wall
+         takes the page down, so the evidence underneath it is the wall's
+         wreckage, not a reading of the site. */
+      let error;
+      if (saw.botWall) {
+        error = 'That site refuses automated browsers, and said so: "' +
+          saw.botWall + '". It is not a sign-in and it is not encryption — ' +
+          'the page recognised the scanner and stopped before asking for the ' +
+          'video at all. Nothing this app can run on a server gets past that, ' +
+          'because the check is on whether a person is holding the browser.';
+      } else if (noPlayer) {
+        error = 'Ran the page in a browser. There is no video on it at all — ' +
+          'no player, no embed, nothing to cast. Check the address is the one ' +
+          'you meant to send.';
+      } else {
+        error = 'Ran the page in a browser, opened its player and watched ' +
+          'every request. The player is there but never fetched anything ' +
+          'playable. It probably needs a sign-in, or it is encrypted the way ' +
+          'the big streaming apps are.';
+      }
+
       res.statusCode = 200;
       res.end(JSON.stringify({
         ok: false,
@@ -626,14 +660,8 @@ module.exports = async function handler(req, res) {
         deep: true,
         finalUrl: target,
         saw,
-        error: noPlayer
-          ? 'Ran the page in a browser. There is no video on it at all — no ' +
-            'player, no embed, nothing to cast. Check the address is the one ' +
-            'you meant to send.'
-          : 'Ran the page in a browser, opened its player and watched every ' +
-            'request. The player is there but never fetched anything ' +
-            'playable. It probably needs a sign-in, or it is encrypted the ' +
-            'way the big streaming apps are.'
+        botWall: saw.botWall || null,
+        error
       }));
       return;
     }

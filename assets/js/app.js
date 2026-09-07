@@ -1587,6 +1587,7 @@
       .then(function (res) {
         if (res.status === 401) { handleAuthLapse(); return; }
         if (res.body && res.body.walled) { renderWalled(res.body); return; }
+        if (res.body && res.body.botWall) { renderBotWall(res.body); return; }
         if (res.status !== 200 || !res.body || res.body.ok !== true) {
           $('browseResult').innerHTML = '';
           renderBrowseError(
@@ -1634,6 +1635,58 @@
       note.textContent = 'Anything this app did return would be the trailer, not the film.';
       box.appendChild(note);
     }
+
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'btn btn-primary btn-sm';
+    go.textContent = 'Scan a different page';
+    go.addEventListener('click', function () {
+      $('pageUrl').value = '';
+      $('pageUrl').focus();
+      wrap.innerHTML = '';
+      $('browseHint').hidden = false;
+    });
+    box.appendChild(go);
+
+    wrap.appendChild(box);
+  }
+
+  /* A site that recognised the scanner and refused. This is a gated state,
+   * not a failed read, so it gets the walled card rather than the red error
+   * line under the input — a red line reads as "you typed that wrong" and
+   * sends someone back to retype an address that was perfectly correct.
+   *
+   * The site's own words are quoted. Paraphrasing a refusal invites the
+   * reasonable suspicion that we are covering for a bug of our own, and the
+   * whole value of this state is that it is checkable: open the page in a
+   * normal browser and you will see the same sentence.
+   *
+   * The way out is honest rather than encouraging. Re-running the scan will
+   * fail identically, so there is no "try again" here — the recovery is a
+   * different page, which is the only thing that actually works. */
+  function renderBotWall(data) {
+    fieldError($('pageUrl'), $('pageError'), null);
+    var wrap = $('browseResult');
+    wrap.innerHTML = '';
+
+    var box = document.createElement('div');
+    box.className = 'cb-empty cb-walled';
+
+    var h = document.createElement('h3');
+    h.textContent = 'That site blocks automated browsers';
+    box.appendChild(h);
+
+    var quote = document.createElement('p');
+    quote.className = 'cb-walled-quote';
+    quote.textContent = '\u201C' + data.botWall + '\u201D';
+    box.appendChild(quote);
+
+    var p = document.createElement('p');
+    p.textContent = 'The page recognised the scanner and stopped before it ever ' +
+      'asked for the video, so there was nothing on the wire to find. This is ' +
+      'not a sign-in and not encryption \u2014 the check is on whether a person ' +
+      'is holding the browser, and no scanner running on a server can pass it.';
+    box.appendChild(p);
 
     var go = document.createElement('button');
     go.type = 'button';

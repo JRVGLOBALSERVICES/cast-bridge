@@ -359,3 +359,50 @@
       narrow `drive.file` scope.
 
       groundbanks.net is unchanged and needs no tool: there is no video on it.
+
+- [x] Task 27: The diagnosis was wrong, and the site says so out loud.
+      Rj asked why the web app cannot do what the extension does, when the
+      whole point of the app is that you paste a link and it works. Fair
+      question, and chasing it overturned the previous three passes.
+
+      What was claimed here before: that the address is encrypted, that
+      nothing is ever put in the clear, and that a web app can never have the
+      extension's vantage point because it is a page on a server. The last
+      part was already false in this repo — `/api/scan` has run a real
+      headless Chromium watching every network request since Task 19. The app
+      has had that seat all along.
+
+      What actually happens, measured today with a real browser on the VPS:
+      load `movieshub.rpmplay.xyz/#usw96p`, remove the z-index 2147483647
+      click-catcher, click `#player-button-container`, and the page replaces
+      itself with the string **"Opss! Headless Browser is not allowed"**. The
+      string is in its own bundle (`assets/index-B82x0F06.js`, obfuscated
+      string-array; the branch reads `H[j(570)] = "Headless Detected"`). The
+      player never leaves `preload.m3u8`, all three <video> elements stay at
+      readyState 0, and no manifest is ever requested.
+
+      So the cipher was never the obstacle. The site refuses automated
+      browsers before it ever asks for the video. Every downstream symptom the
+      earlier passes measured — no manifest, nothing in the clear, a player
+      that will not start — is that refusal, read from underneath.
+
+      Fixed the reporting, which is the part that is ours:
+      - `lib/media.js` — `BOT_WALL` (8 narrow patterns) + `botWallPhrase()`,
+        which returns the site's own sentence with surrounding context.
+      - `api/scan.js` — samples body text in the top document and every frame
+        alongside the player count, first match wins and is never cleared
+        (the wall replaces the page, so a later sample reads its wreckage).
+        The empty answer now leads with the wall and quotes it.
+      - `assets/js/app.js` + `app.css` — `renderBotWall()`, a gated card in
+        the walled-state idiom rather than the red error line under the input.
+
+      Verified against the live endpoint, not a stub: rpmplay embed and the
+      desicinema page two frames up both return
+      `botWall: "Opss! Headless Browser is not allowed"` with `players: 3,
+      frames: 1`. Controls hold — w3schools video page still resolves
+      `ok: true, 2 media`, example.com still reports "no video on it at all",
+      neither reports a wall. Rendered end-to-end in a real browser at
+      412x915 through the actual quick-scan → deep-scan path: card renders,
+      no overflow, no console errors.
+
+      Not done, deliberately: defeating the headless check. See issues.md.

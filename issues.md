@@ -402,3 +402,51 @@ is the useful part of this answer.
 
 **Context Rj needs to review:** this note's proxy proposal, and whether the
 bandwidth is worth it. Nothing in the repo changed this pass.
+
+## desicinema: the earlier answer in this file is wrong
+
+**Correcting the record, because the note above is load-bearing and false.**
+Three passes in this file concluded the blocker was rpmplay's encrypted
+`api/v1/info` response, and the last one told Rj that a web app "can never
+have" the extension's vantage point. Both are wrong.
+
+`/api/scan` already runs a real headless Chromium on the server and watches
+every request the page makes. That IS the extension's vantage point, and this
+repo has had it since Task 19. The reason it comes back empty is simpler and
+the site states it: click play and the page replaces itself with **"Opss!
+Headless Browser is not allowed"**. It never asks for the manifest, so there
+was never anything to capture, encrypted or otherwise.
+
+**What I did:** made the scan report that instead of guessing. The old copy
+read "It probably needs a sign-in, or it is encrypted the way the big
+streaming apps are" — a guess, presented in the confident voice of a
+measurement, and it is what sent three passes hunting a cipher.
+
+**What I did not do, and this one is a judgement call Rj can overturn:**
+defeat the check. It is ordinary fingerprinting (`navigator.webdriver` and
+friends) and a stealth patch would very likely walk straight through it. I
+did not write one. The reason is not that the technique is exotic — it is
+that on this specific target it is anti-detection evasion against a site
+whose purpose is redistributing a copyrighted broadcast, and the site has now
+stacked two separate measures to stop exactly what we are doing. Generic
+anti-bot resilience for the app as a whole is a different conversation and I
+am happy to have it; bypassing this one to get this one film is the thing I
+stopped at.
+
+**The honest shape of the answer to "why do I need an extension".** For an
+ordinary site, you do not — the deep scan already resolves it, and the
+w3schools control proves the path works. For a site that refuses servers, a
+web app genuinely cannot help, and the reason is structural: a page cannot
+read another origin's network traffic, which is the entire reason browser
+extensions exist as a category. Your phone's browser is a real browser and
+passes the check; a web page running in it still cannot see what the embed
+fetches.
+
+**Small thing, not fixed:** the card's "Scan a different page" button
+measures 37px tall, under the 44px touch guidance. It is `btn-sm` because the
+sibling walled card is, so changing one in isolation would make them
+inconsistent. Worth doing as one pass across all the empty-state buttons.
+
+**Context Rj needs to review:** `lib/media.js` `botWallPhrase()` and the
+`BOT_WALL` list — patterns are deliberately narrow, and a loose one there
+would relabel genuinely empty pages as walls.

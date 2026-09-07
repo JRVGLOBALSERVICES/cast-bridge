@@ -638,6 +638,19 @@ google-cast-launcher {
   font-style: italic;
 }
 
+/* The site's own refusal, quoted. Set apart from our explanation of it so
+   the two are not read as one voice — the claim is checkable precisely
+   because these words are theirs and the paragraph under it is ours. */
+.cb-walled-quote {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  color: var(--cb-ink);
+  background: var(--cb-surface);
+  border: 1px solid var(--cb-line);
+  border-radius: var(--cb-radius);
+  padding: 0.5rem 0.625rem;
+}
+
 /* ---------- Browser pane ---------- */
 .cb-frame-wrap {
   position: relative;
