@@ -17,6 +17,7 @@ const {
   normalizeShare, collectFrames, collectCandidates, probeMedia, probeAll, readFrames
 } = require('../lib/media');
 const auth = require('../lib/auth');
+const bili = require('../lib/bilibili');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -47,6 +48,34 @@ module.exports = async function handler(req, res) {
      that serves the bytes is a fixed rewrite of it, so rewrite it before
      spending a fetch on the viewer page wrapped around it. */
   target = normalizeShare(target);
+
+  /* Bilibili before the walled check and before any fetch, because neither
+     applies to it: its page answers 412 to this server whatever we send, and
+     the address is behind an API rather than in the HTML. Handled entirely
+     in lib/bilibili, in the same answer shape as a scanned page so nothing
+     downstream needs to know it was special. */
+  if (bili.parseTarget(target)) {
+    const hit = await bili.resolve(target, bili.jarFromRequest(req));
+    if (hit) {
+      res.statusCode = 200;
+      res.end(JSON.stringify(hit.ok ? {
+        ok: true,
+        finalUrl: hit.finalUrl,
+        title: hit.title,
+        poster: null,
+        media: hit.media,
+        direct: false,
+        source: 'bilibili',
+        biliSignedIn: hit.signedIn
+      } : {
+        ok: false,
+        error: hit.error,
+        source: 'bilibili',
+        biliSignedIn: Boolean(bili.jarFromRequest(req))
+      }));
+      return;
+    }
+  }
 
   /* Answer walled services before spending a fetch on them. */
   const walled = walledService(target);

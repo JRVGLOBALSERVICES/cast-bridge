@@ -555,6 +555,10 @@
 
   /* Subtitles, as the address of our own converted copy — never the file
      the person pasted, which is almost never VTT and almost never CORS. */
+  /* Set by load(); read by the player and by every cast attempt for the
+     address currently loaded. */
+  var forceProxy = false;
+
   var subsProxy = '';
   var subsName = '';
 
@@ -814,6 +818,14 @@
     currentTitle = meta.title || nameOf(u);
     currentFrom = meta.from || '';
     hlsProxied = false;
+    /* Some addresses are only fetchable with the referer of the page they
+       belong to — Bilibili's CDN is the case this exists for, and it answers
+       403 to anything else. That is true of the phone as well as the
+       television: a <video> element sends this app's origin as the referer
+       and gets the same 403. So the bridge is not a retry here, it is the
+       route, and it is taken on the first attempt rather than after a
+       failure the person would have watched happen. */
+    forceProxy = Boolean(meta.proxy);
     $('url').value = u;
 
     teardownHls();
@@ -827,7 +839,7 @@
       /* Native HLS included: Safari takes the playlist address directly and
          picks its own rendition, so the quality menu has nothing to offer
          and stays hidden (teardownHls already did that). */
-      video.src = u;
+      video.src = forceProxy ? streamUrl(u) : u;
     }
 
     var record = store.touch(u, { title: currentTitle, from: meta.from || '' });
@@ -867,7 +879,7 @@
     if (castState === 'CONNECTED') {
       video.pause();
       stallRetried = false;
-      castLoad(u);
+      castLoad(u, { viaProxy: forceProxy });
     } else {
       video.play().catch(function () { /* autoplay policy — the controls are right there */ });
     }
@@ -1401,7 +1413,7 @@
     if (!window.cast || !window.cast.framework) return;
     if (castState === 'CONNECTED') {
       stallRetried = false;
-      if (current) castLoad(current);
+      if (current) castLoad(current, { viaProxy: forceProxy });
       else toast({ text: 'Connected — now pick something to play.' });
       return;
     }
@@ -1942,7 +1954,8 @@
           var only = media[0];
           load(only.url, {
             title: only.label || body.title || nameOf(only.url),
-            from: body.direct ? '' : body.finalUrl
+            from: body.direct ? '' : body.finalUrl,
+            proxy: Boolean(only.viaProxy)
           });
           $('linkHint').hidden = true;
           if (!body.direct) toast({ text: 'That was a page — playing the video on it.' });
@@ -2914,7 +2927,11 @@
     play.className = 'btn btn-secondary btn-sm';
     play.textContent = 'Play';
     play.addEventListener('click', function () {
-      load(m.url, { title: m.label || page.title || nameOf(m.url), from: page.finalUrl });
+      load(m.url, {
+        title: m.label || page.title || nameOf(m.url),
+        from: page.finalUrl,
+        proxy: Boolean(m.viaProxy)
+      });
       showTab('link');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
@@ -4629,6 +4646,226 @@
 
   $('screenPanel').addEventListener('toggle', function () {
     if ($('screenPanel').open && !recorder) renderScreenPanel({});
+  });
+
+  /* ------------------------------------------------------------------ *
+   * Bilibili
+   *
+   * Signed out, the API still serves an address — 720p, and only for videos
+   * that are open to everyone. Signed in it serves the members-only ones
+   * too. So the panel is not a gate: the paste box works either way, and
+   * this says what signing in would add rather than demanding it first.
+   *
+   * The sign-in is Bilibili's QR flow, and there is no QR drawn here on
+   * purpose. On a phone — which is what this app is — the link opens the
+   * Bilibili app directly and a QR would be a code the same phone has to
+   * somehow scan. A QR for the desktop case would mean shipping an encoder
+   * this app has no way to test the output of, and an unreadable QR is
+   * worse than an address to open.
+   * ------------------------------------------------------------------ */
+
+  var biliPoll = null;
+
+  function stopBiliPoll() {
+    if (biliPoll) { clearInterval(biliPoll); biliPoll = null; }
+  }
+
+  function setBiliDot(kind) {
+    $('biliDot').className = 'cb-dot' + (kind ? ' is-' + kind : '');
+  }
+
+  function biliSay(parent, text, cls) {
+    var p = document.createElement('p');
+    p.className = cls || 'cb-bili-note';
+    p.textContent = text;
+    parent.appendChild(p);
+    return p;
+  }
+
+  function renderBili(state) {
+    var body = $('biliBody');
+    if (!body) return;
+    body.textContent = '';
+    state = state || {};
+
+    if (state.loading) {
+      setBiliDot('');
+      biliSay(body, 'Checking…');
+      return;
+    }
+
+    if (state.signedIn) {
+      setBiliDot('live');
+      $('biliSummary').textContent = 'Bilibili — ' + state.name;
+      biliSay(body, 'Signed in as ' + state.name +
+        (state.vip ? ' (with a membership).' : '.') +
+        ' Paste a bilibili.com or b23.tv link in the box below and it resolves ' +
+        'through Bilibili’s API.');
+      biliSay(body, 'Casting is capped at 720p — that is the best quality ' +
+        'Bilibili serves as a single file, and a television can only be handed ' +
+        'one address.', 'cb-bili-small');
+
+      var out = document.createElement('button');
+      out.type = 'button';
+      out.className = 'cb-linkbtn is-danger';
+      out.textContent = 'Sign out of Bilibili';
+      out.addEventListener('click', function () {
+        if (out.dataset.armed === '1') {
+          fetch('/api/bilibili?action=signout', { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function () { toast({ text: 'Signed out of Bilibili.' }); renderBili({ signedIn: false }); })
+            .catch(function () { toast({ text: 'No connection.' }); });
+          return;
+        }
+        out.dataset.armed = '1';
+        out.textContent = 'Sign out of Bilibili?';
+        setTimeout(function () {
+          if (!out.isConnected) return;
+          out.dataset.armed = '';
+          out.textContent = 'Sign out of Bilibili';
+        }, 5000);
+      });
+      body.appendChild(out);
+      return;
+    }
+
+    setBiliDot('');
+    $('biliSummary').textContent = 'Bilibili';
+
+    if (state.lapsed) {
+      biliSay(body, 'That Bilibili session has expired — Bilibili ended it, ' +
+        'not this app. Sign in again to get the members-only videos back.');
+    }
+
+    if (state.waiting) {
+      var line = biliSay(body, state.waiting === 'scanned'
+        ? 'Scanned. Now confirm it in the Bilibili app.'
+        : 'Waiting for the Bilibili app to confirm…');
+      line.setAttribute('role', 'status');
+
+      var open = document.createElement('a');
+      open.className = 'btn btn-secondary btn-sm';
+      open.href = state.url;
+      open.target = '_blank';
+      open.rel = 'noopener noreferrer';
+      open.textContent = 'Open the Bilibili app';
+      body.appendChild(open);
+
+      biliSay(body, 'On this phone that link opens the Bilibili app and asks ' +
+        'you to confirm. On a computer, open it on your phone instead — ' +
+        'copy it with the button below.', 'cb-bili-small');
+
+      var copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'cb-linkbtn';
+      copy.textContent = 'Copy the sign-in link';
+      copy.addEventListener('click', function () {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(state.url).then(function () {
+            toast({ text: 'Copied. Open it on the phone with Bilibili installed.' });
+          }, function () {
+            toast({ text: 'Couldn’t reach the clipboard.' });
+          });
+        }
+      });
+      body.appendChild(copy);
+
+      var stop = document.createElement('button');
+      stop.type = 'button';
+      stop.className = 'cb-linkbtn';
+      stop.textContent = 'Cancel';
+      stop.addEventListener('click', function () { stopBiliPoll(); renderBili({ signedIn: false }); });
+      body.appendChild(stop);
+      return;
+    }
+
+    biliSay(body, 'Not signed in. Bilibili links still work — they resolve at ' +
+      '720p, for videos that are open to everyone. Signing in reaches the ' +
+      'members-only ones.');
+
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'btn btn-primary btn-sm';
+    go.textContent = 'Sign in to Bilibili';
+    go.addEventListener('click', startBiliLogin);
+    body.appendChild(go);
+
+    if (state.error) {
+      var err = biliSay(body, state.error, 'cb-pick-error');
+      err.setAttribute('role', 'alert');
+    }
+  }
+
+  function startBiliLogin() {
+    stopBiliPoll();
+    renderBili({ loading: true });
+
+    fetch('/api/bilibili?action=start', { method: 'POST' })
+      .then(function (r) { return r.json().then(function (b) { return { s: r.status, b: b }; }); })
+      .then(function (res) {
+        if (res.s === 401) { handleAuthLapse(); return; }
+        if (!res.b || !res.b.ok) {
+          renderBili({ error: (res.b && res.b.error) || 'Bilibili would not start a sign-in.' });
+          return;
+        }
+        var key = res.b.key;
+        var url = res.b.url;
+        renderBili({ waiting: 'waiting', url: url });
+
+        /* Bilibili's key lives about three minutes. Polling past that is
+           asking a question whose answer stopped changing, so it stops
+           itself and says the code expired rather than spinning. */
+        var until = Date.now() + 180000;
+
+        biliPoll = setInterval(function () {
+          if (Date.now() > until) {
+            stopBiliPoll();
+            renderBili({ error: 'That sign-in code expired. Start another.' });
+            return;
+          }
+          fetch('/api/bilibili?action=poll&key=' + encodeURIComponent(key))
+            .then(function (r) { return r.json(); })
+            .then(function (b) {
+              if (!b || !b.ok) {
+                stopBiliPoll();
+                renderBili({ error: (b && b.error) || 'That sign-in stopped working.' });
+                return;
+              }
+              if (b.state === 'ok') {
+                stopBiliPoll();
+                renderBili({ signedIn: true, name: b.name });
+                toast({ text: 'Signed in to Bilibili as ' + b.name + '.' });
+                return;
+              }
+              if (b.state === 'expired') {
+                stopBiliPoll();
+                renderBili({ error: 'That sign-in code expired. Start another.' });
+                return;
+              }
+              renderBili({ waiting: b.state, url: url });
+            })
+            .catch(function () { /* one missed poll is not a failure */ });
+        }, 2000);
+      })
+      .catch(function () {
+        renderBili({ error: 'No connection to the sign-in service.' });
+      });
+  }
+
+  function refreshBili() {
+    renderBili({ loading: true });
+    fetch('/api/bilibili?action=status')
+      .then(function (r) { return r.json().then(function (b) { return { s: r.status, b: b }; }); })
+      .then(function (res) {
+        if (res.s === 401) { handleAuthLapse(); return; }
+        renderBili(res.b || {});
+      })
+      .catch(function () { renderBili({ error: 'Could not reach the sign-in service.' }); });
+  }
+
+  $('biliPanel').addEventListener('toggle', function () {
+    if ($('biliPanel').open) refreshBili();
+    else stopBiliPoll();
   });
 
   /* The door goes up before anything else is usable. The gate is unhidden in

@@ -243,6 +243,18 @@
       <button type="button" class="cb-subs-off" id="subsOff" hidden>Turn subtitles off</button>
     </details>
 
+    <!-- ---------- Bilibili ----------
+         Its video address is behind an API rather than in the page, and the
+         page itself refuses this server outright. Signed in, the API serves
+         better and serves more. -->
+    <details class="cb-log cb-bili" id="biliPanel">
+      <summary>
+        <span class="cb-dot" id="biliDot"></span>
+        <span id="biliSummary">Bilibili</span>
+      </summary>
+      <div class="cb-bili-body" id="biliBody"></div>
+    </details>
+
     <!-- ---------- The screen itself ----------
          The one thing on this page that is genuinely not possible, plus the
          one adjacent thing that is. Steps are filled in by app.js for the
@@ -471,6 +483,8 @@
         <dd>Still not something a website can do, and the reason is worth knowing: the Cast API takes an <i>address</i> for the TV to fetch, never a live picture. <b>Put this screen on the TV</b> above has the exact steps for whatever you are holding.</dd>
         <dt>A video already on the phone</dt>
         <dd><b>Choose a video on this phone</b> plays it here straight away. The TV still cannot reach the phone's storage, so sending it copies the file to the stream host first and gives the TV an address there — deleted again within a day.</dd>
+        <dt>Bilibili</dt>
+        <dd>Paste a <b>bilibili.com/video/BV…</b> or <b>b23.tv</b> link and it is resolved through Bilibili's own API — the page itself refuses this server. Signing in under <b>Bilibili</b> above raises the quality and reaches members-only videos. Casting is capped at 720p, because that is the best quality Bilibili serves as a single file, and a television can only be handed one address.</dd>
         <dt>Subtitles</dt>
         <dd>Paste an <b>.srt</b> or <b>.vtt</b> link under <b>Subtitles</b>. SRT is converted for you — the TV only accepts VTT. Adding one mid-film reloads it and picks up where it was.</dd>
         <dt>A stream that plays here but not on the TV</dt>

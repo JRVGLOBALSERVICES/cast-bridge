@@ -22,6 +22,12 @@
     "api/probe.js": {
       "maxDuration": 30,
       "memory": 1024
+    },
+    "api/bilibili.js": {
+      "maxDuration": 15
+    },
+    "api/ticket.js": {
+      "maxDuration": 10
     }
   },
   "buildCommand": "node scripts/stamp-build.mjs",

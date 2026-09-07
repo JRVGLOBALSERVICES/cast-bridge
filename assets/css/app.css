@@ -2046,3 +2046,31 @@ body.is-gated { overflow: hidden; }
   padding-left: 0.9rem;
   padding-right: 0.9rem;
 }
+
+/* ---------- Bilibili ---------- */
+.cb-bili-body { padding: 0.25rem 0 0.9rem; }
+.cb-bili-note,
+.cb-bili-small {
+  margin: 0 0 0.7rem;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--cb-ink-2);
+}
+.cb-bili-small { font-size: 0.75rem; }
+.cb-bili-body .btn,
+.cb-bili-body a.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  text-transform: none;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  min-height: 2.5rem;
+  padding-left: 0.9rem;
+  padding-right: 0.9rem;
+  margin-bottom: 0.7rem;
+}
+/* Cancel and Copy sit under the button they qualify, on their own line each
+   so neither is mistaken for the primary action. */
+.cb-bili-body .cb-linkbtn { display: block; margin-top: 0.35rem; }

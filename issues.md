@@ -586,3 +586,44 @@ on Rj's phone at all.
 **Context Rj needs to review:** `assets/js/app.js`, `startScreenRecording`. Try it
 once on the desktop: Record the screen → Stop and send → the player should load
 a `screen-<timestamp>.webm` and the panel under it should offer Send to the TV.
+
+## Bilibili: the scan-and-confirm step is the one thing unverified
+
+**Question:** does the QR sign-in complete and does a signed-in session actually
+raise the quality / reach members-only videos?
+
+**What was verified against the real Bilibili API, from this box:**
+`qrcode/generate` returns a key and a URL; `qrcode/poll` returns `waiting` for a
+fresh key, `expired` for an unknown one, and a clean error for a malformed one;
+`whoami` correctly returns null for no cookie and for a junk cookie. Resolution
+works end to end signed-out — `pagelist` → `playurl` → a real 720p MP4, through
+`/api/extract`, through the bridge with the right referer, 206 with `video/mp4`
+bytes.
+
+**What was NOT verified:** the middle of the login. Confirming a QR needs a phone
+with the Bilibili app signed in, which is Rj's, not this server's. So the
+`state: 'ok'` branch — cookies parsed out of `Set-Cookie`, sealed into `cb_bili`,
+and then used to ask for a better quality — has never run.
+
+**Assumption made:** shipped it. Signed-out resolution is the common case and is
+proven; the sign-in only adds quality and members-only reach, and if the cookie
+parse is wrong the panel says "confirmed the sign-in but sent no session" rather
+than failing silently.
+
+**Two facts worth knowing, both measured 2026-09-07:**
+- `www.bilibili.com/video/<bvid>` and `api /x/web-interface/view` return **412**
+  to both this VPS and Vercel — Bilibili risk control refuses datacentre traffic.
+  `pagelist`, `playurl`, `nav` and the passport endpoints all answer 200. The
+  implementation avoids the two blocked ones entirely; if Bilibili extends the
+  block to `pagelist`, the feature dies and the panel will say 412.
+- Casting is capped at **720p**. `platform=html5` is the only response shape that
+  is a single file, and a Cast receiver cannot assemble the DASH form's separate
+  video and audio streams. Not a shortcut — it is the ceiling.
+
+**No QR is drawn**, deliberately: on a phone the link opens the Bilibili app
+directly, and shipping a hand-written QR encoder whose output this box has no way
+to decode and check would risk an unscannable code. If Rj wants one for desktop,
+vendor a tested library.
+
+**Context Rj needs to review:** `lib/bilibili.js`, `api/bilibili.js`. Open the
+Bilibili panel, tap Sign in, confirm on the phone, then paste a members-only link.
