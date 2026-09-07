@@ -32,6 +32,17 @@ const MEDIA_TYPE =
 /* Chromium is only present on the deployed function. Loading it lazily keeps
    a missing local install from breaking the module for everything else. */
 async function launch() {
+  /* @sparticuz/chromium only unpacks its shared libraries when it believes
+     it is on Lambda, which it decides by reading AWS_EXECUTION_ENV or
+     AWS_LAMBDA_JS_RUNTIME. Vercel's Node runtime sets neither, so the
+     package skips the unpack and the browser dies on a missing libnss3.so.
+     Naming the runtime here picks its Amazon Linux 2023 branch, which is
+     what this function actually runs on. Set before the require, because
+     the package reads it at import time as well as at extraction time. */
+  if (!process.env.AWS_EXECUTION_ENV && !process.env.AWS_LAMBDA_JS_RUNTIME) {
+    process.env.AWS_LAMBDA_JS_RUNTIME = 'nodejs22.x';
+  }
+
   const chromium = require('@sparticuz/chromium');
   const puppeteer = require('puppeteer-core');
 
