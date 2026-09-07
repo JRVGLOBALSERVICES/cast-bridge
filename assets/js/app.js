@@ -357,11 +357,15 @@
    * Field errors — inline, under the field, with a way out
    * ------------------------------------------------------------------ */
 
+  /* `input` is optional. A form whose message covers two fields at once — the
+     people form answers for the username AND the password with one sentence —
+     has no single field to mark, and passing null used to throw here, which
+     killed the submit handler before it ever reached the network. */
   function fieldError(input, box, message, action) {
     box.innerHTML = '';
     if (!message) {
       box.classList.remove('is-shown');
-      input.removeAttribute('aria-invalid');
+      if (input) input.removeAttribute('aria-invalid');
       return;
     }
     var span = document.createElement('span');
@@ -375,7 +379,7 @@
       box.appendChild(b);
     }
     box.classList.add('is-shown');
-    input.setAttribute('aria-invalid', 'true');
+    if (input) input.setAttribute('aria-invalid', 'true');
   }
 
   /* ------------------------------------------------------------------ *
@@ -3430,9 +3434,14 @@
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       if (adding || !judge()) return;
+
+      /* Clear the old message first, and only then latch. Latching before the
+         last thing that can throw is how this form came to be permanently
+         dead: `adding` stayed true, the spinner stayed on, and every later
+         tap returned at the line above. */
+      fieldError(null, $('userError'), null);
       adding = true;
       busy(btn, true);
-      fieldError(null, $('userError'), null);
 
       fetch('/api/users', {
         method: 'POST',
