@@ -5295,9 +5295,10 @@
     head.textContent = 'Paste a sign-in instead';
     box.appendChild(head);
 
-    biliSay(box, 'On a computer, sign in at bilibili.com, open the developer ' +
-      'tools → Application → Cookies, and copy SESSDATA. Paste it here — the ' +
-      'whole cookie line is fine, only SESSDATA, bili_jct and DedeUserID are ' +
+    biliSay(box, 'On a computer, sign in at bilibili.com. That is the main site, not ' +
+      'bilibili.tv, which is a separate account. Then open the developer tools ' +
+      '→ Application → Cookies and copy SESSDATA, or paste a cookies.txt ' +
+      'exported from that browser. Only SESSDATA, bili_jct and DedeUserID are ' +
       'read out of it.', 'cb-bili-small');
 
     var field = document.createElement('textarea');
@@ -5326,8 +5327,19 @@
        half-pasted SESSDATA wrong while it is still arriving. */
     var live = false;
 
+    /* The tab form is a cookies.txt line, where the name and value are
+       separated by a tab rather than an equals — the shape every export
+       extension writes, and the one this used to call unrecognisable. */
     function looksLikeSession(t) {
-      return /SESSDATA\s*[=:]/i.test(t) || (t.match(/%2C/gi) || []).length >= 2;
+      return /SESSDATA\s*[=:]/i.test(t) || /(^|\s)SESSDATA\s+\S/i.test(t) ||
+        (t.match(/%2C/gi) || []).length >= 2;
+    }
+
+    /* Named before the server sees it, because it is the mistake the file
+       itself makes obvious and waiting for a round trip to say so is a
+       round trip spent on a known answer. */
+    function wrongSite(t) {
+      return /bilibili\.tv/i.test(t) && !/bilibili\.com/i.test(t);
     }
 
     /* Interrupting for a refusal, polite for a confirmation — the same line
@@ -5346,6 +5358,7 @@
       /* Confirm right, not only wrong: silence after a correction reads as
          still-wrong. */
       if (looksLikeSession(field.value)) say('That looks like a session.', false);
+      else if (wrongSite(field.value)) say('That export is from bilibili.tv, a different site.', true);
       else say('Still no SESSDATA in that.', true);
     });
 
@@ -5353,6 +5366,11 @@
       var t = field.value.trim();
       if (!t || looksLikeSession(t)) return;
       live = true;
+      if (wrongSite(t)) {
+        say('That is an export from bilibili.tv, which is a separate sign-in ' +
+          'from bilibili.com. Sign in at bilibili.com and export again.', true);
+        return;
+      }
       say('No SESSDATA in that. It is the long value that starts with letters ' +
         'and has %2C in it twice.', true);
     });
@@ -5390,8 +5408,11 @@
         });
     });
 
-    box.appendChild(go);
+    /* The message sits under the field it judges, not under the button.
+       Below the action it reads as a verdict on the press; above it, it is
+       what it actually is — a note about what was pasted. */
     box.appendChild(note);
+    box.appendChild(go);
     parent.appendChild(box);
   }
 

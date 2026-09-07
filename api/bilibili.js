@@ -31,7 +31,7 @@ async function readJson(req) {
   let total = 0;
   for await (const chunk of req) {
     total += chunk.length;
-    if (total > 16384) throw new Error('Too much data.');
+    if (total > 262144) throw new Error('Too much data.');
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
@@ -118,10 +118,14 @@ module.exports = async function handler(req, res) {
 
     const jar = bili.parseCookieText(body && body.cookie);
     if (!jar) {
+      /* A cookies.txt names its own domains, so a refusal can often say
+         which mistake was made rather than repeating the requirement. */
+      const why = bili.diagnoseCookieText(body && body.cookie);
       return send(res, 400, {
         ok: false,
-        error: 'No SESSDATA in that. Copy the whole cookie line from a browser ' +
-          'that is signed in to bilibili.com — SESSDATA is the part that matters.'
+        error: why || 'No SESSDATA in that. Copy the whole cookie line from a ' +
+          'browser that is signed in to bilibili.com — SESSDATA is the part ' +
+          'that matters. A cookies.txt file exported from that browser works too.'
       });
     }
 

@@ -11,8 +11,9 @@
     "node": "22.x"
   },
   "scripts": {
-    "test": "node scripts/test-unpack.js && node scripts/test-reissue.js",
+    "test": "node scripts/test-unpack.js && node scripts/test-reissue.js && node scripts/test-cookies.js",
     "test:unpack": "node scripts/test-unpack.js",
-    "test:reissue": "node scripts/test-reissue.js"
+    "test:reissue": "node scripts/test-reissue.js",
+    "test:cookies": "node scripts/test-cookies.js"
   }
 }
