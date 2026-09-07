@@ -96,3 +96,23 @@
       only iframe is a zero-pixel tag-manager pixel. An empty deep scan now
       reports whether a player was on the page, so "there is nothing here" and
       "there is a player here that gave us nothing" stopped sounding alike.
+
+- [x] Task 20: Followed up on the two test links after Rj said go. Three real
+      defects found and fixed, each general rather than one site's quirk:
+      (a) media elements were read from the top document ONLY, so a player
+      inside an iframe — which is nearly every embedding site — was invisible;
+      (b) the same for the evidence count, which reported `players: 0` for a
+      page carrying three video elements two frames down; (c) the scan clicked
+      before it counted, and these embeds sell the first click
+      (`download-page-link.js`), so clicking navigated the player frame away
+      and destroyed the very thing being measured. Sampling now happens before
+      each round of pokes and only ever rises. Added a trusted CDP gesture for
+      players that test `isTrusted`, kept OUT of the top document because a
+      real click on desicinema's own 1138x573 play-classed wrapper tears down
+      the player frames. Replaced the two fixed poke passes with a watch loop —
+      the fixed gap was a coin flip that reported 3 players on one run and 0 on
+      the next. Verified: desicinema now reports `players: 3, frames: 1` on
+      three consecutive runs (was 0/1, non-deterministic), groundbanks still
+      correctly reports no video, and a page that does carry a stream still
+      resolves it. desicinema still yields no castable address, and issues.md
+      now records exactly why rather than guessing.

@@ -124,30 +124,40 @@ half-measure would be worse than naming the risk.
 `CAST_SUPABASE_SERVICE_KEY` value on the cast-bridge Vercel project.
 
 
-## desicinema still yields no stream after the lazy-frame fix
+## desicinema: the address is encrypted, so there is nothing to capture
 
-**What changed:** the deep scan used to see nothing on that page and say the
-video "may need a sign-in". It now promotes the deferred `data-litespeed-src`
-address, loads the player frame and reports `saw.frames: 1`. That part is
-fixed and is a general fix — every site behind a caching plugin defers its
-embeds the same way, so this was never one site's quirk.
+**Followed up after you said go.** The previous note guessed the player was
+gating on a real user gesture. That guess was wrong, and chasing it turned up
+three things that were.
 
-**What still fails:** with the frame open and every frame poked twice, no
-manifest or media response is captured, so the answer is still empty. Most
-likely the inner embed only builds its source after a real user gesture
-(a synthetic `.click()` does not carry `isTrusted`), or it checks the referer
-of the frame, or it hops through another host that our poke never reaches.
+**What the page actually is.** desicinema.org holds no player. It embeds
+`/?trembed=0&trid=31112` which embeds `movieshub.rpmplay.xyz/#usw96p`, and the
+player — vidstack, with three `<video>` elements, titled "Bigg Boss (2026
+Grand Premiere) Hindi Season 20 720p.mp4" — is down there, two frames deep.
 
-**Assumption made:** I stopped here rather than keep adding layers aimed at
-this one host. Two general defects were worth fixing and are fixed; chasing a
-specific site's player past that point is a different kind of work and I did
-not want to do it without you saying so.
+**Why we still cannot cast it.** That player asks
+`movieshub.rpmplay.xyz/api/v1/info?id=usw96p` for its source. The response is
+200 and its body is encrypted hex, decrypted in the page. The stream address
+therefore never appears in a request URL, a response body, or a `<video>` src
+until playback starts — and playback never starts, because the click that
+would start it is sold (see below). Reading response bodies would not help
+here; it would help on the many hosts that answer in plain JSON, and that is
+the obvious next move if you want one.
 
-**Also worth your call:** desicinema.org is an unlicensed source for that
-show. The scanner change is generic and bypasses no login or DRM, but it is
-your app and your name on it, so you should be the one deciding what it is
-pointed at.
+**Assumption made:** I stopped at "we can prove why, and we report it
+honestly" rather than reimplementing that host's decryption. Say the word if
+you want that instead — it is a different kind of work and it is specific to
+one site.
 
-**Context Rj needs to review:** `api/scan.js` `collect()`, and whether you
-want a real gesture path (CDP `Input.dispatchMouseEvent` on the frame's play
-control, which does carry `isTrusted`) tried next.
+**Also worth your call, unchanged:** desicinema.org is an unlicensed source
+for that show. Everything above is generic and bypasses no login and no DRM,
+but it is your app and your name on it.
+
+**Context Rj needs to review:** `api/scan.js` — the watch loop and
+`sampleEvidence()`.
+
+## groundbanks.net
+
+No video on it at all: no media element, and its only iframe is a zero-pixel
+tag-manager pixel. The scan says exactly that now instead of implying a
+sign-in. Nothing outstanding here.
