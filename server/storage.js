@@ -35,10 +35,44 @@ const MAX_BYTES = Number(process.env.CAST_MAX_UPLOAD_BYTES) || 8 * 1024 * 1024 *
 /* Never take the last of the disk. The box runs other things. */
 const KEEP_FREE_BYTES = Number(process.env.CAST_KEEP_FREE_BYTES) || 20 * 1024 * 1024 * 1024;
 
-/* Uploads are a delivery mechanism, not a library. They go after a day
-   unless something says otherwise, and a half-finished one goes in an hour. */
+/* How long an upload lives. A day by default, because most uploads are a
+   delivery mechanism — but the uploader chooses at the point of sending,
+   and "keep until I delete it" is one of the choices, because a file you
+   mean to share a link to is not a file that should quietly vanish
+   overnight.
+
+   The ceiling is real disk on a box that runs other things. Thirty days is
+   not a policy about what you may keep, it is the longest this app will
+   hold something without you touching it again. */
 const FILE_TTL_MS = (Number(process.env.CAST_FILE_TTL_HOURS) || 24) * 3600 * 1000;
+const MAX_KEEP_HOURS = Number(process.env.CAST_MAX_KEEP_HOURS) || 24 * 30;
 const TMP_TTL_MS = 60 * 60 * 1000;
+
+/* 0 means keep until deleted by hand. Anything else is clamped into
+   [1, MAX_KEEP_HOURS]; a missing or unreadable value falls back to the
+   default day rather than to forever, because failing open on retention is
+   how a disk fills. */
+function keepHoursOf(v) {
+  if (v === 0 || v === '0') return 0;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return Math.round(FILE_TTL_MS / 3600000);
+  return Math.min(Math.max(Math.round(n), 1), MAX_KEEP_HOURS);
+}
+
+/* The one place an expiry is computed, so stored metas and re-dated ones
+   can never disagree about what "3 days" means. */
+function expiryFrom(fromMs, keepHours) {
+  return keepHours === 0 ? null : new Date(fromMs + keepHours * 3600000).toISOString();
+}
+
+/* A meta written before retention existed has no `expires`. It is not
+   forever — it is the old blanket day, measured from when it landed. */
+function expiryOf(meta) {
+  if (!meta) return null;
+  if (Object.prototype.hasOwnProperty.call(meta, 'expires')) return meta.expires;
+  const added = Date.parse(meta.added || '') || 0;
+  return added ? new Date(added + FILE_TTL_MS).toISOString() : null;
+}
 
 /* Extensions a television has any chance with, and the type to serve them
    as. An upload whose name is not on this list keeps its bytes and loses
@@ -97,6 +131,19 @@ function cleanName(name) {
     .replace(/[\\/]/g, ' ')                   /* never a path, only a label */
     .trim()
     .slice(0, 160) || 'video';
+}
+
+/* The readable half of a share link. It carries no authority — the 32 hex
+   characters after it are the whole credential — so it can be anything, and
+   what it is for is a person glancing at a pasted URL and knowing what it
+   is before they tap it. */
+function slugOf(name) {
+  return String(name || '')
+    .replace(/\.[a-z0-9]{1,5}$/i, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'video';
 }
 
 function freeBytes() {
@@ -174,6 +221,8 @@ function receive(req, opts) {
         /* Rename, not copy: same filesystem, so the file appears in files/
            whole or not at all. A half-written upload is never fetchable. */
         await fsp.rename(tmpPath, finalPath);
+        const now = Date.now();
+        const keepHours = keepHoursOf(o.keepHours);
         const meta = {
           id: id,
           name: cleanName(o.name),
@@ -181,7 +230,9 @@ function receive(req, opts) {
           type: typeOf(ext),
           bytes: bytes,
           uploader: o.uploader || null,
-          added: new Date().toISOString()
+          added: new Date(now).toISOString(),
+          keepHours: keepHours,
+          expires: expiryFrom(now, keepHours)
         };
         await fsp.writeFile(path.join(FILES, id + '.meta.json'), JSON.stringify(meta));
         resolve(meta);
@@ -238,10 +289,41 @@ async function list() {
     } catch (e) {
       onDisk = 0;
     }
-    out.push(Object.assign({}, meta, { bytes: onDisk, missing: onDisk === 0 }));
+    out.push(Object.assign({}, meta, {
+      bytes: onDisk,
+      missing: onDisk === 0,
+      expires: expiryOf(meta),
+      slug: slugOf(meta.name)
+    }));
   }
   out.sort((a, b) => String(b.added).localeCompare(String(a.added)));
   return out;
+}
+
+/* One person's own uploads. The stream host has no idea who is an owner and
+   no user table to ask, so it answers about the uid in the ticket and
+   nothing else — /api/storage stays the owner's whole-disk view, minted
+   from the Vercel side where roles actually live. */
+async function listFor(uid) {
+  if (!uid) return [];
+  return (await list()).filter((f) => f.uploader === uid);
+}
+
+/* Re-date a file that is already here. Returns the new meta, or null if it
+   is not there or is not the caller's. */
+async function setExpiry(id, keepHours, uid) {
+  const meta = await metaOf(id);
+  if (!meta) return null;
+  if (uid && meta.uploader && meta.uploader !== uid) return null;
+  const keep = keepHoursOf(keepHours);
+  /* Measured from now, not from when it landed. "Keep another week" said on
+     day six has to mean a week, or the button lies. */
+  const next = Object.assign({}, meta, {
+    keepHours: keep,
+    expires: expiryFrom(Date.now(), keep)
+  });
+  await fsp.writeFile(path.join(FILES, id + '.meta.json'), JSON.stringify(next));
+  return next;
 }
 
 async function dirBytes(dir) {
@@ -274,7 +356,8 @@ async function usage() {
     free_bytes: freeBytes(),
     max_upload_bytes: MAX_BYTES,
     keep_free_bytes: KEEP_FREE_BYTES,
-    file_ttl_hours: Math.round(FILE_TTL_MS / 3600000)
+    file_ttl_hours: Math.round(FILE_TTL_MS / 3600000),
+    max_keep_hours: MAX_KEEP_HOURS
   };
 }
 
@@ -324,12 +407,58 @@ async function clearDir(dir, olderThanMs) {
  *   files    — everything uploaded, whatever its age.
  *   all      — both folders, emptied.
  */
+/* What the sweeper actually runs. It cannot be a mtime sweep any more: two
+   files uploaded in the same minute can now carry a one-day expiry and a
+   never, and mtime cannot tell them apart. So the meta is the authority and
+   the media file follows it.
+
+   An orphan — bytes in files/ with no meta beside them — is swept on age,
+   because there is nothing else to ask, and it can only exist if a meta was
+   lost or a rename half-happened. */
+async function clearExpired() {
+  ensure();
+  let names;
+  try { names = await fsp.readdir(FILES); } catch (e) { return { removed: 0, bytes: 0 }; }
+  const now = Date.now();
+  const metas = names.filter((n) => n.endsWith('.meta.json'));
+  const known = new Set();
+  let removed = 0;
+  let bytes = 0;
+
+  for (const n of metas) {
+    const id = n.slice(0, -'.meta.json'.length);
+    const meta = await metaOf(id);
+    if (!meta) continue;
+    known.add(id + (meta.ext || ''));
+    known.add(n);
+    const exp = expiryOf(meta);
+    if (!exp) continue;                    /* kept until deleted by hand */
+    if (Date.parse(exp) > now) continue;   /* still in date */
+    try { bytes += (await fsp.stat(pathOf(meta))).size; } catch (e) { /* already gone */ }
+    if (await removeOne(id)) removed++;
+  }
+
+  for (const n of names) {
+    if (known.has(n) || n.endsWith('.meta.json')) continue;
+    const p = path.join(FILES, n);
+    try {
+      const st = await fsp.stat(p);
+      if (!st.isFile() || st.mtimeMs > now - FILE_TTL_MS) continue;
+      bytes += st.size;
+      await fsp.unlink(p);
+      removed++;
+    } catch (e) { /* already gone */ }
+  }
+
+  return { removed: removed, bytes: bytes };
+}
+
 async function clear(what) {
   switch (what) {
     case 'tmp':
       return { tmp: await clearDir(TMP, 0) };
     case 'expired':
-      return { files: await clearDir(FILES, FILE_TTL_MS), tmp: await clearDir(TMP, TMP_TTL_MS) };
+      return { files: await clearExpired(), tmp: await clearDir(TMP, TMP_TTL_MS) };
     case 'files':
       return { files: await clearDir(FILES, 0) };
     case 'all':
@@ -355,6 +484,8 @@ async function sweep() {
 
 module.exports = {
   ROOT, FILES, TMP, MAX_BYTES, TYPES,
-  ensure, newId, isId, extOf, typeOf, cleanName, freeBytes,
-  receive, metaOf, pathOf, list, usage, clear, sweep, removeOne
+  MAX_KEEP_HOURS,
+  ensure, newId, isId, extOf, typeOf, cleanName, slugOf, freeBytes,
+  keepHoursOf, expiryOf,
+  receive, metaOf, pathOf, list, listFor, setExpiry, usage, clear, sweep, removeOne
 };

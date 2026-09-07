@@ -7,7 +7,7 @@
  * identical sw.js is never re-installed by the browser, so bump this on
  * every deploy that touches index.html or anything under assets/.
  */
-const BUILD = '2026-09-07.5';
+const BUILD = '2026-09-07.6';
 const CACHE = 'cast-bridge-' + BUILD;
 
 const SHELL = [
@@ -15,6 +15,7 @@ const SHELL = [
   '/index.html',
   '/assets/css/neumorphism.css',
   '/assets/css/app.css',
+  '/assets/js/qr.js',
   '/assets/js/app.js',
   '/assets/icon.svg',
   '/assets/icon-maskable.svg',

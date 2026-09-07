@@ -648,3 +648,60 @@ ordering says it should.
 
 **Context Rj needs to review:** dashboard → **Stream** (below Terminal), and
 the app's own **Stream host** panel for the same numbers from the phone.
+
+## Round 9 — 2026-09-07
+
+## Task 1: the screen-recorder survived the panel's removal
+
+**Question:** "Remove this if cannot use" — does that include the working part?
+**Assumption made:** no. What cannot be used is screen MIRRORING, and those
+instructions are gone in full. Recording the screen and playing the recording on
+the television does work, and it is now a single button on the Cast screen with
+no explanation attached, shown only where the browser implements
+`getDisplayMedia` and `MediaRecorder`. On your phone it will not appear at all,
+which is the same thing you saw before minus the wall of text.
+**Context you need to review:** `assets/js/app.js`, the "Record this screen"
+section. Say the word and the whole thing goes.
+
+## Task 2: the QR needs a second device on a phone
+
+**Question:** a QR on a phone is a code that same phone cannot scan. Is that
+useful?
+**Assumption made:** yes, and it is what Bilibili offers — the QR is the only
+web sign-in they have that does not end in a captcha. Drawn here it works
+whenever a second device is to hand, which is the desktop case and the
+two-phones case. For the one-phone case the screen still offers **Copy the
+sign-in address**, described accurately this time: it is an address to open in
+Bilibili, not a link that opens the app. It is not a deep link and never was.
+**Context you need to review:** the Bilibili screen, waiting state.
+
+## Task 3: share links are public, deliberately
+
+**Question:** should a share link require a sign-in?
+**Assumption made:** no, it cannot. A television fetches with no headers we
+control, so the address IS the credential — that has always been true of
+`/f/<id>` and the watch page inherits it. 32 hex characters is not guessable and
+the page is `noindex`, but anyone you send it to can forward it. The Library
+says so in those words rather than assuming it is understood.
+**Context you need to review:** the note at the top of the Library screen.
+
+## Task 4: the retention ceiling is 30 days
+
+**Question:** how long may a file be kept?
+**Assumption made:** "until I delete it" is offered with no ceiling, because
+that is a decision you are making about your own disk. Every timed choice is
+clamped to `CAST_MAX_KEEP_HOURS`, default 30 days, so a typed-in 99999 becomes
+720 rather than being taken at its word. Change the env var if you want a
+different number.
+**Context you need to review:** `server/storage.js`, `MAX_KEEP_HOURS`.
+
+## Task 6: the bottom bar carries five entries, not nine
+
+**Question:** nine screens, how many in the bar?
+**Assumption made:** five. RJ-Design-Skill navigation-and-feedback §2.3 puts the
+line at five: under it a tab bar, over it a Sections sheet. So the fifth entry
+IS the sheet — More — and Bilibili, Stream host, People and the TV help live
+behind it with a Menu button back. Nine across a 390px screen would be 43px per
+target with the labels unreadable.
+**Context you need to review:** the More screen. If you want Library out of the
+bar and something else in, it is one line in `NAV_VIEWS` plus the markup.

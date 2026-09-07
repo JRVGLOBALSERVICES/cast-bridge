@@ -422,107 +422,155 @@
   }
 
   /* ------------------------------------------------------------------ *
-   * Tabs
+   * Screens
+   *
+   * This used to be one page: a player, then a four-tab strip, then four
+   * collapsed panels stacked under the action row. Everything was reachable
+   * and nothing was findable — the Bilibili sign-in, the stream host and a
+   * page of instructions about screen mirroring all sat in the same column
+   * as the paste box, and the page read as a pile.
+   *
+   * So: nine screens, one job each, and a bar at the bottom. Five entries
+   * fit a thumb; the other four live behind More rather than being crammed
+   * into a strip too narrow to hit. A screen is a route — the phone's own
+   * Back button walks it, and each one remembers where it was scrolled to,
+   * because coming back to History and landing at the top is the same bug
+   * as losing the page.
    * ------------------------------------------------------------------ */
 
-  var TABS = ['link', 'browse', 'history', 'users'];
-  var activeTab = 'link';
+  var VIEWS = ['cast', 'browse', 'library', 'history', 'more',
+    'bilibili', 'host', 'people', 'help'];
+
+  var NAV_VIEWS = ['cast', 'browse', 'library', 'history', 'more'];
+
+  /* The four behind More light More up while they are open, so the bar
+     never shows nothing selected. */
+  var NAV_OF = {
+    bilibili: 'more', host: 'more', people: 'more', help: 'more'
+  };
+
+  /* The names the rest of this file already calls, kept working rather than
+     renamed at sixty call sites. */
+  var VIEW_ALIAS = { link: 'cast', users: 'people' };
+
+  var activeView = 'cast';
   var scrollMemory = {};
-  var indicatorPlaced = false;
 
-  /* The pill is drawn from measurements, so it is only ever as right as the
-     last thing that measured it. It used to be measured on a tab click and on
-     a window resize and nowhere else, which left it wrong in both of the
-     states the app actually opens in.
+  function viewEl(name) { return $('view-' + name); }
 
-     Cold, nothing had measured it: no width, no offset, so the Link tab
-     opened looking unselected. And signing in as the owner reveals the People
-     tab, which re-flexes four tabs into the space of three WITHOUT changing
-     the strip's own size — so a pill placed while there were three kept that
-     width and spilled a third of the way onto Browse. Measured at 412px:
-     Link became 22..114, the pill stayed 22..145.
-
-     So place it at first paint, and re-place it whenever the strip moves
-     under it, whatever the cause. */
-  function moveIndicator() {
-    var btn = $('tab-' + activeTab);
-    var ind = $('tabIndicator');
-    if (!btn || !ind || btn.hidden) return;
-    var w = btn.offsetWidth;
-    if (!w) return;          /* not laid out yet — an observer will call back */
-
-    /* The first placement is where the pill IS, not somewhere it travelled
-       from. Letting it slide in from the left edge is the same wrong-tab
-       flash, just in motion. */
-    if (!indicatorPlaced) {
-      ind.style.transition = 'none';
-      ind.style.width = w + 'px';
-      ind.style.transform = 'translateX(' + btn.offsetLeft + 'px)';
-      void ind.offsetWidth;  /* commit before the transition comes back */
-      ind.style.transition = '';
-      indicatorPlaced = true;
-      return;
-    }
-    ind.style.width = w + 'px';
-    ind.style.transform = 'translateX(' + btn.offsetLeft + 'px)';
+  /* Drawn on arrival, not on sign-in: three of these cost a round trip to a
+     second machine, and paying for them on a screen nobody opened is how an
+     app feels slow for no reason. */
+  function onEnterView(name) {
+    if (name === 'history') renderHistory();
+    if (name === 'people') renderUsers();
+    if (name === 'library') renderLibrary();
+    if (name === 'bilibili') refreshBili();
+    if (name === 'host') renderHost();
   }
 
-  function showTab(name, opts) {
-    if (TABS.indexOf(name) === -1) return;
-    scrollMemory[activeTab] = window.scrollY;
-    activeTab = name;
+  /* Walking away from a screen has to stop what that screen started. The
+     Bilibili poll is a request every two seconds against a key that lives
+     three minutes — left running it is traffic nobody is watching. */
+  function onLeaveView(name) {
+    if (name === 'bilibili') stopBiliPoll();
+  }
 
-    TABS.forEach(function (t) {
-      var btn = $('tab-' + t), pane = $('pane-' + t);
-      var on = t === name;
-      btn.setAttribute('aria-selected', on ? 'true' : 'false');
-      btn.tabIndex = on ? 0 : -1;
-      pane.classList.toggle('is-active', on);
+  function showView(name, opts) {
+    name = VIEW_ALIAS[name] || name;
+    if (VIEWS.indexOf(name) === -1) return;
+    opts = opts || {};
+
+    if (name !== activeView) {
+      scrollMemory[activeView] = window.scrollY;
+      onLeaveView(activeView);
+    }
+    activeView = name;
+
+    VIEWS.forEach(function (v) {
+      var el = viewEl(v);
+      if (!el) return;
+      var on = v === name;
+      el.hidden = !on;
+      el.classList.toggle('is-on', on);
     });
 
-    moveIndicator();
+    var lit = NAV_OF[name] || name;
+    NAV_VIEWS.forEach(function (v) {
+      var btn = $('nav-' + v);
+      if (!btn) return;
+      var on = v === lit;
+      btn.classList.toggle('is-on', on);
+      if (on) btn.setAttribute('aria-current', 'page');
+      else btn.removeAttribute('aria-current');
+    });
 
-    /* A tab switch is a route change — put the user back where they were
-       rather than at zero. */
-    if (opts && opts.focus) $('pane-' + name).focus({ preventScroll: true });
-    var y = scrollMemory[name];
-    if (typeof y === 'number') window.scrollTo({ top: y, behavior: 'auto' });
+    /* The phone's Back button is the one every hand reaches for, so a screen
+       change is a real history entry. A pop replays it without pushing, or
+       Back would need pressing twice for every screen it ever showed. */
+    if (opts.push && window.history && window.history.pushState) {
+      window.history.pushState({ view: name }, '', '#' + name);
+    }
 
-    if (name === 'history') renderHistory();
-    if (name === 'users') renderUsers();
+    if (opts.focus) {
+      var focusTarget = viewEl(name);
+      if (focusTarget) focusTarget.focus({ preventScroll: true });
+    }
+    /* A screen you have opened before comes back where you left it. A screen
+       you have just navigated to opens at the top, because its first line is
+       the thing you went there for. */
+    var y = opts.push ? 0 : scrollMemory[name];
+    window.scrollTo({ top: typeof y === 'number' ? y : 0, behavior: 'auto' });
+
+    onEnterView(name);
   }
 
-  TABS.forEach(function (t) {
-    $('tab-' + t).addEventListener('click', function () { showTab(t, { focus: true }); });
+  /* Every call already in this file goes through here. link → cast and
+     users → people; the rest are unchanged. */
+  function showTab(name, opts) { showView(name, opts); }
+
+  NAV_VIEWS.forEach(function (v) {
+    var btn = $('nav-' + v);
+    if (btn) {
+      btn.addEventListener('click', function () {
+        showView(v, { focus: true, push: true });
+      });
+    }
   });
 
-  /* Arrows walk the tab strip; Home/End jump. */
-  $('tab-link').parentNode.addEventListener('keydown', function (e) {
-    var i = TABS.indexOf(activeTab);
-    var next = null;
-    if (e.key === 'ArrowRight') next = TABS[(i + 1) % TABS.length];
-    else if (e.key === 'ArrowLeft') next = TABS[(i - 1 + TABS.length) % TABS.length];
-    else if (e.key === 'Home') next = TABS[0];
-    else if (e.key === 'End') next = TABS[TABS.length - 1];
-    if (next) { e.preventDefault(); showTab(next, { focus: true }); $('tab-' + next).focus(); }
+  /* The rows inside More, and the Menu button at the top of each screen it
+     leads to. One listener, because both are just "go there". */
+  document.addEventListener('click', function (e) {
+    if (!e.target || !e.target.closest) return;
+    var row = e.target.closest('.cb-menurow');
+    if (row && row.dataset.view) {
+      showView(row.dataset.view, { focus: true, push: true });
+      return;
+    }
+    var back = e.target.closest('.cb-back');
+    if (back) {
+      /* Back to the menu, not back through history: arriving at Stream host
+         from somewhere else and then tapping Menu should still land on More. */
+      showView(back.dataset.back || 'more', { focus: true, push: true });
+    }
   });
 
-  window.addEventListener('resize', moveIndicator);
+  window.addEventListener('popstate', function (e) {
+    var name = (e.state && e.state.view) || (location.hash || '').replace('#', '') || 'cast';
+    showView(name);
+  });
 
-  /* A window resize is not the only thing that moves these buttons. The strip
-     re-flexes when the owner's People tab appears, and every button changes
-     width when the webfont replaces the fallback — neither raises a resize.
-     Watch the buttons themselves. Only the buttons: the pill is absolutely
-     positioned, so resizing it cannot feed back into what we observe. */
-  if (window.ResizeObserver) {
-    var stripWatch = new ResizeObserver(function () { moveIndicator(); });
-    stripWatch.observe($('tab-link').parentNode);
-    TABS.forEach(function (t) { var b = $('tab-' + t); if (b) stripWatch.observe(b); });
-  }
-  if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(moveIndicator).catch(function () {});
-  }
-  moveIndicator();
+  /* A reload, or a link into a screen, opens on that screen. An unknown
+     fragment is not an error worth a message — it opens on Cast. */
+  (function initialView() {
+    var wanted = (location.hash || '').replace('#', '');
+    var start = VIEWS.indexOf(wanted) === -1 ? 'cast' : wanted;
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState({ view: start }, '',
+        start === 'cast' ? location.pathname : '#' + start);
+    }
+    showView(start);
+  }());
 
   /* ------------------------------------------------------------------ *
    * Player
@@ -2282,22 +2330,22 @@
       who.textContent = me ? me.username : '';
       who.hidden = !me;
     }
-    var adminTab = $('tab-users');
-    if (adminTab) adminTab.hidden = !isOwner();
+    /* Two rows inside More are the owner's. What the stream host is holding
+       is everybody's files at once, and People is everybody's account — the
+       endpoints behind both check the same thing, so this only stops them
+       being offered, it is not the gate.
+
+       Library is deliberately NOT here: it is one person's own uploads, and
+       the stream host answers it about the uid in the ticket, so everyone
+       gets their own and nobody gets anyone else's. */
+    var ownerRows = [$('more-people'), $('more-host')];
+    ownerRows.forEach(function (row) { if (row) row.hidden = !isOwner(); });
+    /* Standing on an owner-only screen when the session drops to a
+       non-owner would leave it open with no way back to it. */
+    if (!isOwner() && (activeView === 'people' || activeView === 'host')) showView('more');
+
     var allToggle = $('histScopeRow');
     if (allToggle) allToggle.hidden = !isOwner();
-    /* What the stream host is holding is everybody's files at once, so the
-       panel is the owner's. The endpoint behind it checks the same thing —
-       this only stops it being drawn, it is not the gate. */
-    var host = $('hostPanel');
-    if (host) {
-      host.hidden = !isOwner();
-      if (!isOwner()) host.open = false;
-    }
-
-    /* Revealing People re-flexes the strip. The observer would catch it a
-       frame later; a frame of the pill on the wrong tab is the whole bug. */
-    moveIndicator();
   }
 
   /* A 401 from anywhere means the session lapsed while the tab sat open.
@@ -2305,6 +2353,13 @@
   function handleAuthLapse() {
     signedIn = false;
     me = null;
+    /* The Library is one account's own files. Left in place, the next person
+       to sign in on this phone would open it and see the last person's list
+       for as long as it took the fetch to come back. */
+    libraryFiles = [];
+    libraryStale = true;
+    libArmed = null;
+    updateLibCount(0);
     reflectIdentity();
     var out = $('btnSignOut');
     if (out) out.hidden = true;
@@ -3372,8 +3427,6 @@
 
   updateHistCount();
   renderHistory();
-  requestAnimationFrame(moveIndicator);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(moveIndicator);
 
   var params = new URLSearchParams(location.search);
   var deepLink = params.get('u');
@@ -3953,8 +4006,27 @@
    * costs before either starts.
    * ------------------------------------------------------------------ */
 
-  var localPick = null;        // { file, blobUrl, remote }
+  var localPick = null;        // { file, blobUrl, remote, share }
   var uploadXhr = null;
+
+  /* How long an upload is kept, in hours, with 0 meaning until it is deleted
+     by hand. Chosen at the point of sending rather than in a settings screen,
+     because it is a property of the thing being sent: a clip for the TV
+     tonight and a file somebody will open next week are the same button and
+     different answers. The default is the day it has always been. */
+  var KEEP_CHOICES = [
+    { hours: 24, label: '1 day' },
+    { hours: 24 * 7, label: '7 days' },
+    { hours: 24 * 30, label: '30 days' },
+    { hours: 0, label: 'Until I delete it' }
+  ];
+  var keepChoice = 24;
+
+  function keepWords(hours) {
+    if (hours === 0) return 'kept until you delete it';
+    if (hours < 48) return 'deleted after ' + hours + ' hours';
+    return 'deleted after ' + Math.round(hours / 24) + ' days';
+  }
 
   /* Trades this origin's session for a short signed ticket the stream host
      will accept. Every call to that host goes through here. */
@@ -4035,10 +4107,37 @@
     if (localPick.remote) {
       sub.textContent = fmtSize(localPick.file.size) +
         ' — on the stream host and playing from there. Cast to TV will work now.';
+
       var done = document.createElement('p');
       done.className = 'cb-pick-note';
-      done.textContent = 'It is deleted from the host within a day. Send it again after that.';
+      done.textContent = 'It is ' + keepWords(localPick.keep) +
+        ', and it is in your Library until then.';
       wrap.appendChild(done);
+
+      if (localPick.share) {
+        /* The address a person gets, rather than the raw file: it opens a
+           page with a player, so a link sent to somebody who is not signed
+           in to anything still just plays. */
+        var share = document.createElement('p');
+        share.className = 'cb-pick-share';
+        share.textContent = localPick.share;
+        wrap.appendChild(share);
+
+        var copyShare = document.createElement('button');
+        copyShare.type = 'button';
+        copyShare.className = 'btn btn-secondary btn-sm';
+        copyShare.textContent = 'Copy the link to share';
+        copyShare.addEventListener('click', function () { copyText(localPick.share); });
+        wrap.appendChild(copyShare);
+
+        var toLib = document.createElement('button');
+        toLib.type = 'button';
+        toLib.className = 'cb-linkbtn';
+        toLib.textContent = 'Open Library';
+        toLib.addEventListener('click', function () { showView('library', { focus: true, push: true }); });
+        wrap.appendChild(toLib);
+      }
+
       box.appendChild(wrap);
       return;
     }
@@ -4084,6 +4183,44 @@
       ' — playing here. The television cannot reach a file on a phone, so ' +
       'sending it copies it to the stream host first.';
 
+    /* Asked before the upload, not after, because it is what the upload
+       does — and because a file already on a disk is a decision you have
+       already made. Re-datable afterwards from the Library either way. */
+    var keepWrap = document.createElement('div');
+    keepWrap.className = 'cb-keep';
+    var keepLabel = document.createElement('p');
+    keepLabel.className = 'cb-keep-label';
+    keepLabel.id = 'keepLabel';
+    keepLabel.textContent = 'Keep it on the host for';
+    keepWrap.appendChild(keepLabel);
+
+    var seg = document.createElement('div');
+    seg.className = 'cb-segment';
+    seg.setAttribute('role', 'radiogroup');
+    seg.setAttribute('aria-labelledby', 'keepLabel');
+    KEEP_CHOICES.forEach(function (choice) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cb-segment-btn' + (choice.hours === keepChoice ? ' is-on' : '');
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', choice.hours === keepChoice ? 'true' : 'false');
+      b.textContent = choice.label;
+      b.addEventListener('click', function () {
+        keepChoice = choice.hours;
+        renderLocalPick(state);
+      });
+      seg.appendChild(b);
+    });
+    keepWrap.appendChild(seg);
+
+    var keepNote = document.createElement('p');
+    keepNote.className = 'cb-keep-note';
+    keepNote.textContent = keepChoice === 0
+      ? 'It stays until you delete it from the Library. Your disk, your call.'
+      : 'The link stops working when it goes. You can extend it from the Library.';
+    keepWrap.appendChild(keepNote);
+    wrap.appendChild(keepWrap);
+
     var go = document.createElement('button');
     go.type = 'button';
     go.className = 'btn btn-secondary btn-sm';
@@ -4116,7 +4253,8 @@
 
       xhr.open('POST', t.host + '/api/upload' +
         '?name=' + encodeURIComponent(file.name) +
-        '&size=' + encodeURIComponent(file.size));
+        '&size=' + encodeURIComponent(file.size) +
+        '&keep=' + encodeURIComponent(keepChoice));
       xhr.setRequestHeader('Authorization', 'Bearer ' + t.token);
 
       xhr.upload.addEventListener('progress', function (e) {
@@ -4143,6 +4281,13 @@
         try { body = JSON.parse(xhr.responseText); } catch (e) { body = null; }
         if (xhr.status === 201 && body && body.ok) {
           localPick.remote = body.url;
+          localPick.share = body.share || null;
+          /* What the host actually recorded, not what was asked for — it
+             clamps, and a note claiming 30 days against a meta saying 30
+             days is only true because they are read from the same answer. */
+          localPick.keep = body.file && typeof body.file.keepHours === 'number'
+            ? body.file.keepHours : keepChoice;
+          libraryStale = true;
           /* From here it is an ordinary address, so everything an address
              can do comes back: cast, VLC, copy, history. */
           load(body.url, { title: file.name, from: 'this phone' });
@@ -4170,6 +4315,323 @@
       uploadXhr = null;
       if (e && e.message === 'signed out') return;
       renderLocalPick({ error: (e && e.message) || 'Could not get a ticket.' });
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Library
+   *
+   * Everything this account has put on the stream host, with the three
+   * things you can do about it: send it to the television again, give
+   * somebody the link, or take it down.
+   *
+   * It exists because the upload used to be write-only. A file went up, got
+   * cast, and then lived on a disk with no screen anywhere that could name
+   * it — the owner's Stream host panel could, but that is everybody's files
+   * at once and only the owner can open it. This is one person's own shelf,
+   * scoped by the uid inside the ticket rather than by anything the client
+   * sends, so there is no id a caller could name to reach someone else's.
+   *
+   * A row's link is public on purpose: the television fetches it with no
+   * headers we control, so the address IS the credential. That is said on
+   * the screen in those words rather than assumed to be understood.
+   * ------------------------------------------------------------------ */
+
+  var libraryFiles = [];
+  var libraryStale = true;
+  var libRun = 0;
+  /* Which row is one tap from being deleted. One at a time: arming a second
+     row disarms the first, so there is never a screen with two live traps. */
+  var libArmed = null;
+
+  function libExpiryWords(f) {
+    if (!f.expires) return 'Kept until you delete it';
+    var left = Date.parse(f.expires) - Date.now();
+    if (!isFinite(left)) return 'Kept until you delete it';
+    if (left <= 0) return 'Expired — going on the next sweep';
+    var h = left / 3600000;
+    if (h < 1) return 'Goes in ' + Math.max(1, Math.round(left / 60000)) + ' min';
+    if (h < 48) return 'Goes in ' + Math.round(h) + ' h';
+    return 'Goes in ' + Math.round(h / 24) + ' days';
+  }
+
+  function updateLibCount(n) {
+    var badge = $('libCount');
+    if (!badge) return;
+    badge.textContent = String(n);
+    badge.hidden = !n;
+  }
+
+  function libSetKeep(file, hours) {
+    return streamTicket('library').then(function (t) {
+      return fetch(t.host + '/api/library/keep', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + t.token,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ id: file.id, keep: hours })
+      }).then(function (r) {
+        return r.json().then(function (b) {
+          if (!r.ok || !b || !b.ok) throw new Error((b && b.error) || 'That could not be changed.');
+          return b.file;
+        });
+      });
+    });
+  }
+
+  function libDelete(file) {
+    return streamTicket('library').then(function (t) {
+      return fetch(t.host + '/api/library/delete', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + t.token,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ ids: [file.id] })
+      }).then(function (r) {
+        return r.json().then(function (b) {
+          if (!r.ok || !b || !b.ok) throw new Error((b && b.error) || 'That could not be deleted.');
+          return b.removed;
+        });
+      });
+    });
+  }
+
+  function libRow(f) {
+    var row = document.createElement('div');
+    row.className = 'cb-librow' + (f.missing ? ' is-missing' : '');
+
+    var head = document.createElement('div');
+    head.className = 'cb-librow-head';
+
+    var name = document.createElement('p');
+    name.className = 'cb-librow-name';
+    name.textContent = f.name;
+    name.title = f.name;
+    head.appendChild(name);
+
+    /* Size right-aligned in its own slot with tabular figures, so a column
+       of them lines up on the last digit instead of wandering. */
+    var size = document.createElement('span');
+    size.className = 'cb-librow-size';
+    size.textContent = f.missing ? '—' : fmtSize(f.bytes);
+    head.appendChild(size);
+    row.appendChild(head);
+
+    var meta = document.createElement('p');
+    meta.className = 'cb-librow-meta';
+    meta.textContent = f.missing
+      ? 'The bytes are gone from the disk — only the record is left.'
+      : ago(Date.parse(f.added)) + ' · ' + libExpiryWords(f);
+    row.appendChild(meta);
+
+    var link = document.createElement('p');
+    link.className = 'cb-librow-link';
+    link.textContent = f.share;
+    row.appendChild(link);
+
+    var acts = document.createElement('div');
+    acts.className = 'cb-librow-acts';
+
+    var cast = document.createElement('button');
+    cast.type = 'button';
+    cast.className = 'btn btn-secondary btn-sm';
+    cast.textContent = 'Send to the TV';
+    cast.disabled = Boolean(f.missing);
+    cast.addEventListener('click', function () {
+      /* The television is handed /f/<id>, never the watch page — a Cast
+         receiver fetches media, and would be handed HTML. */
+      load(f.url, { title: f.name, from: 'the stream host' });
+      showView('cast', { focus: true, push: true });
+      toast({ text: 'Loaded. Tap Cast to TV.' });
+    });
+    acts.appendChild(cast);
+
+    var copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'cb-linkbtn';
+    copy.textContent = 'Copy link';
+    copy.addEventListener('click', function () {
+      copyText(f.share).then(function (okCopy) {
+        toast({ text: okCopy ? 'Link copied. Anyone with it can watch.' : 'Couldn’t reach the clipboard.' });
+      });
+    });
+    acts.appendChild(copy);
+
+    var keep = document.createElement('select');
+    keep.className = 'form-control custom-select cb-librow-keep';
+    keep.setAttribute('aria-label', 'How long to keep ' + f.name);
+    KEEP_CHOICES.forEach(function (choice) {
+      var opt = document.createElement('option');
+      opt.value = String(choice.hours);
+      opt.textContent = choice.label;
+      keep.appendChild(opt);
+    });
+    /* A stored value that is not one of the four offered — an older upload,
+       or a clamp — gets its own option rather than silently showing 1 day
+       and lying about what the file is set to. */
+    var stored = typeof f.keepHours === 'number' ? f.keepHours : null;
+    if (stored !== null && !KEEP_CHOICES.some(function (c) { return c.hours === stored; })) {
+      var odd = document.createElement('option');
+      odd.value = String(stored);
+      odd.textContent = stored + ' h';
+      keep.insertBefore(odd, keep.firstChild);
+    }
+    if (stored !== null) keep.value = String(stored);
+    keep.addEventListener('change', function () {
+      var hours = Number(keep.value);
+      keep.disabled = true;
+      libSetKeep(f, hours).then(function (updated) {
+        f.expires = updated.expires;
+        f.keepHours = updated.keepHours;
+        meta.textContent = ago(Date.parse(f.added)) + ' · ' + libExpiryWords(f);
+        keep.disabled = false;
+        toast({ text: f.name + ' — ' + keepWords(updated.keepHours) + '.' });
+      }).catch(function (e) {
+        keep.disabled = false;
+        if (e && e.message === 'signed out') return;
+        libError((e && e.message) || 'That could not be changed.');
+      });
+    });
+    acts.appendChild(keep);
+
+    /* Deleting is the one thing here that cannot be undone: the bytes go and
+       every link anybody was given stops working. So it is a text link off
+       the primary slot, it arms rather than fires, and the armed label names
+       the file and the consequence instead of asking "are you sure". */
+    var del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'cb-linkbtn is-danger';
+    del.textContent = 'Delete';
+    del.addEventListener('click', function () {
+      if (libArmed !== f.id) {
+        libArmed = f.id;
+        renderLibraryList();
+        return;
+      }
+      del.disabled = true;
+      del.textContent = 'Deleting…';
+      libDelete(f).then(function () {
+        libArmed = null;
+        libraryStale = true;
+        toast({ text: f.name + ' deleted. Its link no longer works.' });
+        renderLibrary();
+      }).catch(function (e) {
+        del.disabled = false;
+        del.textContent = 'Delete';
+        if (e && e.message === 'signed out') return;
+        libError((e && e.message) || 'That could not be deleted.');
+      });
+    });
+
+    if (libArmed === f.id) {
+      del.textContent = 'Delete for good';
+      row.classList.add('is-armed');
+      var warn = document.createElement('p');
+      warn.className = 'cb-librow-warn';
+      warn.setAttribute('role', 'alert');
+      warn.textContent = 'Deletes ' + f.name + ' from the stream host. Anyone ' +
+        'you sent the link to loses it. This cannot be undone.';
+      row.appendChild(warn);
+
+      var cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'cb-linkbtn';
+      cancel.textContent = 'Keep it';
+      cancel.addEventListener('click', function () { libArmed = null; renderLibraryList(); });
+      acts.appendChild(cancel);
+    }
+
+    acts.appendChild(del);
+    row.appendChild(acts);
+    return row;
+  }
+
+  function libError(message) {
+    var box = $('libError');
+    if (!box) return;
+    box.textContent = message || '';
+    box.classList.toggle('is-shown', Boolean(message));
+  }
+
+  function renderLibraryList() {
+    var list = $('libList');
+    var empty = $('libEmpty');
+    if (!list) return;
+    list.textContent = '';
+    updateLibCount(libraryFiles.length);
+    if (!libraryFiles.length) {
+      if (empty) empty.hidden = false;
+      return;
+    }
+    if (empty) empty.hidden = true;
+    libraryFiles.forEach(function (f) { list.appendChild(libRow(f)); });
+  }
+
+  function renderLibrary(opts) {
+    var list = $('libList');
+    if (!list) return;
+    /* Two arrivals in quick succession used to be able to draw twice — the
+       same shape of bug the Stream host panel had. The token is what a late
+       answer checks itself against. */
+    var run = ++libRun;
+
+    if (!libraryStale && !(opts && opts.force)) {
+      renderLibraryList();
+      return;
+    }
+
+    libError(null);
+    list.textContent = '';
+    var loading = document.createElement('p');
+    loading.className = 'cb-host-empty';
+    loading.textContent = 'Asking the stream host…';
+    list.appendChild(loading);
+    var empty = $('libEmpty');
+    if (empty) empty.hidden = true;
+
+    streamTicket('library').then(function (t) {
+      return fetch(t.host + '/api/library', {
+        headers: { Authorization: 'Bearer ' + t.token, accept: 'application/json' }
+      }).then(function (r) {
+        return r.json().then(function (b) {
+          if (!r.ok || !b || !b.ok) throw new Error((b && b.error) || 'The stream host would not answer.');
+          return b;
+        });
+      });
+    }).then(function (b) {
+      if (run !== libRun) return;
+      libraryFiles = b.files || [];
+      libraryStale = false;
+      renderLibraryList();
+    }).catch(function (e) {
+      if (run !== libRun) return;
+      if (e && e.message === 'signed out') return;
+      list.textContent = '';
+      /* An error rendered as an empty list reads as "you have no files",
+         which is a different and much worse sentence than "I could not
+         ask". Say which one happened. */
+      libError((e && e.message) || 'Could not reach the stream host.');
+      var retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'btn btn-secondary btn-sm';
+      retry.textContent = 'Try again';
+      retry.addEventListener('click', function () { renderLibrary({ force: true }); });
+      list.appendChild(retry);
+    });
+  }
+
+  if ($('libRefresh')) {
+    $('libRefresh').addEventListener('click', function () {
+      libArmed = null;
+      renderLibrary({ force: true });
+    });
+  }
+  if ($('libGoCast')) {
+    $('libGoCast').addEventListener('click', function () {
+      showView('cast', { focus: true, push: true });
+      $('btnPickFile').click();
     });
   }
 
@@ -4517,180 +4979,85 @@
     });
   }
 
-  /* Drawn on open, and again on every re-open — the numbers are a live
-     measurement, not a snapshot from sign-in. */
-  $('hostPanel').addEventListener('toggle', function () {
-    if ($('hostPanel').open) renderHost();
-  });
-
   /* ------------------------------------------------------------------ *
-   * Putting this screen on the television
+   * Record this screen
    *
-   * The live version cannot be built here, and the reason is structural
-   * rather than a missing feature:
+   * What is left of a panel headed "Put this screen on the TV". It gave a
+   * page of instructions for the television's own menu, and they were both
+   * correct and useless: a web page cannot mirror a screen, so the panel's
+   * whole job was explaining that it could not do its job. Rj's instruction
+   * was to remove it if it cannot be used. It is removed.
    *
-   *   - The Cast sender API takes a MediaInfo whose contentId is an ADDRESS.
-   *     There is no overload that accepts a MediaStream. Chrome's own
-   *     ⋮ → Cast → Cast screen is a browser feature driven by Media Router,
-   *     not an API a page is given.
-   *   - The Presentation API does exist and Chrome implements it, but it
-   *     presents a URL on a receiver app registered with Google. That is
-   *     showing a different page on the television, not mirroring this one.
-   *   - getDisplayMedia can capture the screen, and nothing can then send
-   *     that stream to a Chromecast. Encoding it and streaming it via a
-   *     server is seconds of latency and a different product.
+   * The reason, kept here rather than on screen. The Cast sender API takes a
+   * MediaInfo whose contentId is an ADDRESS — there is no overload that
+   * accepts a MediaStream. Chrome's own ⋮ → Cast → Cast screen is a browser
+   * feature driven by Media Router, not an API a page is handed. The
+   * Presentation API presents a URL on a registered receiver, which is a
+   * different page on the television rather than this one mirrored. And
+   * getDisplayMedia can capture, but nothing can then hand that stream to a
+   * Chromecast.
    *
-   * So the panel does the two honest things. It gives the exact route for
-   * the device actually in the hand — not a list of four platforms to read
-   * past — and where the browser can capture at all, it offers the one
-   * adjacent thing that IS possible: record the screen, send the recording
-   * to the stream host, play it on the television. Not live, and it says so
-   * in those words rather than in a footnote.
+   * What survives is the half that was real: capture, stop, upload, play —
+   * which goes down the same path a picked file takes. Not live, and the
+   * note says so. It appears only where the browser can actually do it,
+   * which is Chrome and Edge on a computer; Android Chrome does not
+   * implement getDisplayMedia at all, so a phone never saw a button here,
+   * only the instructions that have now gone.
    * ------------------------------------------------------------------ */
 
-  function screenRoute() {
-    var ua = navigator.userAgent || '';
-    var ios = /iPhone|iPad|iPod/i.test(ua) ||
-      (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
-    var android = /Android/i.test(ua);
-    var chromium = Boolean(window.chrome) && !/Firefox/i.test(ua);
+  var recorder = null;
+  var recChunks = [];
+  var recStream = null;
+  var REC_NOTE = ($('recNote') && $('recNote').textContent) || '';
 
-    if (ios) {
-      return {
-        what: 'iPhone or iPad',
-        steps: [
-          'Swipe down from the top-right corner for Control Centre.',
-          'Tap Screen Mirroring.',
-          'Pick your Apple TV.'
-        ],
-        note: 'This mirrors to Apple TV and to AirPlay 2 televisions. A ' +
-              'Chromecast is not reachable this way — nothing on iOS mirrors ' +
-              'to one without the maker’s own app.'
-      };
-    }
-    if (android) {
-      return {
-        what: 'Android',
-        steps: [
-          'Open Chrome’s own menu — the three dots, top right.',
-          'Tap Cast.',
-          'Tap Sources, then Cast screen.',
-          'Pick the television.'
-        ],
-        note: 'Some phones put the same thing in Quick Settings as Screen ' +
-              'cast or Smart View. Both drive the television directly; ' +
-              'neither goes through this page.'
-      };
-    }
-    if (chromium) {
-      return {
-        what: 'a computer',
-        steps: [
-          'Open Chrome’s own menu — the three dots, top right.',
-          'Tap Cast, then Sources.',
-          'Choose Cast tab for this page, or Cast desktop for everything.',
-          'Pick the television.'
-        ],
-        note: 'Cast tab sends this page and its sound. Cast desktop sends ' +
-              'the whole screen and is the one to use for another app.'
-      };
-    }
-    return {
-      what: 'this browser',
-      steps: [
-        'Use the operating system rather than the browser: Windows has ' +
-          'Win+K, macOS has Screen Mirroring in Control Centre, and most ' +
-          'Android phones have Screen cast in Quick Settings.'
-      ],
-      note: 'Firefox carries no cast support of any kind — that is Google ' +
-            'shipping the sender SDK for Chrome and Edge only.'
-    };
-  }
-
-  /* Chrome and Edge on the desktop only. Android Chrome does not implement
-     getDisplayMedia at all, which is worth knowing before promising it. */
   function canCaptureScreen() {
     return Boolean(navigator.mediaDevices &&
       navigator.mediaDevices.getDisplayMedia &&
       window.MediaRecorder);
   }
 
-  var recorder = null;
-  var recChunks = [];
-  var recStream = null;
+  function renderRec(state) {
+    var box = $('recBox');
+    var btn = $('btnRecScreen');
+    var note = $('recNote');
+    if (!box || !btn || !note) return;
 
-  function renderScreenPanel(state) {
-    var body = $('screenBody');
-    if (!body) return;
-    body.textContent = '';
+    /* Hidden, not disabled: a disabled button is a promise the browser
+       cannot keep, and there is nothing the person could do about it. */
+    if (!canCaptureScreen()) { box.hidden = true; return; }
+    box.hidden = false;
+
     state = state || {};
-
-    var route = screenRoute();
-
-    var lead = document.createElement('p');
-    lead.className = 'cb-screen-lead';
-    lead.textContent = 'A web page cannot mirror a screen to a television. ' +
-      'The Cast API takes an address for the TV to fetch, never a live ' +
-      'picture — so this is the television’s own route, on ' + route.what + '.';
-    body.appendChild(lead);
-
-    var ol = document.createElement('ol');
-    ol.className = 'cb-screen-steps';
-    route.steps.forEach(function (t) {
-      var li = document.createElement('li');
-      li.textContent = t;
-      ol.appendChild(li);
-    });
-    body.appendChild(ol);
-
-    var note = document.createElement('p');
-    note.className = 'cb-screen-note';
-    note.textContent = route.note;
-    body.appendChild(note);
-
-    if (!canCaptureScreen()) return;
-
-    var rule = document.createElement('hr');
-    rule.className = 'cb-screen-rule';
-    body.appendChild(rule);
-
-    var h = document.createElement('p');
-    h.className = 'cb-screen-alt';
-    h.textContent = 'What this page CAN do: record the screen, then play the ' +
-      'recording on the television. Not live — it goes up when you stop.';
-    body.appendChild(h);
+    var label = btn.querySelector('.cb-label');
 
     if (state.recording) {
-      var live = document.createElement('p');
-      live.className = 'cb-screen-live';
-      live.textContent = 'Recording — ' + fmtLength(state.seconds || 0) +
+      label.textContent = 'Stop and send to the TV';
+      btn.classList.add('is-rec');
+      /* Assigned, not added: renderRec runs once a second while recording,
+         and addEventListener would stack a handler on every tick. */
+      btn.onclick = stopScreenRecording;
+      note.classList.remove('cb-pick-error');
+      note.removeAttribute('role');
+      note.textContent = 'Recording — ' + fmtLength(state.seconds || 0) +
         (state.bytes ? ' · ' + fmtSize(state.bytes) : '');
-      body.appendChild(live);
-
-      var stop = document.createElement('button');
-      stop.type = 'button';
-      stop.className = 'btn btn-secondary btn-sm';
-      stop.textContent = 'Stop and send to the TV';
-      stop.addEventListener('click', stopScreenRecording);
-      body.appendChild(stop);
       return;
     }
 
-    var go = document.createElement('button');
-    go.type = 'button';
-    go.className = 'btn btn-primary btn-sm';
-    go.textContent = 'Record the screen';
-    go.addEventListener('click', startScreenRecording);
-    body.appendChild(go);
-
+    label.textContent = 'Record this screen';
+    btn.classList.remove('is-rec');
+    btn.onclick = startScreenRecording;
     if (state.error) {
-      var err = document.createElement('p');
-      err.className = 'cb-pick-error';
-      err.setAttribute('role', 'alert');
-      err.textContent = state.error;
-      body.appendChild(err);
+      note.classList.add('cb-pick-error');
+      note.setAttribute('role', 'alert');
+      note.textContent = state.error;
+      return;
     }
+    note.classList.remove('cb-pick-error');
+    note.removeAttribute('role');
+    note.textContent = REC_NOTE;
   }
+
+  renderRec();
 
   function startScreenRecording() {
     if (recorder) return;
@@ -4717,7 +5084,7 @@
 
         var tick = setInterval(function () {
           if (!recorder) { clearInterval(tick); return; }
-          renderScreenPanel({
+          renderRec({
             recording: true,
             seconds: (Date.now() - started) / 1000,
             bytes: bytes
@@ -4740,9 +5107,9 @@
             recStream = null;
           }
           recorder = null;
-          renderScreenPanel({});
+          renderRec({});
           if (!blob.size) {
-            renderScreenPanel({ error: 'Nothing was recorded.' });
+            renderRec({ error: 'Nothing was recorded.' });
             return;
           }
           /* Straight into the same path a picked file takes — one upload,
@@ -4753,16 +5120,16 @@
         });
 
         recorder.start(1000);
-        renderScreenPanel({ recording: true, seconds: 0, bytes: 0 });
+        renderRec({ recording: true, seconds: 0, bytes: 0 });
       })
       .catch(function (e) {
         /* A refused permission prompt is a choice, not a fault, and does not
            get an error message. */
         if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) {
-          renderScreenPanel({});
+          renderRec({});
           return;
         }
-        renderScreenPanel({ error: 'This browser would not share the screen.' });
+        renderRec({ error: 'This browser would not share the screen.' });
       });
   }
 
@@ -4771,25 +5138,62 @@
     try { recorder.stop(); } catch (e) { /* already stopping */ }
   }
 
-  $('screenPanel').addEventListener('toggle', function () {
-    if ($('screenPanel').open && !recorder) renderScreenPanel({});
-  });
-
   /* ------------------------------------------------------------------ *
    * Bilibili
    *
    * Signed out, the API still serves an address — 720p, and only for videos
    * that are open to everyone. Signed in it serves the members-only ones
-   * too. So the panel is not a gate: the paste box works either way, and
-   * this says what signing in would add rather than demanding it first.
+   * too. So this screen is not a gate: the paste box works either way, and
+   * it says what signing in would add rather than demanding it first.
    *
-   * The sign-in is Bilibili's QR flow, and there is no QR drawn here on
-   * purpose. On a phone — which is what this app is — the link opens the
-   * Bilibili app directly and a QR would be a code the same phone has to
-   * somehow scan. A QR for the desktop case would mean shipping an encoder
-   * this app has no way to test the output of, and an unreadable QR is
-   * worse than an address to open.
+   * The sign-in is Bilibili's QR flow, and the code is now DRAWN here.
+   * It used to be offered as a link to open, on the theory that a phone
+   * would deep-link it into the Bilibili app — Rj opened it and got
+   * account.bilibili.com/h5/…/scan-web, a page that does nothing, because
+   * that address is the payload a camera is meant to read, not a place to
+   * go. assets/js/qr.js encodes it; the SVG below draws it.
    * ------------------------------------------------------------------ */
+
+  /* One path element per run of dark modules in a row. Fewer nodes than a
+     rect each, and a `shape-rendering: crispEdges` box around it, because a
+     QR that is antialiased at the module edges is a QR a camera hunts for. */
+  function qrSvg(text, label) {
+    if (!window.CBQR) throw new Error('no encoder');
+    var q = window.CBQR.encode(text);
+    var quiet = 4;                       /* the spec's margin — a code with no
+                                            quiet zone reads as no code */
+    var span = q.size + quiet * 2;
+    var ns = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + span + ' ' + span);
+    svg.setAttribute('shape-rendering', 'crispEdges');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', label || 'QR code');
+
+    var bg = document.createElementNS(ns, 'rect');
+    bg.setAttribute('width', String(span));
+    bg.setAttribute('height', String(span));
+    bg.setAttribute('fill', '#ffffff');
+    svg.appendChild(bg);
+
+    var d = '';
+    for (var r = 0; r < q.size; r++) {
+      var run = 0;
+      for (var c = 0; c <= q.size; c++) {
+        var dark = c < q.size && q.modules[r * q.size + c];
+        if (dark) { run++; continue; }
+        if (run) {
+          d += 'M' + (c - run + quiet) + ' ' + (r + quiet) + 'h' + run + 'v1h-' + run + 'z';
+          run = 0;
+        }
+      }
+    }
+    var path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', '#000000');
+    svg.appendChild(path);
+    return svg;
+  }
 
   var biliPoll = null;
 
@@ -4869,29 +5273,43 @@
     if (state.waiting) {
       var line = biliSay(body, state.waiting === 'scanned'
         ? 'Scanned. Now confirm it in the Bilibili app.'
-        : 'Waiting for the Bilibili app to confirm…');
+        : 'Point the Bilibili app’s scanner at this code.');
       line.setAttribute('role', 'status');
 
-      var open = document.createElement('a');
-      open.className = 'btn btn-secondary btn-sm';
-      open.href = state.url;
-      open.target = '_blank';
-      open.rel = 'noopener noreferrer';
-      open.textContent = 'Open the Bilibili app';
-      body.appendChild(open);
+      /* The code itself. This is the whole fix: what Bilibili hands back is
+         the PAYLOAD of a QR, and the app used to offer it as a link to open
+         — which lands on account.bilibili.com's scan page, in a browser,
+         where it does nothing and says nothing. It is meant to be looked at
+         by the Bilibili app's camera, so it is drawn.
 
-      biliSay(body, 'On this phone that link opens the Bilibili app and asks ' +
-        'you to confirm. On a computer, open it on your phone instead — ' +
-        'copy it with the button below.', 'cb-bili-small');
+         Drawn as an SVG rather than a canvas: it is one path per dark row,
+         it scales to whatever the layout gives it with no blur and no
+         devicePixelRatio arithmetic, and it survives a screenshot. */
+      var frame = document.createElement('div');
+      frame.className = 'cb-qr';
+      try {
+        frame.appendChild(qrSvg(state.url, 'Bilibili sign-in code'));
+      } catch (e) {
+        /* An encoder that cannot encode says so and offers the address,
+           rather than leaving an empty white square that looks like a code
+           the camera is failing to read. */
+        biliSay(body, 'This sign-in code could not be drawn. Open the address ' +
+          'below on a phone with Bilibili installed.', 'cb-pick-error');
+      }
+      body.appendChild(frame);
+
+      biliSay(body, 'Open Bilibili on a phone → the scan button, top left of ' +
+        'Home → point it here. If this IS that phone, copy the address below ' +
+        'and open it in Bilibili.', 'cb-bili-small');
 
       var copy = document.createElement('button');
       copy.type = 'button';
       copy.className = 'cb-linkbtn';
-      copy.textContent = 'Copy the sign-in link';
+      copy.textContent = 'Copy the sign-in address';
       copy.addEventListener('click', function () {
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(state.url).then(function () {
-            toast({ text: 'Copied. Open it on the phone with Bilibili installed.' });
+            toast({ text: 'Copied.' });
           }, function () {
             toast({ text: 'Couldn’t reach the clipboard.' });
           });
@@ -4991,11 +5409,6 @@
       })
       .catch(function () { renderBili({ error: 'Could not reach the sign-in service.' }); });
   }
-
-  $('biliPanel').addEventListener('toggle', function () {
-    if ($('biliPanel').open) refreshBili();
-    else stopBiliPoll();
-  });
 
   /* The door goes up before anything else is usable. The gate is unhidden in
      the markup and the body starts .is-gated, so the app is never painted to

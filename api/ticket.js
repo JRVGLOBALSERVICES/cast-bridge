@@ -6,7 +6,9 @@
  *
  * `storage` is owner-only. Everyone signed in may upload something to cast;
  * only the owner may see what is on the disk and delete it, because that
- * list is everybody's files at once.
+ * list is everybody's files at once. `library` is the same disk seen from
+ * the other end — one person's own uploads — so it is open to everyone and
+ * scoped by the uid the stream host reads out of the ticket.
  */
 
 const auth = require('../lib/auth');
@@ -14,7 +16,12 @@ const ticket = require('../lib/ticket');
 
 const SCOPES = {
   upload: { ttlMs: 30 * 60 * 1000, adminOnly: false },
-  storage: { ttlMs: 10 * 60 * 1000, adminOnly: true }
+  storage: { ttlMs: 10 * 60 * 1000, adminOnly: true },
+  /* Everyone's own shelf. Not admin-only and not a weaker `storage`: the
+     stream host answers a library ticket about the uid inside it and
+     nothing else, so the scope is what stops one person's list, re-date or
+     delete from ever naming another person's file. */
+  library: { ttlMs: 10 * 60 * 1000, adminOnly: false }
 };
 
 function params(req) {

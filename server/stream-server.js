@@ -265,6 +265,102 @@ function serveFile(req, res, meta) {
   fs.createReadStream(file, { start: start, end: end }).pipe(res);
 }
 
+function base() {
+  return process.env.STREAM_PUBLIC_HOST || 'https://stream.jrvsystems.app';
+}
+
+/* The address a person is given. The 32 hex characters are the whole
+   credential; the slug in front of them is so a pasted link says what it
+   is. /f/<id> keeps working unchanged — that is what a television fetches,
+   and a television must never be handed a page. */
+function shareUrl(meta) {
+  return base() + '/w/' + storage.slugOf(meta.name) + '-' + meta.id;
+}
+
+function esc(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function human(bytes) {
+  const n = Number(bytes) || 0;
+  if (n >= 1024 * 1024 * 1024) return (n / (1024 ** 3)).toFixed(1) + ' GB';
+  if (n >= 1024 * 1024) return Math.round(n / (1024 ** 2)) + ' MB';
+  return Math.max(1, Math.round(n / 1024)) + ' KB';
+}
+
+function untilWords(expires) {
+  if (!expires) return 'This link stays up until it is deleted.';
+  const left = Date.parse(expires) - Date.now();
+  if (!Number.isFinite(left) || left <= 0) return 'This link has expired.';
+  const h = Math.round(left / 3600000);
+  if (h < 1) return 'This link expires within the hour.';
+  if (h < 48) return 'This link expires in about ' + h + ' hour' + (h === 1 ? '' : 's') + '.';
+  return 'This link expires in about ' + Math.round(h / 24) + ' days.';
+}
+
+/* The page behind a share link.
+ *
+ * Deliberately one file with no assets: it is opened by people who have
+ * nothing to do with this app, often on a slow phone, and a player that
+ * waits on a stylesheet from another origin is a player that stalls before
+ * the video it is there for. Same reason there is no ticket on it — the
+ * address IS the capability, exactly as it is for /f/<id>. Being able to
+ * watch is the whole point; nothing here can delete, rename or list
+ * anything, and there is no way from this page to any other file.
+ */
+function watchPage(meta) {
+  const src = base() + '/f/' + meta.id;
+  const audio = String(meta.type || '').startsWith('audio/');
+  const title = esc(meta.name);
+  return '<!doctype html>\n<html lang="en"><head>' +
+    '<meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +
+    '<title>' + title + '</title>' +
+    '<meta name="robots" content="noindex, nofollow">' +
+    '<meta property="og:title" content="' + title + '">' +
+    '<meta property="og:type" content="video.other">' +
+    '<meta property="og:video" content="' + esc(src) + '">' +
+    '<style>' +
+    ':root{color-scheme:dark}' +
+    '*{box-sizing:border-box}' +
+    'body{margin:0;background:#0e0f13;color:#e9eaf0;' +
+    'font:400 16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
+    'display:flex;flex-direction:column;min-height:100dvh;' +
+    'padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}' +
+    'main{width:100%;max-width:960px;margin:0 auto;padding:20px 18px 32px;flex:1}' +
+    'h1{font-size:19px;line-height:1.3;font-weight:600;margin:0 0 4px;overflow-wrap:anywhere}' +
+    'p{margin:0;color:#9598a6;font-size:13.5px}' +
+    '.stage{margin:16px 0 14px;background:#000;border-radius:14px;overflow:hidden;' +
+    'box-shadow:0 18px 44px rgba(0,0,0,.5)}' +
+    'video{display:block;width:100%;max-height:78dvh;background:#000}' +
+    'audio{display:block;width:100%;padding:22px 16px;background:#15161c}' +
+    '.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px}' +
+    'a.btn{appearance:none;text-decoration:none;display:inline-flex;align-items:center;gap:8px;' +
+    'padding:11px 16px;border-radius:11px;background:#22242e;color:#e9eaf0;font-size:14px;' +
+    'font-weight:600;border:1px solid #2e3140}' +
+    'a.btn:hover{background:#2a2d38}' +
+    'a.btn:focus-visible{outline:2px solid #7e8cff;outline-offset:2px}' +
+    'footer{margin-top:22px;padding-top:14px;border-top:1px solid #22242e;font-size:12.5px;color:#7a7d8b}' +
+    '</style></head><body><main>' +
+    '<h1>' + title + '</h1>' +
+    '<p>' + esc(human(meta.bytes)) + ' &middot; ' + esc(untilWords(meta.expires)) + '</p>' +
+    '<div class="stage">' +
+    (audio
+      ? '<audio controls preload="metadata" src="' + esc(src) + '"></audio>'
+      : '<video controls playsinline preload="metadata" x-webkit-airplay="allow" ' +
+        'src="' + esc(src) + '"></video>') +
+    '</div>' +
+    '<div class="row">' +
+    '<a class="btn" href="' + esc(src) + '" download>Download</a>' +
+    '<a class="btn" href="vlc://' + esc(src.replace(/^https?:\/\//, '')) + '">Open in VLC</a>' +
+    '</div>' +
+    '<footer>Shared from Cast Bridge. Anyone with this link can watch it; ' +
+    'nobody without it can find it.</footer>' +
+    '</main></body></html>\n';
+}
+
 async function readJsonBody(req, cap) {
   const chunks = [];
   let total = 0;
@@ -338,14 +434,55 @@ const server = http.createServer(async (req, res) => {
       const meta = await storage.receive(req, {
         name: url.searchParams.get('name'),
         declaredBytes: url.searchParams.get('size'),
+        /* Absent means the default day. "0" means keep until deleted, and
+           has to survive the difference between absent and zero. */
+        keepHours: url.searchParams.has('keep') ? url.searchParams.get('keep') : undefined,
         uploader: t.uid
       });
-      const base = process.env.STREAM_PUBLIC_HOST || 'https://stream.jrvsystems.app';
-      console.log(new Date().toISOString() + ' upload ' + meta.id + ' ' + meta.bytes + 'B ' + meta.name);
-      return json(res, 201, { ok: true, file: meta, url: base + '/f/' + meta.id });
+      console.log(new Date().toISOString() + ' upload ' + meta.id + ' ' + meta.bytes + 'B ' +
+        'keep=' + (meta.keepHours === 0 ? 'forever' : meta.keepHours + 'h') + ' ' + meta.name);
+      return json(res, 201, {
+        ok: true,
+        file: Object.assign({}, meta, { slug: storage.slugOf(meta.name) }),
+        url: base() + '/f/' + meta.id,
+        share: shareUrl(meta)
+      });
     } catch (e) {
       return json(res, e.status || 500, { ok: false, error: e.message || 'That upload failed.' });
     }
+  }
+
+  /* ---------- A share link ----------
+   * /w/<anything>-<32 hex>. The slug is decoration and is not checked; the
+   * id is matched off the end, so renaming the slug in a pasted URL still
+   * lands on the right file rather than on a 404 nobody can explain. */
+  const watchMatch = /^\/w\/(?:.*-)?([0-9a-f]{32})\/?$/.exec(url.pathname);
+  if (watchMatch) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return json(res, 405, { ok: false, error: 'Use GET.' });
+    }
+    const meta = await storage.metaOf(watchMatch[1]);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    if (!meta) {
+      res.statusCode = 404;
+      if (req.method === 'HEAD') return res.end();
+      return res.end('<!doctype html><meta charset="utf-8">' +
+        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+        '<title>Not here any more</title>' +
+        '<body style="margin:0;background:#0e0f13;color:#e9eaf0;font:400 16px/1.6 ' +
+        '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;display:grid;' +
+        'place-items:center;min-height:100dvh;padding:24px;text-align:center">' +
+        '<div><h1 style="font-size:20px;margin:0 0 8px">This file is not here any more</h1>' +
+        '<p style="margin:0;color:#9598a6;max-width:34ch">Shared files are deleted when ' +
+        'their time runs out, or by hand. Ask whoever sent the link to send it again.</p>' +
+        '</div></body>\n');
+    }
+    const withExp = Object.assign({}, meta, { expires: storage.expiryOf(meta) });
+    res.statusCode = 200;
+    if (req.method === 'HEAD') return res.end();
+    return res.end(watchPage(withExp));
   }
 
   const fileMatch = /^\/f\/([0-9a-f]{32})$/.exec(url.pathname);
@@ -428,12 +565,71 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/storage') {
     if (!gate(req, res, 'storage')) return;
     const [use, files] = await Promise.all([storage.usage(), storage.list()]);
-    const base = process.env.STREAM_PUBLIC_HOST || 'https://stream.jrvsystems.app';
     return json(res, 200, {
       ok: true,
       usage: use,
-      files: files.map((f) => Object.assign({}, f, { url: base + '/f/' + f.id }))
+      files: files.map((f) => Object.assign({}, f, {
+        url: base() + '/f/' + f.id,
+        share: shareUrl(f)
+      }))
     });
+  }
+
+  /* ---------- One person's own uploads ----------
+   *
+   *   GET  /api/library          what I have here
+   *   POST /api/library/keep     { id, keep }   re-date it
+   *   POST /api/library/delete   { ids: [...] } remove it
+   *
+   * Separate from /api/storage rather than a filter on it, because they
+   * answer different questions and are trusted differently: /api/storage is
+   * the owner reading a shared disk, this is a person reading their own
+   * shelf. The uid in the ticket is the only thing that decides which rows
+   * exist, so there is no id a caller can name to reach someone else's.
+   */
+  if (url.pathname === '/api/library') {
+    const t = gate(req, res, 'library');
+    if (!t) return;
+    const files = await storage.listFor(t.uid);
+    return json(res, 200, {
+      ok: true,
+      max_keep_hours: storage.MAX_KEEP_HOURS,
+      files: files.map((f) => Object.assign({}, f, {
+        url: base() + '/f/' + f.id,
+        share: shareUrl(f)
+      }))
+    });
+  }
+
+  if (url.pathname === '/api/library/keep' || url.pathname === '/api/library/delete') {
+    if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'Use POST.' });
+    const t = gate(req, res, 'library');
+    if (!t) return;
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (e) {
+      return json(res, 400, { ok: false, error: 'That request was not readable.' });
+    }
+    if (url.pathname.endsWith('/keep')) {
+      const meta = await storage.setExpiry(String(body.id || ''), body.keep, t.uid);
+      if (!meta) return json(res, 404, { ok: false, error: 'That file is not yours, or not here.' });
+      return json(res, 200, {
+        ok: true,
+        file: Object.assign({}, meta, { share: shareUrl(meta), url: base() + '/f/' + meta.id })
+      });
+    }
+    const ids = Array.isArray(body.ids) ? body.ids.slice(0, 50) : [];
+    let removed = 0;
+    for (const id of ids) {
+      /* Ownership is checked before the unlink, not after: removeOne takes
+         an id and would happily delete anybody's. */
+      const meta = await storage.metaOf(id);
+      if (!meta || (meta.uploader && meta.uploader !== t.uid)) continue;
+      if (await storage.removeOne(id)) removed++;
+    }
+    console.log('[library] ' + t.uid + ' deleted ' + removed + ' of ' + ids.length);
+    return json(res, 200, { ok: true, removed: removed });
   }
 
   if (url.pathname === '/api/storage/clear' || url.pathname === '/api/storage/delete') {

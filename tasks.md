@@ -704,3 +704,67 @@
       It now reads `<repo>/.env` first, with the environment still winning.
       Proven by deleting the pm2 entry and starting it clean: window 64 MiB
       and uploads enabled, from the file alone.
+
+## Round 9 — 2026-09-07 (Rj: screen-cast is dead weight, Bilibili opens a dead
+## page, I want share links + retention + recast, and the app looks mad)
+
+- [x] Task 1: "Put this screen on the TV" removed. It was a page of correct,
+      useless instructions for the television's own menu. The half that was
+      real — capture the screen, upload it, play it — survives as **Record this
+      screen** on the Cast screen, revealed only where `getDisplayMedia` and
+      `MediaRecorder` both exist, which is Chrome and Edge on a computer. A
+      phone never saw a button there, only the instructions that are now gone.
+- [x] Task 2: Bilibili QR **drawn in the app**. The sign-in used to be offered
+      as "Open the Bilibili app", linking to
+      `account.bilibili.com/h5/…/scan-web?qrcode_key=…`. That address is the
+      PAYLOAD of a QR, not a destination: opened in a browser it does nothing.
+      New `assets/js/qr.js` — byte mode, level L, versions 1-10, Reed-Solomon
+      over GF(256), all eight masks scored. Verified by DECODING the output
+      with jsQR: 15 cases, every version boundary 1-10, the real Bilibili URL
+      shape, and UTF-8, all round-tripped identically. The first cut had the
+      format bits placed in mirrored order — correct BCH, valid-looking symbol,
+      decoded as nothing — which is exactly why the check is a decode and not a
+      reading of the table.
+- [x] Task 3: Share links. Every upload comes back with
+      `https://stream.jrvsystems.app/w/<slug>-<32 hex>` — a self-contained
+      player page, no assets, no sign-in, `noindex`. The slug is decoration and
+      is not checked; the id is matched off the end, so renaming the slug in a
+      pasted URL still lands. `/f/<id>` is unchanged and is still what a
+      television is handed — a Cast receiver fetches media and must never be
+      given HTML.
+- [x] Task 4: Retention, chosen when you send: 1 day (default), 7, 30, or until
+      you delete it. Stored as `expires` in the file's meta and re-datable from
+      the Library. The sweeper is now meta-driven rather than an mtime sweep —
+      two files uploaded in the same minute can carry a one-day expiry and a
+      never, and mtime cannot tell them apart. Legacy metas with no `expires`
+      fall back to the old blanket day from when they landed.
+- [x] Task 5: **Library** — a new screen listing this account's own uploads with
+      re-cast, copy link, re-date and delete. New stream-host routes
+      `/api/library`, `/api/library/keep`, `/api/library/delete` on a new
+      `library` ticket scope, which is NOT admin-only: the host answers about
+      the uid inside the ticket and nothing else, so there is no id a caller can
+      name to reach another account's file. `/api/storage` stays the owner's
+      whole-disk view.
+- [x] Task 6: One page became nine screens behind a five-entry bottom bar —
+      Cast, Browse, Library, History, More, with Bilibili, Stream host, People
+      and the TV help behind More. A screen is a route: the phone's Back button
+      walks it and each one remembers its scroll position.
+
+### Verified this session
+
+- [x] Stream host, end to end on a throwaway state dir: upload with `keep=0`
+      and `keep=168`; watch page 200 with the right title and the right
+      sentence; a renamed slug still resolves; a bogus id 404s; library lists
+      2 for `rj` and 0 for another account; no ticket 401; an **upload ticket
+      replayed at the library 401**; re-date to 720 h; 99999 h clamped to 720;
+      another account refused on both re-date and delete.
+- [x] Sweeper: an expired file, a legacy meta three days old and an orphaned
+      media file with no meta were all removed; the `keep until deleted` file
+      survived. 3 removed, 1 left.
+- [x] Range serving unchanged: `bytes=0-1023` → 206 `0-1023/200000`;
+      `bytes=-500` → 206 `199500-199999/200000`.
+- [x] Browser at 390x844 and 1280x900: Cast, More, Bilibili with a real drawn
+      QR, Library rows including the armed-delete state, and the public watch
+      page.
+- [x] `hallmark` vibe-check: **0 critical**, and the multiple-H1 finding is
+      pre-existing (2 at HEAD, 2 now — the gate mark and the wordmark).
