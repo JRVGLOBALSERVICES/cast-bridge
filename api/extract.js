@@ -14,7 +14,8 @@
 const {
   MAX_RESULTS, MEDIA_EXT, safeFetch, readCapped, kindOf, labelFor, extract,
   expandHlsMaster, walledService, walledMessage,
-  normalizeShare, collectFrames, collectCandidates, probeMedia, probeAll, readFrames
+  normalizeShare, collectFrames, collectCandidates, probeMedia, probeAll, readFrames,
+  deobfuscate
 } = require('../lib/media');
 const auth = require('../lib/auth');
 const bili = require('../lib/bilibili');
@@ -153,7 +154,10 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    const html = await readCapped(pageRes);
+    /* Unpack before parsing. A packed player script is still the page
+       telling the browser where the file is; until it is unpacked, the
+       parsers below read a dictionary of loose words and find nothing. */
+    const html = deobfuscate(await readCapped(pageRes));
 
     /* Served as text, but it is a manifest rather than a page. A signed
        manifest carries no extension to give it away, and parsing one as

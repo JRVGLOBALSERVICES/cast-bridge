@@ -812,3 +812,31 @@
       touched — the em-dash gate reports README, index.html, issues.md and
       tasks.md at exactly the counts they had at HEAD.
 
+
+## Round 6 — 2026-09-07 (Rj: a link with video that will not play or cast; subdomain)
+
+- [x] Task 21: `articleweb.xyz/vid/vkprime.php?id=…` diagnosed. Two causes, both
+      general. (a) The wrapper page frames `vkprime.com/embed-…`, and that
+      embed's three mp4 addresses live inside a Dean Edwards packed script —
+      the words of the URL are split into a dictionary, so no pattern over the
+      delivered HTML can see them. (b) `sys.vkcdn5.com` signs an address to the
+      network that asked for it: a link issued to this server still played eight
+      minutes later, and the same link issued elsewhere answered 200 with
+      fourteen bytes of HTML. Measured, not assumed.
+- [x] Task 22: Packed player scripts unpacked before parsing, by substitution
+      and never by running them (`lib/media.js` `deobfuscate`). Applies to the
+      page and to every frame it opens, so it covers the whole class of free
+      embed hosts, not one site. 21 assertions in `scripts/test-unpack.js`.
+- [x] Task 23: Player quality lists read as `sources:[{file,label}]`, so three
+      renditions that share the filename `v.mp4` arrive as 720p / 360p / 192p
+      instead of three identical choices.
+- [x] Task 24: `/api/stream` re-issues a refused address from the page it came
+      from (`lib/reissue.js`), with the embed's referer rather than the
+      wrapper's, same host only, memoised so a seek does not re-scan. 11
+      assertions in `scripts/test-reissue.js`.
+- [x] Task 25: `cast.jrvsystems.app` added to the Vercel project and verified.
+- [x] Task 26: Vercel project renamed `cast-bridge` → `cast-bridge-new`, so
+      production serves `cast-bridge-new.vercel.app`.
+- [x] Task 27: The stream host's CORS allowlist widened to the new origins —
+      without it, upload and Library would have broken the moment the app moved
+      to its own domain.

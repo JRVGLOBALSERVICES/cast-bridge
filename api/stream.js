@@ -67,10 +67,20 @@ function drain(res) {
   });
 }
 const { safeFetch, readCapped, UA } = require('../lib/media');
+const { reissue } = require('../lib/reissue');
 
 /* Long enough for a segment on a slow CDN, short enough that a dead host
    fails while the receiver is still willing to retry. */
 const STREAM_TIMEOUT_MS = 20000;
+
+/* Said only when the page WAS asked again and still could not produce a
+   working address. Naming the retry is the difference between "the link is
+   dead" — which sends someone hunting for another copy of the film — and
+   "the page has stopped handing them out", which is answered by scanning
+   the page again. */
+const REISSUE_NOTE =
+  ' The page it came from was asked for a fresh address and could not give one — ' +
+  'scan the page again.';
 
 /* Vercel gives this function 60 seconds, and a receiver asking a
    progressive file for "everything from here on" means one response that
@@ -255,6 +265,13 @@ module.exports = async function handler(req, res) {
   const params = new URL(req.url, 'http://localhost').searchParams;
   const raw = (req.query && req.query.u) || params.get('u');
   const refRaw = (req.query && req.query.r) || params.get('r');
+  /* The page the media was found on, and the quality that was picked.
+     `r` already carries the page for anything that came out of a scan, so
+     `p` is only for a caller that wants to name it separately. The label
+     matters because these hosts serve every quality as the same filename —
+     without it, a re-issued address is the right film at the wrong size. */
+  const pageRaw = (req.query && req.query.p) || params.get('p') || refRaw;
+  const wantLabel = (req.query && req.query.q) || params.get('q') || '';
 
   if (!raw) {
     fail(res, 400, 'No stream address given.');
@@ -289,16 +306,88 @@ module.exports = async function handler(req, res) {
     narrowed = win.narrowed;
   }
 
-  let upstream;
-  let finalUrl;
+  /* One open, and what it means. A refusal is not only a status: the host
+     behind the vkprime embed answers a stranger's request with 200 and
+     fourteen bytes of HTML, which relays as a perfectly successful nothing
+     unless the type is read too. */
+  const openOnce = async (url, refererOverride) => {
+    /* A re-issued address belongs to the document that just handed it
+       over, not to the page the viewer started from. */
+    const h = refererOverride
+      ? Object.assign({}, headers, {
+        referer: refererOverride,
+        origin: new URL(refererOverride).origin
+      })
+      : headers;
+    const got = await safeFetch(url, '*/*', { headers: h, timeoutMs: STREAM_TIMEOUT_MS });
+    const t = (got.res.headers.get('content-type') || '').toLowerCase();
+    return {
+      res: got.res,
+      url: got.url,
+      type: t,
+      refused: (!got.res.ok && got.res.status !== 206) || REFUSED_TYPE.test(t)
+    };
+  };
+
+  const discard = (r) => {
+    try { r && r.res && r.res.body && r.res.body.cancel(); } catch (e) { /* already gone */ }
+  };
+
+  let opened = null;
+  let openError = null;
+  /* Set once the page has been asked for a replacement and could not
+     supply a working one. It changes what the failure MEANS: not "this
+     link is dead" but "this link was not ours, and the page would not
+     issue another". Without it the report names the wrong cause and sends
+     the viewer looking for the wrong fix. */
+  let reissueFailed = false;
   try {
-    const got = await safeFetch(target, '*/*', { headers, timeoutMs: STREAM_TIMEOUT_MS });
-    upstream = got.res;
-    finalUrl = got.url;
+    opened = await openOnce(target);
   } catch (e) {
-    fail(res, 502, (e && e.message) || "That stream couldn't be reached.");
+    openError = e;
+  }
+
+  /* Refused, or unreachable, but we know the page it came from.
+   *
+   * Some hosts sign an address to the network that asked for it, so the
+   * one the phone was given is not one this server may use — and the
+   * refusal looks identical to a dead link. Ask the page again from here
+   * and it hands over an address of our own. Same host only, one retry.
+   * lib/reissue.js has the measurements. */
+  if ((!opened || opened.refused) && pageRaw) {
+    discard(opened);
+    let fresh = null;
+    try {
+      fresh = await reissue(String(pageRaw), target, wantLabel);
+    } catch (e) {
+      fresh = null;
+    }
+    reissueFailed = true;
+    if (fresh && fresh.url) {
+      try {
+        const retry = await openOnce(fresh.url, fresh.referer);
+        if (retry.refused) {
+          discard(retry);
+        } else {
+          reissueFailed = false;
+          opened = retry;
+          openError = null;
+          target = fresh.url;
+        }
+      } catch (e) {
+        /* Keep the first attempt's answer; it is the one worth reporting. */
+      }
+    }
+  }
+
+  if (!opened) {
+    fail(res, 502, (openError && openError.message) || "That stream couldn't be reached.");
     return;
   }
+
+  const upstream = opened.res;
+  const finalUrl = opened.url;
+  const type = opened.type;
 
   if (!upstream.ok && upstream.status !== 206) {
     /* 403 here is the referer check refusing us, which is the one failure
@@ -307,11 +396,10 @@ module.exports = async function handler(req, res) {
     const why = upstream.status === 403
       ? 'That host refused the stream (403). It expects the page it was embedded in.'
       : 'That stream answered ' + upstream.status + '.';
-    fail(res, 502, why);
+    fail(res, 502, why + (reissueFailed ? REISSUE_NOTE : ''));
     return;
   }
 
-  const type = (upstream.headers.get('content-type') || '').toLowerCase();
   const path = finalUrl.split('?')[0];
   const isPlaylist = PLAYLIST_TYPE.test(type) || /\.m3u8?$/i.test(path);
 
@@ -321,7 +409,8 @@ module.exports = async function handler(req, res) {
      someone else's HTML from our origin is the thing this endpoint most
      needs not to do. */
   if (REFUSED_TYPE.test(type)) {
-    fail(res, 415, 'That address is a web page, not a stream.');
+    fail(res, 415, 'That address is a web page, not a stream.' +
+      (reissueFailed ? REISSUE_NOTE : ''));
     return;
   }
 

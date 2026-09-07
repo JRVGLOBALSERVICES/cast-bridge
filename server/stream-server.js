@@ -183,6 +183,7 @@ function commit() {
    ticket it stole from a tab. The television is not a browser and asks
    nothing, so /f/ is exempt and says `*` for the Cast receiver's benefit. */
 const APP_ORIGINS = (process.env.CAST_APP_ORIGINS ||
+  'https://cast.jrvsystems.app,https://cast-bridge-new.vercel.app,' +
   'https://cast-bridge.vercel.app,http://127.0.0.1:3400,http://localhost:3400')
   .split(',').map((o) => o.trim()).filter(Boolean);
 

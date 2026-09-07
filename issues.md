@@ -743,3 +743,52 @@ Bilibili to confirm the session before writing anything.
 SESSDATA is a full account credential — a person you hand it to is signed in as
 you until you sign out on bilibili.com. Do not paste someone else's.
 
+
+## Task 22: unpacking a page's own scripts
+
+**Question:** is reversing a packed script something this app should do?
+**Assumption made:** yes, and it is not a protection being undone. Dean
+Edwards' packer is a 2000s minifier — it ships its dictionary and its decoder
+in the page because the browser has to read them. What comes back is the same
+text the browser gets. It is done by substitution, never by `eval`: the payload
+is a stranger's JavaScript and this runs on our server, so executing it would
+hand every page we scan the ability to run code here. That is asserted by
+consequence in `scripts/test-unpack.js`, not by grepping for `eval`.
+**Context you need to review:** `lib/media.js`, the "Packed player scripts"
+section. If you would rather this never ran, delete the `deobfuscate(` call in
+`api/extract.js` and the one in `readFrames` and the app returns to its old
+behaviour on these hosts, which is "nothing found, try the deep scan".
+
+## Task 24: the re-issue can hand back a different quality
+
+**Question:** when the bridge has to ask the page again for an address, and the
+exact quality is gone, should it refuse or substitute?
+**Assumption made:** substitute, and prefer playing. The renditions differ only
+inside the signed part of the address, so without the label they are
+indistinguishable; the label now travels with the request as `&q=`. If the
+label finds nothing, it takes the first of the same shape — which can mean 192p
+where 720p was asked for.
+**Context you need to review:** `lib/reissue.js` `reissue()`. If you would
+rather see an honest failure than a soft picture, drop the `sameShape` and
+`sameHost` fallbacks and return null when the label misses.
+
+## Task 24: what the re-issue is allowed to return
+
+It only ever hands back an address on the SAME host as the one that was
+refused, because the page it re-reads belongs to a stranger and this runs
+inside a request a television is waiting on. Without that rule a scanned page
+could point the TV anywhere it liked. Asserted in `scripts/test-reissue.js`.
+
+## Task 26: the old Vercel address still answers
+
+`cast-bridge.vercel.app` is still attached to the project alongside
+`cast.jrvsystems.app`. I left it rather than removing it, because anything you
+have already installed or bookmarked points at it. Say the word and I will
+detach it; the app itself has no reference to either name.
+
+## Not done: sitemap.xml
+
+The earlier note here said a sitemap was skipped because the deployed domain
+was unknown. It is now `cast.jrvsystems.app`. Still skipped — it is a private,
+password-gated utility with one route, and `robots.txt` already tells crawlers
+to stay out. Ask and it is a two-line file.

@@ -9,5 +9,10 @@
   },
   "engines": {
     "node": "22.x"
+  },
+  "scripts": {
+    "test": "node scripts/test-unpack.js && node scripts/test-reissue.js",
+    "test:unpack": "node scripts/test-unpack.js",
+    "test:reissue": "node scripts/test-reissue.js"
   }
 }

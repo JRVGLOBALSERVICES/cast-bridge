@@ -588,6 +588,11 @@
   /* The page the media was playing on. Hosts that check a referer want
      this one, not ours, and it is what /api/stream forwards on our behalf. */
   var currentFrom = '';
+  /* The quality that was chosen, when the scan offered a choice. Hosts of
+     this kind serve every rendition as the same filename, so if the bridge
+     ever has to ask the page for a fresh address this is the only thing
+     that tells 720p apart from 192p. */
+  var currentLabel = '';
   var hls = null;
   /* One proxy retry per load, or a stream that is genuinely gone loops. */
   var hlsProxied = false;
@@ -750,6 +755,7 @@
     if (currentFrom && /^https?:/i.test(currentFrom)) {
       out += '&r=' + encodeURIComponent(currentFrom);
     }
+    if (currentLabel) out += '&q=' + encodeURIComponent(currentLabel);
     /* The receiver is a different device. It resolves whatever it is handed
        against its own origin, not this page's, so a root-relative path
        reaches nothing at all on the television — which looks exactly like
@@ -865,6 +871,7 @@
     current = u;
     currentTitle = meta.title || nameOf(u);
     currentFrom = meta.from || '';
+    currentLabel = meta.label || '';
     hlsProxied = false;
     /* Some addresses are only fetchable with the referer of the page they
        belong to — Bilibili's CDN is the case this exists for, and it answers
@@ -2012,6 +2019,7 @@
           var only = media[0];
           load(only.url, {
             title: only.label || body.title || nameOf(only.url),
+            label: only.label || '',
             from: body.direct ? '' : body.finalUrl,
             proxy: Boolean(only.viaProxy)
           });
@@ -2994,6 +3002,7 @@
     play.addEventListener('click', function () {
       load(m.url, {
         title: m.label || page.title || nameOf(m.url),
+        label: m.label || '',
         from: page.finalUrl,
         proxy: Boolean(m.viaProxy)
       });
