@@ -83,6 +83,9 @@ summary:focus-visible {
   gap: 0.75rem;
   margin-bottom: 1rem;
 }
+/* A flex item's floor is its content, so without this the wordmark block
+   refuses to shrink and pushes the pill off-screen instead. */
+.cb-head > div { min-width: 0; }
 .cb-wordmark {
   margin: 0;
   font-size: 1.5rem;
@@ -104,7 +107,14 @@ summary:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  flex: none;
+  /* `flex: none` was written for "no devices". A real TV announces itself as
+     "Living Room Samsung QLED (Chromecast built-in)", which ran 77px past the
+     right edge of a 390px phone. body{overflow-x:hidden} swallowed that in
+     Chrome, so it measured clean here while the phone panned the whole page
+     sideways. The pill gives way instead, and the name truncates. */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 60%;
   padding: 0.4rem 0.7rem;
   border-radius: 2rem;
   background: var(--cb-surface);
@@ -113,6 +123,13 @@ summary:focus-visible {
   font-weight: 600;
   color: var(--cb-ink-2);
   white-space: nowrap;
+}
+
+/* The dot is fixed; the name is what gives. */
+.cb-devicepill > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cb-dot {
@@ -679,9 +696,15 @@ google-cast-launcher {
 /* ------------------------------------------------------------------ *
  * The gate
  *
- * Full-bleed so there is nothing behind it to tap at, and centred on the
- * short axis so the field sits under the thumb on a phone rather than up
- * against the notch.
+ * The same system as the app, not a second one. Every value below is a
+ * token off :root — the Neumorphism surface, the same inset field, the
+ * same accent, the same radii, the same focus ring — so signing in and
+ * using the thing read as one product. It was a dark ember screen for a
+ * day; that made the app look like it started somewhere else.
+ *
+ * What keeps it from being a grey card in a void is the composition, not
+ * the palette: left-anchored, bottom-weighted, with the signal meter
+ * holding the top half.
  * ------------------------------------------------------------------ */
 
 .cb-gate {
@@ -689,27 +712,14 @@ google-cast-launcher {
   inset: 0;
   z-index: 90;
   display: flex;
-  /* Left-anchored and bottom-weighted on purpose. The previous door was a
-     card centred in a void with an indigo accent — the three things the
-     anti-slop checklist names first. Direction is what stops a screen
-     reading as a default. */
+  /* Bottom-weighted so the field lands under a thumb rather than under the
+     notch, and left-anchored so the screen has a direction. */
   align-items: flex-end;
   justify-content: flex-start;
   padding: max(24px, env(safe-area-inset-top)) 22px max(30px, env(safe-area-inset-bottom));
   overflow: hidden;
   isolation: isolate;
-  /* The app is the light Neumorphism kit and stays that way. The door is not:
-     a casting app opens on the dark room it gets used in, then hands off to
-     the light workspace. */
-  background:
-    radial-gradient(140% 70% at 8% 108%, #241109 0%, #120a06 38%, #08070a 72%),
-    #08070a;
-  --cb-gate-ink: #f7f4f1;      /* 16.9:1 on #08070a */
-  --cb-gate-ink-2: #b9aea6;    /*  8.1:1 on #08070a — safe for real text */
-  --cb-gate-line: rgba(233, 190, 160, .16);
-  /* Ember, not indigo. A standby lamp is the one light a TV shows in a dark
-     room, and it is the colour this product is actually about. */
-  --cb-gate-accent: #ff6b35;
+  background: var(--cb-surface);
 }
 
 .cb-gate[hidden] { display: none; }
@@ -718,17 +728,16 @@ body.is-gated { overflow: hidden; }
 
 /* ---- the signal field ------------------------------------------------ */
 
-/* Eighteen bars, bottom-aligned, height driven by an index so they read as a
-   meter rather than a pattern. They breathe slowly and out of phase; nothing
-   here loops fast enough to ask for attention. */
+/* Eighteen bars, bottom-aligned, heights hand-set so they read as a meter
+   rather than a pattern. Not ornament: transmission strength is what this
+   app is about. It breathes slowly and out of phase; nothing here loops
+   fast enough to ask for attention. */
 .cb-gate-field {
   position: absolute;
   left: 0;
   right: 0;
-  /* Top half, sitting ON the line the form starts at. Two problems, one move:
-     the empty upper third stops being dead space, and the bars are no longer
-     behind the inputs, where they were showing through the translucent fill
-     and costing legibility. */
+  /* Top half, ending on the line the form starts at: the upper third stops
+     being dead space, and no bar sits behind an input. */
   top: 0;
   height: 46%;
   z-index: -1;
@@ -740,8 +749,8 @@ body.is-gated { overflow: hidden; }
   gap: clamp(7px, 1.4vw, 20px);
   padding: 0 22px;
   pointer-events: none;
-  opacity: .42;
-  /* Fades upward into the background and never reaches the form below. */
+  opacity: .5;
+  /* Fades upward into the surface and never reaches the form below. */
   mask-image: linear-gradient(to top, #000 0%, rgba(0,0,0,.35) 52%, transparent 94%);
   -webkit-mask-image: linear-gradient(to top, #000 0%, rgba(0,0,0,.35) 52%, transparent 94%);
 }
@@ -752,7 +761,9 @@ body.is-gated { overflow: hidden; }
      blocks that read as data. A meter is thin strokes at any width. */
   max-width: 11px;
   border-radius: 2px 2px 0 0;
-  background: linear-gradient(to top, var(--cb-gate-accent) 0%, rgba(255,107,53,0) 100%);
+  /* The app's one accent, same as the tab count chip and the live dot. */
+  background: linear-gradient(to top,
+    rgba(45, 76, 200, .62) 0%, rgba(45, 76, 200, 0) 100%);
   transform-origin: bottom;
   animation: cb-meter 5.2s ease-in-out infinite;
 }
@@ -807,43 +818,44 @@ body.is-gated { overflow: hidden; }
   font-weight: 700;
   letter-spacing: .18em;
   text-transform: uppercase;
-  color: var(--cb-gate-ink-2);
+  color: var(--cb-ink-2);
 }
 
-/* The standby lamp. It is the only thing on the screen that moves near the
-   text, which is why it is small and slow. */
+/* The standby lamp. Same dot, same pulse as the live indicator in the app
+   header — it is the one thing on the screen that moves near text, which is
+   why it is small and slow. */
 .cb-standby {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--cb-gate-accent);
-  box-shadow: 0 0 0 0 rgba(255,107,53,.55);
+  background: var(--cb-accent);
+  box-shadow: 0 0 0 0 rgba(45, 76, 200, .5);
   animation: cb-standby 3.4s ease-in-out infinite;
 }
 
 @keyframes cb-standby {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,53,.5); opacity: .85; }
-  50%      { box-shadow: 0 0 0 6px rgba(255,107,53,0); opacity: 1; }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(45, 76, 200, .45); opacity: .85; }
+  50%      { box-shadow: 0 0 0 6px rgba(45, 76, 200, 0); opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .cb-standby { animation: none; }
 }
 
-/* Scale contrast does the work a display face would. Two words, stacked,
-   tight tracking, the second in the accent — so the identity is the largest
-   thing on the screen and the form is the next largest. Nothing else. */
+/* The masthead wordmark, scaled up. Same weight, same tracking, same accent
+   on the second word as `.cb-wordmark` in the app — it is the same lockup,
+   sized for a screen that holds nothing else. */
 .cb-gate-mark {
   margin: 0;
   font-size: clamp(2.9rem, 15vw, 3.9rem);
   font-weight: 700;
   line-height: .92;
   letter-spacing: -.045em;
-  color: var(--cb-gate-ink);
+  color: var(--cb-ink);
 }
 .cb-gate-mark em {
   font-style: normal;
-  color: var(--cb-gate-accent);
+  color: var(--cb-accent);
 }
 
 /* ---- the form -------------------------------------------------------- */
@@ -859,50 +871,53 @@ body.is-gated { overflow: hidden; }
   font-weight: 700;
   letter-spacing: .14em;
   text-transform: uppercase;
-  color: var(--cb-gate-ink-2);
+  color: var(--cb-ink-2);
 }
 
 .cb-input-wrap { position: relative; }
 
+/* The app's own field: pressed into the surface, no border, kit radius.
+   Matched against the computed style of `#url` on the Link tab, so the two
+   are the same control at two sizes rather than two designs. */
 .cb-input {
   width: 100%;
   /* 16px min, or iOS Safari zooms the viewport on focus and the layout jumps. */
   font-size: 1rem;
+  font-weight: 300;
   line-height: 1.4;
-  padding: 14px 15px;
-  color: var(--cb-gate-ink);
-  /* Opaque, not translucent: a translucent field over any background is a
-     legibility gamble, and this screen has a moving one. */
-  background: #14100e;
-  border: 1px solid var(--cb-gate-line);
-  border-radius: 10px;
-  transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+  padding: 14px 16px;
+  color: var(--cb-ink);
+  background: var(--cb-surface);
+  border: 0;
+  border-radius: var(--cb-radius);
+  box-shadow: var(--cb-shadow-inset);
+  transition: box-shadow .16s ease;
   -webkit-appearance: none;
   appearance: none;
 }
 .cb-input-wrap .cb-input { padding-right: 48px; }
 
-.cb-input::placeholder { color: #8d8079; }
+.cb-input::placeholder { color: var(--cb-ink-soft); }
 
-.cb-input:hover { border-color: rgba(233,190,160,.30); }
-
-.cb-input:focus,
+/* Same ring the app puts on every focusable thing, for the same reason: the
+   kit ships none at all. */
 .cb-input:focus-visible {
-  outline: none;
-  background: #1a1512;
-  border-color: var(--cb-gate-accent);
-  box-shadow: 0 0 0 3px rgba(255,107,53,.20);
+  outline: 3px solid var(--cb-accent);
+  outline-offset: 2px;
 }
+.cb-input:focus { outline: none; }
+.cb-input:focus:not(:focus-visible) { box-shadow: var(--cb-shadow-inset); }
 
 /* A field that has already errored turns live (JS switches it to on-input),
-   so the ring must read as "still wrong" until the fix lands. */
+   so the mark must read as "still wrong" until the fix lands. There is no
+   border to recolour on a pressed field, so the ring is drawn as a second
+   shadow layer on top of the kit's. */
 .cb-input.is-bad,
 .cb-input.is-bad:focus {
-  border-color: #ff8a94;
-  box-shadow: 0 0 0 3px rgba(255,138,148,.18);
+  box-shadow: var(--cb-shadow-inset), 0 0 0 2px var(--cb-bad);
 }
 .cb-input.is-good {
-  border-color: rgba(90,206,150,.55);
+  box-shadow: var(--cb-shadow-inset), 0 0 0 2px rgba(24, 99, 75, .55);
 }
 
 .cb-reveal {
@@ -916,14 +931,14 @@ body.is-gated { overflow: hidden; }
   height: 38px;
   padding: 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--cb-radius);
   background: none;
-  color: var(--cb-gate-ink-2);
+  color: var(--cb-ink-2);
   cursor: pointer;
 }
-.cb-reveal:hover { color: var(--cb-gate-ink); }
+.cb-reveal:hover { color: var(--cb-ink); }
 .cb-reveal:focus-visible {
-  outline: 2px solid var(--cb-gate-accent);
+  outline: 3px solid var(--cb-accent);
   outline-offset: 2px;
 }
 /* Pressed = password is visible = the slash is off. */
@@ -932,9 +947,11 @@ body.is-gated { overflow: hidden; }
 
 .cb-gate-form .cb-fielderror {
   margin: -2px 0 0;
-  color: #ffa9b1;
+  color: var(--cb-bad);
 }
 
+/* The app's primary action, at full width. Same fill, same ink, same raised
+   shadow and radius as the Play button on the Link tab. */
 .cb-gate-btn {
   position: relative;
   display: flex;
@@ -943,32 +960,33 @@ body.is-gated { overflow: hidden; }
   gap: 9px;
   width: 100%;
   margin-top: 18px;
-  /* 48px: a thumb target, not a mouse target. */
+  /* A thumb target, not a mouse target. */
   min-height: 50px;
   padding: 14px 18px;
   font-size: .95rem;
   font-weight: 700;
   letter-spacing: .01em;
-  /* Near-black ink on ember, not white on blue. Measured on the rendered DOM:
-     white on #ff6b35 is 2.84:1 and fails outright; this pairing is 6.69:1 and
-     passes AA, while reading as a deliberate brand rather than a stock button. */
-  color: #1b0d06;
-  background: var(--cb-gate-accent);
+  color: #ecf0f3;
+  background: var(--cb-accent);
   border: 0;
-  border-radius: 10px;
-  box-shadow: 0 12px 30px -12px rgba(255,107,53,.75);
+  border-radius: var(--cb-radius);
+  box-shadow: var(--cb-shadow-light);
   cursor: pointer;
   transition: transform .12s ease, box-shadow .16s ease, filter .16s ease;
 }
 .cb-gate-btn:hover { filter: brightness(1.08); }
-.cb-gate-btn:active { transform: translateY(1px); }
+/* Pressed, the way every raised control in this kit presses. */
+.cb-gate-btn:active {
+  transform: translateY(1px);
+  box-shadow: var(--cb-shadow-inset);
+}
 .cb-gate-btn:focus-visible {
-  outline: 2px solid #ffc7ad;
-  outline-offset: 3px;
+  outline: 3px solid var(--cb-accent);
+  outline-offset: 2px;
 }
 .cb-gate-btn[disabled] {
   cursor: default;
-  filter: saturate(.5) brightness(.8);
+  filter: saturate(.55) brightness(1.05);
   box-shadow: none;
 }
 
@@ -981,8 +999,8 @@ body.is-gated { overflow: hidden; }
   display: none;
   width: 16px;
   height: 16px;
-  border: 2px solid rgba(27,13,6,.35);
-  border-top-color: #1b0d06;
+  border: 2px solid rgba(236, 240, 243, .35);
+  border-top-color: #ecf0f3;
   border-radius: 50%;
   animation: cb-spin .7s linear infinite;
 }
@@ -997,7 +1015,7 @@ body.is-gated { overflow: hidden; }
   margin: 16px 0 0;
   font-size: .75rem;
   line-height: 1.5;
-  color: var(--cb-gate-ink-2);
+  color: var(--cb-ink-2);
 }
 
 /* Short landscape phone: the meter is the first thing worth losing, and the

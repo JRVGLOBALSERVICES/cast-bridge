@@ -8,8 +8,8 @@
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
-  "background_color": "#08070a",
-  "theme_color": "#08070a",
+  "background_color": "#e6e7ee",
+  "theme_color": "#e6e7ee",
   "categories": ["entertainment", "utilities"],
   "launch_handler": { "client_mode": "focus-existing" },
   "icons": [

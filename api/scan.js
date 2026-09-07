@@ -112,6 +112,149 @@ function detailFor(u, via) {
   return via;
 }
 
+/* Installed in every frame before that frame's own scripts run.
+ *
+ * Watching URLs is not enough, and desicinema.org is where that stopped
+ * being a theory: its player asks movieshub.rpmplay.xyz/api/v1/info for
+ * its source, that answers 200 with an encrypted hex body, and the page
+ * decrypts it in JavaScript. The address never appears in a request URL,
+ * in a response body, or in an attribute a scanner can read from outside.
+ * The only place it is ever in the clear is inside the page, for the
+ * instant the player uses it.
+ *
+ * So read it there. Nothing below breaks anything: no key is recovered, no
+ * sign-in is bypassed, no DRM is touched — a page that hands its own
+ * player a plain address is simply asked what that address was. A page
+ * whose media is genuinely encrypted, the way the big streaming apps do
+ * it, puts nothing in the clear here and still yields nothing, which is
+ * the correct answer for it.
+ */
+const INSTRUMENT = function () {
+  try {
+    if (window.__cbHooked) return;
+    window.__cbHooked = true;
+    var seen = (window.__cbSeen = []);
+
+    var MEDIA =
+      /https?:\/\/[^\s"'<>\\)]+?\.(m3u8|mpd|mp4|m4v|webm|mkv|mov|m4a|mp3)(\?[^\s"'<>\\)]*)?/gi;
+
+    function push(u, via) {
+      try {
+        if (typeof u !== 'string' || !u) return;
+        if (seen.length > 60) return;
+        /* A blob: or MediaSource handle is a local object, not an address
+           anything else could ever fetch. */
+        if (/^(blob:|data:|about:)/i.test(u)) return;
+        var abs = new URL(u, document.baseURI).href;
+        if (!/^https?:/i.test(abs)) return;
+        for (var i = 0; i < seen.length; i++) if (seen[i].url === abs) return;
+        seen.push({ url: abs, via: via });
+      } catch (e) { /* an unparseable string is not an address */ }
+    }
+
+    /* Text that may carry an address somewhere inside it. */
+    function sweep(text, via) {
+      try {
+        if (typeof text !== 'string') return;
+        if (text.length > 2000000) return;
+        if (text.indexOf('http') === -1) return;
+        var m = text.match(MEDIA);
+        if (!m) return;
+        for (var i = 0; i < m.length && i < 20; i++) push(m[i], via);
+      } catch (e) { /* a hostile string is not worth the frame */ }
+    }
+
+    /* Whatever the player finally hands the media element IS the stream,
+       extension or not — signed CDN links usually carry none. */
+    try {
+      var d = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+      if (d && d.set) {
+        Object.defineProperty(HTMLMediaElement.prototype, 'src', {
+          configurable: true,
+          enumerable: d.enumerable,
+          get: d.get,
+          set: function (v) { push(v, 'set on the player'); return d.set.call(this, v); }
+        });
+      }
+    } catch (e) { /* a frame that froze its prototypes keeps the rest */ }
+
+    try {
+      var setAttr = Element.prototype.setAttribute;
+      Element.prototype.setAttribute = function (name, value) {
+        try {
+          if (/^src$/i.test(name) && /^(video|audio|source)$/i.test(this.tagName)) {
+            push(value, 'set on the player');
+          }
+        } catch (e) { /* keep the assignment working whatever happens */ }
+        return setAttr.apply(this, arguments);
+      };
+    } catch (e) { /* ditto */ }
+
+    /* A response body in the clear. This is the ordinary case the old scan
+       missed outright: plenty of players fetch a plain JSON manifest, and
+       the address only ever exists inside it, never in a URL. */
+    try {
+      var fetch0 = window.fetch;
+      if (typeof fetch0 === 'function') {
+        window.fetch = function () {
+          return fetch0.apply(this, arguments).then(function (res) {
+            try {
+              var type = (res.headers.get('content-type') || '').toLowerCase();
+              var len = Number(res.headers.get('content-length') || 0);
+              /* Never read a media body — that is the stream itself, and
+                 draining it would cost the page its playback. */
+              if (/(json|text|javascript|xml|urlencoded)/.test(type) && len < 524288) {
+                res.clone().text().then(function (t) {
+                  sweep(t, 'answered to the player');
+                }, function () {});
+              }
+            } catch (e) { /* the response is still the page's to use */ }
+            return res;
+          });
+        };
+      }
+    } catch (e) { /* ditto */ }
+
+    try {
+      var send0 = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.send = function () {
+        try {
+          this.addEventListener('load', function () {
+            try {
+              if (this.responseType && this.responseType !== 'text') return;
+              sweep(this.responseText, 'answered to the player');
+            } catch (e) { /* cross-origin or binary — nothing to read */ }
+          });
+        } catch (e) { /* keep the request working */ }
+        return send0.apply(this, arguments);
+      };
+    } catch (e) { /* ditto */ }
+
+    /* The two places a decrypted payload becomes readable text. Hooking
+       these is what catches an address that was encrypted on the wire:
+       whatever the page's own code decrypts, it then parses or decodes,
+       and at that moment it is an ordinary string. */
+    try {
+      var parse0 = JSON.parse;
+      JSON.parse = function (text) {
+        sweep(text, 'read out of the player');
+        return parse0.apply(this, arguments);
+      };
+    } catch (e) { /* ditto */ }
+
+    try {
+      var atob0 = window.atob;
+      if (typeof atob0 === 'function') {
+        window.atob = function () {
+          var out = atob0.apply(this, arguments);
+          sweep(out, 'read out of the player');
+          return out;
+        };
+      }
+    } catch (e) { /* ditto */ }
+  } catch (e) { /* instrumentation must never cost the page its load */ }
+};
+
 async function collect(page, target) {
   const found = new Map();
 
@@ -139,6 +282,12 @@ async function collect(page, target) {
       note(url, 'served to the page');
     }
   });
+
+  /* Before the navigation, so it lands in the top document AND in every
+     frame the page builds afterwards — which is where the player is. */
+  try {
+    await page.evaluateOnNewDocument(INSTRUMENT);
+  } catch (e) { /* an older protocol still gets everything else */ }
 
   await page.goto(target, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
 
@@ -251,6 +400,24 @@ async function collect(page, target) {
      player and misses it on every site that embeds one, which is most of
      them: the page holds an iframe, that iframe holds another, and the
      <video> is at the bottom. */
+  /* Drain what the hooks saw, in every frame. Kept apart from reading the
+     DOM because the two answer different questions: the DOM says what is on
+     the element now, the hooks say what the page ever handed it. A player
+     that sets a source and is then torn down by an ad leaves nothing in the
+     DOM and everything here. */
+  const readInstrumented = async () => {
+    for (const frame of page.frames()) {
+      try {
+        const rows = await frame.evaluate(() => {
+          const out = window.__cbSeen || [];
+          window.__cbSeen = [];
+          return out;
+        });
+        rows.forEach((r) => note(r.url, r.via));
+      } catch (e) { /* detached or navigated away mid-read */ }
+    }
+  };
+
   const readMediaElements = async () => {
     for (const frame of page.frames()) {
       try {
@@ -340,12 +507,14 @@ async function collect(page, target) {
   while (Date.now() < deadline) {
     await sampleEvidence();
     await readMediaElements();
+    await readInstrumented();
     if (realMedia()) break;
     await pokeEveryFrame();
     await new Promise((r) => setTimeout(r, WATCH_STEP_MS));
   }
   await sampleEvidence();
   await readMediaElements();
+  await readInstrumented();
 
   let title = '';
   let poster = null;

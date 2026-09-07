@@ -408,7 +408,11 @@
   }
 
   function setPill(text, kind) {
-    $('devicePillText').textContent = text;
+    const el = $('devicePillText');
+    el.textContent = text;
+    /* The pill truncates a long TV name rather than shoving the page
+       sideways, so the full name has to stay reachable somewhere. */
+    el.title = text;
     $('devicePillDot').className = 'cb-dot' + (kind ? ' is-' + kind : '');
   }
 
@@ -856,7 +860,7 @@
     gate.hidden = false;
     sealShell(true);
     var themeBack = $('themeColor');
-    if (themeBack) themeBack.setAttribute('content', '#08070a');
+    if (themeBack) themeBack.setAttribute('content', '#e6e7ee');
     document.body.classList.add('is-gated');
     if (message) gateError(message);
 

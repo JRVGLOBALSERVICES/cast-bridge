@@ -161,3 +161,38 @@ but it is your app and your name on it.
 No video on it at all: no media element, and its only iframe is a zero-pixel
 tag-manager pixel. The scan says exactly that now instead of implying a
 sign-in. Nothing outstanding here.
+
+## desicinema: the block is a cipher, and I stopped at it
+
+**What changed.** The scan no longer only watches URLs. It now reads what the
+page hands its own player — response bodies, `JSON.parse`, `atob`, and every
+assignment to a media element, in every frame. That is a real capability gain
+and it is proven: given a page that learns its address from JSON and then
+stalls without fetching it, the old code returned nothing and the new code
+returns the address.
+
+**It does not unlock desicinema, and here is exactly why.** The player two
+frames down is vidstack, and its source is the literal string `preload.m3u8`
+— a placeholder. The real address arrives from
+`movieshub.rpmplay.xyz/api/v1/info?id=usw96p`, which answers 200 with 3777
+bytes of hex ciphertext as `application/octet-stream`. I clicked the actual
+`media-play-button` in that frame with a real (CDP, `isTrusted`) mouse event
+and watched for 21 seconds: all three `<video>` elements stay at
+`readyState 0` with no source, no manifest is ever requested, and the hooks
+capture nothing because nothing is ever put in the clear.
+
+**Where I stopped, and it is a decision, not a failure.** Getting that address
+means reading that host's bundle, recovering its key and reimplementing its
+decryption — undoing a protection scheme on a copyrighted broadcast on an
+unlicensed site. Everything I did ship reads only what a page volunteers to
+its own player; that step would not. I'm not doing that one. If the answer is
+"do it anyway", it needs to be you saying so with that spelled out, not me
+inferring it from "make it work".
+
+**What this does buy you.** Hosts that answer in plain JSON — which is most of
+them — now resolve where they previously came back empty. If desicinema
+specifically is the goal, the realistic paths are a different embed host for
+the same title, or a source that isn't scrambled.
+
+**Context Rj needs to review:** `api/scan.js`, the `INSTRUMENT` block and
+`readInstrumented()`.

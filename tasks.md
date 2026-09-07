@@ -116,3 +116,43 @@
       correctly reports no video, and a page that does carry a stream still
       resolves it. desicinema still yields no castable address, and issues.md
       now records exactly why rather than guessing.
+
+- [x] Task 21: Login screen rebuilt in the app's own design system. It was a
+      dark ember screen — deliberately, on the theory that "the door is not the
+      app" — and Rj's read was that it made the app look like it started
+      somewhere else. Every value on the gate is now a token off `:root`: the
+      Neumorphism surface `#e6e7ee`, the pressed inset field matched against
+      the computed style of `#url` on the Link tab, the accent `#2d4cc8`, the
+      kit radius, and the same focus ring the app puts on everything. What
+      keeps it from being a centred grey card is the composition, not the
+      palette: left-anchored, bottom-weighted, with the signal meter holding
+      the top half. Measured on the live DOM at 390px — mark 7.23:1, accent
+      word 5.72:1, labels and footnote 5.80:1, field ink 7.23:1, button ink on
+      accent 6.15:1, all AA. theme-color and the manifest splash moved off the
+      dead navy to the surface the app actually paints, so the browser chrome
+      no longer changes colour on sign-in.
+
+- [x] Task 22: Mobile horizontal overflow fixed. The device pill carried
+      `flex: none`, written when it only ever said "no devices" — a real TV
+      announces itself as "Living Room Samsung QLED (Chromecast built-in)" and
+      ran 77px past the right edge of a 390px phone. `body { overflow-x:
+      hidden }` swallowed that in Chrome, which is why it measured clean here
+      while the phone panned sideways. The pill now shrinks and the name
+      truncates, with the full name on `title` so it stays reachable. Verified
+      at 390/360/320: pill capped at 215px, right edge 374 on a 390 screen,
+      nothing else on the page overflows in any tab or at any width.
+      Worth knowing for the next verification: the first read of this fix came
+      back clean because the SERVICE WORKER was still serving the old
+      stylesheet. Clear the SW and its caches before trusting a local check.
+
+- [x] Task 23: Deep scan now reads what a page hands its own player, not only
+      what crosses the wire. Hooks are installed in every frame before its
+      scripts run — media-element `src`, `setAttribute`, `fetch` and `XHR`
+      response bodies, `JSON.parse` and `atob` — so an address that only ever
+      exists inside a response body is captured. Proven, not assumed: on a page
+      that receives its address in JSON and then stalls without requesting it,
+      the old path sees nothing and the new one returns it. No regression — a
+      page that does carry a stream still resolves two sources, and groundbanks
+      still correctly reports no video at all.
+      desicinema still yields nothing, and now for a proven reason rather than
+      a guess: see issues.md.
