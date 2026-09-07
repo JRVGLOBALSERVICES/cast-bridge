@@ -31,6 +31,7 @@ const authApi = require('../api/auth.js');
 const usersApi = require('../api/users.js');
 const historyApi = require('../api/history.js');
 const subsApi = require('../api/subs.js');
+const streamApi = require('../api/stream.js');
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
@@ -64,6 +65,19 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       res.statusCode = 500;
       res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  /* The proxy the television fetches through. Absent here, a local run can
+     resolve a stream and never find out whether it plays. */
+  if (pathname === '/api/stream') {
+    req.query = Object.fromEntries(url.searchParams.entries());
+    try {
+      await streamApi(req, res);
+    } catch (e) {
+      if (!res.headersSent) { res.statusCode = 500; res.end(JSON.stringify({ ok: false, error: e.message })); }
+      else res.end();
     }
     return;
   }

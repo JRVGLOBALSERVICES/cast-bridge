@@ -38,6 +38,47 @@ const { safeFetch, readCapped, UA } = require('../lib/media');
    fails while the receiver is still willing to retry. */
 const STREAM_TIMEOUT_MS = 20000;
 
+/* Vercel gives this function 60 seconds, and a receiver asking a
+   progressive file for "everything from here on" means one response that
+   has to carry the rest of the film. At the 3.7 Mbit/s a 3-hour 5 GB
+   encode averages, that single response is three hours long, so the
+   function is killed mid-film and the television sees the stream die —
+   the failure gets worse the longer the film is, which is exactly
+   backwards.
+
+   An open-ended or oversized range is therefore answered a window at a
+   time: the range sent upstream is narrowed, and the 206 that comes back
+   already describes the narrower window, so nothing has to be rewritten
+   on the way out. The player reads the window, sees from Content-Range
+   that the file continues, and asks for the next one. That is ordinary
+   HTTP — CDNs cap ranges the same way — and it puts a ceiling on how long
+   any single invocation can run regardless of how big the file is.
+
+   8 MiB is about 17 seconds of that same encode: long enough that the
+   round trips are rare, short enough to transfer well inside the limit
+   even from a slow origin. */
+const RANGE_WINDOW_BYTES = 8 * 1024 * 1024;
+
+/* Only a single well-formed byte range is narrowed. A suffix range
+   (bytes=-N) is asking for the tail, which is how a player finds an mp4's
+   moov box and is small by nature; a multipart range is rare enough that
+   passing it through untouched is safer than reasoning about it. */
+function narrowRange(header) {
+  const m = /^bytes=(\d+)-(\d*)$/.exec(String(header || '').trim());
+  if (!m) return { header: header, narrowed: false };
+
+  const start = Number(m[1]);
+  if (!Number.isFinite(start)) return { header: header, narrowed: false };
+  const end = m[2] === '' ? Infinity : Number(m[2]);
+  if (!(end >= start)) return { header: header, narrowed: false };
+  if (end - start + 1 <= RANGE_WINDOW_BYTES) return { header: header, narrowed: false };
+
+  return {
+    header: 'bytes=' + start + '-' + (start + RANGE_WINDOW_BYTES - 1),
+    narrowed: true
+  };
+}
+
 /* Enough of the front of a body to find an image header's end and check
    what follows it. The wrapper measured in the wild ended at byte 120. */
 const HEAD_PEEK_BYTES = 4096;
@@ -198,7 +239,12 @@ module.exports = async function handler(req, res) {
   /* Seeking on the television is a Range request. Dropping it here turns
      every seek into a full refetch from zero. */
   const ranged = !!req.headers.range;
-  if (ranged) headers.range = req.headers.range;
+  let narrowed = false;
+  if (ranged) {
+    const win = narrowRange(req.headers.range);
+    headers.range = win.header;
+    narrowed = win.narrowed;
+  }
 
   let upstream;
   let finalUrl;
@@ -272,6 +318,14 @@ module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'public, max-age=600');
   res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
 
+  /* A host that ignored the narrowed range and sent the whole file back
+     anyway would undo the ceiling silently. Say so in a header rather than
+     leaving it to be inferred from a timeout. */
+  if (narrowed) {
+    res.setHeader('X-Cast-Bridge-Window', upstream.status === 206
+      ? String(RANGE_WINDOW_BYTES) : 'ignored');
+  }
+
   if (req.method === 'HEAD' || !upstream.body) {
     res.end();
     return;
@@ -333,3 +387,6 @@ module.exports = async function handler(req, res) {
    at the origin fails on the television as a decode error with no network
    trace, so this branch is worth being able to assert on directly. */
 module.exports.rewritePlaylist = rewritePlaylist;
+
+/* Exported for the range-window test. */
+module.exports.narrowRange = narrowRange;
