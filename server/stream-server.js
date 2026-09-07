@@ -27,6 +27,7 @@
 
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const streamApi = require('../api/stream.js');
@@ -120,6 +121,26 @@ function gb(bytes) {
 
 const started = Date.now();
 let inFlight = 0;
+
+/* Which commit is actually running. Read from .git rather than baked in at
+   build time because there is no build: the deploy is `git pull && pm2
+   restart`, and the question worth answering on a bad day is whether that
+   pull ever happened. Read once — it cannot change without a restart. */
+const COMMIT = (function () {
+  try {
+    const head = fs.readFileSync(path.join(__dirname, '..', '.git', 'HEAD'), 'utf8').trim();
+    const m = /^ref:\s*(.+)$/.exec(head);
+    if (!m) return head.slice(0, 12);
+    const ref = fs.readFileSync(path.join(__dirname, '..', '.git', m[1]), 'utf8').trim();
+    return ref.slice(0, 12);
+  } catch (e) {
+    return null;
+  }
+})();
+
+function commit() {
+  return COMMIT;
+}
 
 /* The app lives on another origin, so every call it makes here is a
    cross-origin one and the browser asks first. Named rather than starred:
@@ -312,6 +333,61 @@ const server = http.createServer(async (req, res) => {
         (res.writableFinished ? 'complete' : 'aborted'), 'file:' + meta.id].join(' '));
     });
     return serveFile(req, res, meta);
+  }
+
+  /* ---------- What this machine is doing ----------
+   *
+   * /healthz is public because the app has to be able to ask "is the box
+   * up" before anybody signs in, and a Chromecast asks it with no headers
+   * at all. Load average, free memory, the node version and the commit in
+   * use are a different kind of fact: they are of no use to a viewer and
+   * of some use to a stranger, so they live behind the same owner-only
+   * ticket the file list uses rather than on the open endpoint.
+   */
+  if (url.pathname === '/api/system') {
+    if (!gate(req, res, 'storage')) return;
+    const day = today();
+    const days = Object.keys(usage).sort().slice(-14)
+      .map((d) => ({ day: d, bytes: usage[d] }));
+    const total = os.totalmem();
+    const free = os.freemem();
+    const cpus = os.cpus() || [];
+    let disk = null;
+    try { disk = await storage.usage(); } catch (e) { disk = null; }
+    return json(res, 200, {
+      ok: true,
+      service: {
+        pid: process.pid,
+        node: process.version,
+        uptime_s: Math.round((Date.now() - started) / 1000),
+        started_at: started,
+        commit: commit(),
+        port: PORT,
+        in_flight: inFlight,
+        window_mb: Number(process.env.STREAM_RANGE_WINDOW_MB) || 8,
+        uploads_enabled: ticket.configured(),
+        state_dir: STATE_DIR
+      },
+      machine: {
+        hostname: os.hostname(),
+        platform: os.platform() + ' ' + os.release(),
+        arch: os.arch(),
+        uptime_s: Math.round(os.uptime()),
+        cpu_count: cpus.length,
+        cpu_model: cpus.length ? cpus[0].model : null,
+        /* Load per core, because 4.0 on this box and 4.0 on a laptop are
+           not the same sentence. */
+        load: os.loadavg().map((n) => Math.round(n * 100) / 100),
+        load_per_core: cpus.length
+          ? Math.round((os.loadavg()[0] / cpus.length) * 100) / 100
+          : null,
+        mem_total: total,
+        mem_free: free,
+        mem_used_pct: total ? Math.round(((total - free) / total) * 1000) / 10 : null
+      },
+      storage: disk,
+      served: { today: usage[day] || 0, days: days }
+    });
   }
 
   if (url.pathname === '/api/storage') {

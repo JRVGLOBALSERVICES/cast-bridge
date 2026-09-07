@@ -4282,19 +4282,85 @@
       });
   }
 
+  /* The box itself, not the service on it. "Is the stream host up" is the
+     question /healthz answers; "is the box in trouble" is a different one,
+     and load, memory and the running commit are how it gets answered from
+     a phone without opening a terminal. Owner-only by the same ticket as
+     the file list — a viewer has no use for it and a stranger might. */
+  function renderHostMachine(body, sys) {
+    if (!sys || !sys.ok) return;
+    var svc = sys.service || {};
+    var m = sys.machine || {};
+
+    var head = document.createElement('p');
+    head.className = 'cb-host-head';
+    head.textContent = 'The machine';
+    body.appendChild(head);
+
+    if (m.uptime_s != null) {
+      body.appendChild(hostRow('Box up for', fmtLength(m.uptime_s)));
+    }
+    if (m.load && m.load.length) {
+      /* Per core first, because that is the number with a threshold: 1.0
+         is a busy machine whatever its core count, and the raw triple next
+         to it says whether it is getting worse or better. */
+      var perCore = m.load_per_core == null ? null : m.load_per_core.toFixed(2);
+      body.appendChild(hostRow('Load',
+        (perCore ? perCore + ' per core' : m.load[0].toFixed(2)) +
+        '  (' + m.load.map(function (n) { return n.toFixed(2); }).join(' · ') + ')',
+        m.load_per_core != null && m.load_per_core >= 1 ? 'warn' : ''));
+    }
+    if (m.mem_total) {
+      body.appendChild(hostRow('Memory',
+        fmtSize(m.mem_total - m.mem_free) + ' of ' + fmtSize(m.mem_total) +
+        ' used  (' + m.mem_used_pct + '%)',
+        m.mem_used_pct >= 90 ? 'warn' : ''));
+    }
+    if (m.cpu_count) {
+      body.appendChild(hostRow('Processors', m.cpu_count + ' cores'));
+    }
+    if (svc.pid) {
+      body.appendChild(hostRow('Service', 'pid ' + svc.pid + ' · node ' + (svc.node || '?')));
+    }
+    if (svc.commit) {
+      body.appendChild(hostRow('Running commit', svc.commit));
+    }
+    if (m.platform) {
+      var plat = document.createElement('p');
+      plat.className = 'cb-host-path';
+      plat.textContent = (m.hostname ? m.hostname + ' · ' : '') + m.platform + ' · ' + m.arch;
+      body.appendChild(plat);
+    }
+  }
+
   /* The list and the buttons that empty it. Separate request from /healthz
      because it needs a ticket and /healthz deliberately does not. */
   function renderHostFiles(body, run) {
     streamTicket('storage').then(function (t) {
-      return fetch(t.host + '/api/storage', {
-        headers: { authorization: 'Bearer ' + t.token, accept: 'application/json' }
-      }).then(function (r) { return r.json(); }).then(function (b) {
-        return { t: t, b: b };
+      var head = { authorization: 'Bearer ' + t.token, accept: 'application/json' };
+      return Promise.all([
+        fetch(t.host + '/api/storage', { headers: head }).then(function (r) { return r.json(); }),
+        /* The machine's own vitals, on the same ticket. Allowed to fail by
+           itself: a stream host that has not been pulled yet has no
+           /api/system, and an older box must not cost the file list its
+           render. */
+        fetch(t.host + '/api/system', { headers: head })
+          .then(function (r) { return r.json(); })
+          .catch(function () { return null; })
+      ]).then(function (both) {
+        return { t: t, b: both[0], sys: both[1] };
       });
     }).then(function (res) {
       if (run !== hostRun) return;          // a newer open has already drawn
       var b = res.b;
       if (!b || !b.ok) throw new Error((b && b.error) || 'Could not read the folder.');
+
+      renderHostMachine(body, res.sys);
+
+      var listHead = document.createElement('p');
+      listHead.className = 'cb-host-head';
+      listHead.textContent = 'On the disk';
+      body.appendChild(listHead);
 
       var list = document.createElement('div');
       list.className = 'cb-host-files';

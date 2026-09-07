@@ -16,7 +16,8 @@
   --cb-mute: #93a5be;      /* $gray-600 — 2.04:1. DECORATION ONLY, never text. */
   --cb-line: #d1d9e6;      /* $gray-400 / $light */
   --cb-ok: #18634b;        /* $success */
-  --cb-warn: #f0b400;      /* $warning */
+  --cb-warn: #f0b400;      /* $warning — 1.52:1 on the surface. FILLS ONLY, never text. */
+  --cb-warn-ink: #7a5200;  /* the same warning, dark enough to read: 5.61:1 */
   --cb-bad: #a91e2c;       /* $danger */
 
   --cb-shadow-soft: 6px 6px 12px #b8b9be, -6px -6px 12px #ffffff;
@@ -1971,6 +1972,22 @@ body.is-gated { overflow: hidden; }
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
+/* A group label inside the host panel. The panel was one flat run of a
+   dozen numbers; what the box is doing and what is on its disk are two
+   different questions and read faster with a line between them. */
+.cb-host-head {
+  margin: 1rem 0 0.1rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--cb-ink-2);
+}
+.cb-host-body > .cb-host-head:first-child { margin-top: 0; }
+/* Load over 1.0 per core, or memory over 90%. Amber, but the readable
+   amber — the token one is a fill colour and fails as text. */
+.cb-host-row.is-warn .cb-host-v { color: var(--cb-warn-ink); }
+
 .cb-host-path {
   margin: 0.6rem 0 0;
   font-family: var(--font-family-monospace, monospace);
