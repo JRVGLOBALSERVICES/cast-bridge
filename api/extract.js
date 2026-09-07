@@ -13,7 +13,8 @@
 
 const {
   MAX_RESULTS, MEDIA_EXT, safeFetch, readCapped, kindOf, labelFor, extract,
-  expandHlsMaster, walledService, walledMessage
+  expandHlsMaster, walledService, walledMessage,
+  normalizeShare, collectFrames, collectCandidates, probeAll, readFrames
 } = require('../lib/media');
 const auth = require('../lib/auth');
 
@@ -41,6 +42,11 @@ module.exports = async function handler(req, res) {
 
   let target = String(raw).trim();
   if (!/^https?:\/\//i.test(target)) target = 'https://' + target;
+
+  /* A Drive or Dropbox share link names the file in its path; the address
+     that serves the bytes is a fixed rewrite of it, so rewrite it before
+     spending a fetch on the viewer page wrapped around it. */
+  target = normalizeShare(target);
 
   /* Answer walled services before spending a fetch on them. */
   const walled = walledService(target);
@@ -106,15 +112,46 @@ module.exports = async function handler(req, res) {
 
     const html = await readCapped(pageRes);
     const parsed = extract(html, finalUrl);
+    let via = null;
 
-    /* One master playlist gets expanded into its real quality variants. */
-    const master = parsed.media.find((x) => x.kind === 'HLS');
-    if (master) {
-      const variants = await expandHlsMaster(master.url);
+    /* Nothing on the page itself is not the end of the quick scan any more.
+       Two more places an ordinary address hides, tried in the order that
+       pays off most often, and only when the first pass came back empty so
+       a page that already answered stays as fast as it was.
+
+         1. Frames. A wrapper page has no player of its own; the host it
+            delegates to does. One hop, in parallel, ad and analytics
+            frames skipped.
+         2. Candidates. The address is in the player config but its name
+            gives nothing away, which is true of almost every signed CDN
+            link. These are fetched, and the first few kilobytes of the
+            answer decide — never the name. */
+    if (!parsed.media.length) {
+      const framed = await readFrames(collectFrames(html, finalUrl), finalUrl);
+      if (framed.media.length) {
+        parsed.media = framed.media;
+        via = 'embedded player';
+      } else {
+        const probed = await probeAll(
+          collectCandidates(html, finalUrl).concat(framed.candidates)
+        );
+        if (probed.length) {
+          parsed.media = probed;
+          via = 'player config';
+        }
+      }
+    }
+
+    /* Master playlists get expanded into their real quality variants. */
+    const masters = parsed.media.filter((x) => x.kind === 'HLS').slice(0, 2);
+    if (masters.length) {
       const known = new Set(parsed.media.map((x) => x.url));
-      variants.forEach((v) => {
-        if (!known.has(v.url)) { parsed.media.push(v); known.add(v.url); }
-      });
+      for (const master of masters) {
+        const variants = await expandHlsMaster(master.url);
+        variants.forEach((v) => {
+          if (!known.has(v.url)) { parsed.media.push(v); known.add(v.url); }
+        });
+      }
       parsed.media = parsed.media.slice(0, MAX_RESULTS);
     }
 
@@ -142,7 +179,8 @@ module.exports = async function handler(req, res) {
       title: parsed.title,
       poster: parsed.poster,
       media: parsed.media,
-      direct: false
+      direct: false,
+      via
     }));
   } catch (err) {
     res.statusCode = 200;

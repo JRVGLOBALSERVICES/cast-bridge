@@ -233,3 +233,44 @@ on an unlicensed host — it fails for reasons that have nothing to do with the
 quality of the app. groundbanks has no video on it at all and is reported
 correctly. Neither is a test of Cast Bridge. A plain .mp4 or .m3u8, a Drive or
 Dropbox share, or any ordinary embed host is.
+
+## Task 27: what the widened scan still will not catch
+
+**Question:** should the frame hop and the probe run on every scan, or only
+when the first pass finds nothing?
+
+**Assumption made:** only when it finds nothing. A page that already answers
+stays as fast as it was — the regression cases still return in 300-800ms —
+and the extra fetches are spent only where there is nothing to lose. The cost
+is a real case: a post whose `og:video` is a 30-second promo clip while the
+actual film sits in an iframe will still hand back the promo, because the
+first pass "succeeded". Flip the condition in `api/extract.js` (the
+`if (!parsed.media.length)` around the widening block) if you would rather
+pay ~1s on every scan to catch that.
+
+**Context Rj needs to review:** `api/extract.js` — the widening block. It is
+one condition either way.
+
+## Task 27: Google Drive's interstitial
+
+**Question:** what should a big Drive file do?
+
+**Assumption made:** nothing special yet. `normalizeShare` rewrites a Drive
+share link to `uc?export=download&id=<id>`, which serves the file directly for
+ordinary sizes. Above roughly 100 MB Drive answers with a virus-scan
+interstitial page instead of the bytes, and the scan will read that as HTML
+and report no video. Getting past it means posting the confirm token back,
+which is a second round trip on a path that may not be worth it.
+
+**Context Rj needs to review:** `lib/media.js`, `normalizeShare`. Send me a
+large Drive share link and I will know whether it is worth the round trip.
+
+## Task 27: what the probe deliberately refuses
+
+**Context Rj needs to review, not a question:** `probeMedia` returns nothing
+for any response whose content type is HTML. That is on purpose — without it
+every page on the internet becomes a false positive, and the scan would start
+handing back web pages dressed as videos. It also means the probe cannot be
+turned into a general "fetch me that" tool by pointing it at a page. The
+existing address checks still apply to it: every hop is re-checked, so it
+cannot be used to reach anything on a private network.

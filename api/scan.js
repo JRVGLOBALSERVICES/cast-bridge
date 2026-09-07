@@ -16,7 +16,8 @@
 
 const {
   MAX_RESULTS, MEDIA_EXT, assertPublic, kindOf, labelFor, rank,
-  expandHlsMaster, walledService, walledMessage
+  expandHlsMaster, walledService, walledMessage,
+  DEFERRED_SRC_ATTRS, NOT_A_PLAYER
 } = require('../lib/media');
 const auth = require('../lib/auth');
 
@@ -30,14 +31,11 @@ const HARD_BUDGET_MS = 45000;
 /* Where a lazy-loading page parks the real address until it decides to load.
    LiteSpeed Cache, WP Rocket and the rest of the caching plugins all do this,
    so it is an ordinary-web pattern, not an exotic one. */
-const DEFERRED_SRC = [
-  'data-litespeed-src', 'data-src', 'data-lazy-src', 'data-original', 'data-url'
-];
+const DEFERRED_SRC = DEFERRED_SRC_ATTRS;
 
 /* Frames that are never a player, so their presence must not be read as
-   "there is a player here but we missed its stream". */
-const NOT_A_PLAYER =
-  /googletagmanager|google-analytics|doubleclick|adservice|adsystem|facebook\.com|recaptcha|disqus/i;
+   "there is a player here but we missed its stream". Shared with the quick
+   scan so one list governs both passes. */
 
 /* Content types that mean "this response is playable", for the cases where
    the URL carries no useful extension (signed CDN links usually don't). */
@@ -604,13 +602,15 @@ module.exports = async function handler(req, res) {
 
     /* Expand a master playlist so the quality picker has real options,
        the same way the quick scan does. */
-    const master = result.media.find((x) => x.kind === 'HLS');
-    if (master) {
-      const variants = await expandHlsMaster(master.url);
+    const masters = result.media.filter((x) => x.kind === 'HLS').slice(0, 2);
+    if (masters.length) {
       const known = new Set(result.media.map((x) => x.url));
-      variants.forEach((v) => {
-        if (!known.has(v.url)) { result.media.push(v); known.add(v.url); }
-      });
+      for (const master of masters) {
+        const variants = await expandHlsMaster(master.url);
+        variants.forEach((v) => {
+          if (!known.has(v.url)) { result.media.push(v); known.add(v.url); }
+        });
+      }
     }
 
     result.media.sort((a, b) => rank(a) - rank(b));

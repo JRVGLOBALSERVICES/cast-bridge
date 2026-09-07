@@ -184,3 +184,55 @@
 
 - [ ] Task 26: desicinema. Not done, and not going to be by this route —
       see issues.md. The scanner is unchanged; the answer is a decision.
+
+- [x] Task 27: Widen the quick scan. Four ordinary shapes it used to walk
+      straight past, each of them a plain address a page gives out freely
+      and none of them touching anything a site protects.
+
+      1. FRAMES. A wrapper page has no player of its own — the host it
+         delegates to in an <iframe> does. `collectFrames` reads iframe/frame
+         src plus the nine deferred `data-*` attributes the caching plugins
+         park a lazy address in, skips ad/analytics/comment frames and asset
+         frames, ranks player-shaped paths first, and `readFrames` opens up
+         to three in parallel with the parent as Referer. One hop only:
+         a frame inside a frame is the deep scan's job and it already runs
+         them all.
+
+      2. CANDIDATES. Signed CDN links almost never carry an extension, so a
+         name test threw them away. `collectCandidates` takes the values
+         behind the ~20 player-config key names, drops anything visibly not
+         media, and `probeMedia` fetches the first 4 KB of each and lets the
+         answer decide: content type, `#EXTM3U`, a DASH `<MPD`, an mp4
+         `ftyp` box, EBML/WebM magic, ID3 or OggS. Never the name. Five at
+         once so one slow host cannot spend the budget.
+
+      3. SHARE LINKS. Drive and Dropbox name the file in the path and the
+         address serving its bytes is a fixed rewrite of it — `normalizeShare`
+         does that rewrite before a fetch is spent on the viewer page.
+
+      4. EVERY master playlist is expanded now, not just the first, in both
+         the quick scan and the deep scan.
+
+      Both new paths run only when the first pass came back empty, so a page
+      that already answered stays exactly as fast as it was.
+
+      Two real bugs fell out of testing rather than reading. A frame pointing
+      at a favicon was being followed (found on dailymotion) — asset-shaped
+      frame targets are rejected now. And the media extension list had been
+      written out four times and drifted: `.ogv` was in none of them, so an
+      Ogg video was invisible to a scanner that had no trouble with the .webm
+      beside it. One `MEDIA_EXT_LIST` now feeds all four, and the archive.org
+      test page went from 2 hits to 4 as a result.
+
+      The deep scan now shares `DEFERRED_SRC_ATTRS` and `NOT_A_PLAYER` with
+      the quick scan, so one list governs both passes instead of two that
+      could drift the way the extension list did.
+
+      `api/extract.js` budget raised 20s -> 45s to cover the extra hops.
+
+      Verified: 17 unit assertions on the new helpers; 5 live probes
+      (real HLS, real mp4 by ftyp magic, an extensionless manifest served as
+      text/plain, an html page and an image both correctly refused); and 6
+      end-to-end runs of the real handler — a wrapper page resolving through
+      its embed host, a player config resolving by probe, and three
+      regressions plus the empty case all unchanged. 28/28.
