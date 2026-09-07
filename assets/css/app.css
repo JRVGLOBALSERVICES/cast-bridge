@@ -1981,7 +1981,13 @@ body.is-gated { overflow: hidden; }
 .cb-host-files { margin-top: 0.9rem; }
 .cb-host-file {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  /* The size gets a fixed slot rather than an auto one. Auto sizes the
+     column to the widest value and then leaves each number left-aligned
+     inside it, so 1.2 GB and 10 MB start together and end in different
+     places — measured, both ended at x=313 by accident of the grid and
+     neither lined up on its last digit. A receipt column lines up on the
+     right or it is not a column. */
+  grid-template-columns: minmax(0, 1fr) 4.5rem auto;
   align-items: center;
   gap: 0.6rem;
   padding: 0.5rem 0;
@@ -1997,7 +2003,11 @@ body.is-gated { overflow: hidden; }
 .cb-host-fsize {
   color: var(--cb-ink-2);
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
+/* A record whose file has gone reads as an em-dash, and the dash is not a
+   quantity — it does not get the numeric treatment. */
+.cb-host-fsize.is-missing { color: var(--cb-ink-soft); font-variant-numeric: normal; }
 .cb-host-acts {
   display: flex;
   flex-wrap: wrap;

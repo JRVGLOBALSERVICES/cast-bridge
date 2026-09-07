@@ -623,3 +623,55 @@
       question has a measured answer rather than an estimate.
 - [x] Both cast retry paths escalate to the backup host instead of giving up,
       and the cast log names which host served.
+
+## 2026-09-07 — the loader, files from the phone, Apple, the screen, Bilibili
+
+- [x] The busy button says what it is busy with. The spinner was never
+      missing — measured, it is inside the button, animated, 6.15:1 on the
+      filled ones — but `.is-busy` hid the label, so a tap turned Scan and
+      Play into a blank blue slab. Scan becomes `Scanning…`, with the ring
+      beside the word instead of instead of it. The wider of the two labels
+      is reserved at sign-in, so the button no longer grows 65px → 126px on
+      tap and takes that width off the address field.
+- [x] The Play path shows the stage/clock/progress panel. It is the route
+      almost everything takes and it was the one route with nothing to look
+      at; only Browse's Scan had the panel.
+- [x] One noun for the television. The status line said "cast device", the
+      pill said "devices", the button said "TV" — all on screen at once.
+- [x] A video on this phone: plays here instantly from a blob, and sending it
+      to the TV uploads it to the stream host with bytes, rate and time left.
+      A phone is not a server, so there was no address a Chromecast could
+      fetch; now there is one, and it is deleted within a day.
+- [x] Everything that costs disk is under one root — `files/` for what is
+      fetchable, `tmp/` for what is arriving. A sweeper drops anything past
+      the TTL every quarter hour.
+- [x] Stream-host panel (owner only): uptime, streams in flight, bytes served
+      today and this month, folder size, free disk, every file with a size
+      and a delete, and two clear actions. `scripts/test-storage.sh` — 24
+      assertions, byte-for-byte range comparison, red against a host that has
+      not been updated.
+- [x] Apple. The app told Safari it was Firefox and pointed it at Chrome,
+      which on iOS cannot cast either. Apple is checked first now, AirPlay
+      takes the filled treatment, and Safari's target-availability event
+      drives the button.
+- [x] HLS plays natively wherever the browser has it. `Hls.isSupported()` is
+      true on Safari, so every `.m3u8` went through MSE — and an MSE stream
+      cannot be AirPlayed. The app's own AirPlay button was broken for every
+      HLS stream.
+- [x] A source the host refuses now retries through the bridge on the native
+      player too, not only under hls.js.
+- [x] Screen: the exact route for the device in the hand, the structural
+      reason a page cannot mirror, and — where the browser can capture — a
+      recorder that feeds the upload path. The capture itself is unverified
+      on this box; see issues.md.
+- [x] Bilibili: resolved through its own API, because the page and
+      `x/web-interface/view` both answer 412 to this VPS and to Vercel.
+      Plays and casts through the bridge with the referer its CDN demands.
+      QR sign-in kept in a signed HttpOnly cookie on our origin. The
+      scan-and-confirm step needs Rj's phone; see issues.md.
+- [x] Design gate: RJ-Design-Skill audit found six defects on rendered
+      screens, all fixed — red spent on three non-destructive actions, a
+      size column left-aligned, a missing file reported as `0 B` instead of
+      `—`, a host-unreachable error with no way out, an armed delete that
+      stayed tappable through its request, and a clear action that named no
+      blast radius. hallmark: 0 critical, down from 2 at the session baseline.

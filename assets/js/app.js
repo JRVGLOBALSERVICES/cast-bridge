@@ -4025,6 +4025,7 @@
     var head = document.createElement('p');
     head.className = 'cb-pick-name';
     head.textContent = localPick.file.name;
+    head.title = localPick.file.name;   // it truncates; the whole name stays reachable
     wrap.appendChild(head);
 
     var sub = document.createElement('p');
@@ -4065,7 +4066,10 @@
 
       var stop = document.createElement('button');
       stop.type = 'button';
-      stop.className = 'cb-linkbtn is-danger';
+      /* Not is-danger. Cancelling an upload destroys nothing — the file is
+         still on the phone and the host deletes the part. Red spent here is
+         red that no longer means anything at the Delete below it. */
+      stop.className = 'cb-linkbtn';
       stop.textContent = 'Stop sending';
       stop.addEventListener('click', function () {
         if (uploadXhr) { uploadXhr.abort(); uploadXhr = null; }
@@ -4223,8 +4227,18 @@
         body.appendChild(hostRow('Up for', fmtLength(h.uptime_s || 0)));
         body.appendChild(hostRow('Streams in flight', String(h.in_flight || 0)));
         body.appendChild(hostRow('Read window', (h.window_mb || 0) + ' MiB'));
-        body.appendChild(hostRow('Served today', (h.served_today_gb || 0) + ' GB'));
-        body.appendChild(hostRow('Served this month', (h.served_this_month_gb || 0) + ' GB'));
+        /* The service reports to three decimals so a quiet day is not
+           rounded to zero. Read down a column, 12.5 next to 340.125 is two
+           different kinds of number — so the column picks one shape and the
+           small values keep their decimals only while they need them. */
+        var gbText = function (v) {
+          var n = Number(v) || 0;
+          if (n >= 10) return n.toFixed(1) + ' GB';
+          if (n >= 0.1) return n.toFixed(2) + ' GB';
+          return n ? n.toFixed(3) + ' GB' : '0 GB';
+        };
+        body.appendChild(hostRow('Served today', gbText(h.served_today_gb)));
+        body.appendChild(hostRow('Served this month', gbText(h.served_this_month_gb)));
 
         var st = h.storage;
         if (!st) {
@@ -4255,6 +4269,16 @@
         p.textContent = 'No answer from ' + host + '. Casting still works — the ' +
           'app falls back to serving the film through this origin.';
         body.appendChild(p);
+
+        /* Every error carries a way out. A box that was rebooting when this
+           was opened is the ordinary case, and closing and reopening the
+           panel is not an obvious retry. */
+        var again = document.createElement('button');
+        again.type = 'button';
+        again.className = 'cb-linkbtn';
+        again.textContent = 'Try again';
+        again.addEventListener('click', renderHost);
+        body.appendChild(again);
       });
   }
 
@@ -4293,7 +4317,15 @@
 
         var size = document.createElement('span');
         size.className = 'cb-host-fsize';
-        size.textContent = fmtSize(f.bytes);
+        /* The sidecar says the file exists and the disk says it does not.
+           "0 B" would report that as an empty file, which is a different
+           and untrue thing; an em-dash reports it as unknown, which is what
+           it is. */
+        size.textContent = f.missing ? '—' : fmtSize(f.bytes);
+        if (f.missing) {
+          size.classList.add('is-missing');
+          size.title = 'The record is here but the file is not.';
+        }
 
         var del = document.createElement('button');
         del.type = 'button';
@@ -4303,12 +4335,18 @@
            second tap names what goes. */
         del.addEventListener('click', function () {
           if (del.dataset.armed === '1') {
+            del.disabled = true;
             hostPost('/api/storage/delete', { ids: [f.id] })
               .then(function () {
                 toast({ text: 'Deleted ' + f.name + ' from the stream host.' });
                 renderHost();
               })
-              .catch(function (e) { toast({ text: e.message || 'That did not work.' }); });
+              .catch(function (e) {
+                del.disabled = false;
+                del.dataset.armed = '';
+                del.textContent = 'Delete';
+                toast({ text: e.message || 'That did not work.' });
+              });
             return;
           }
           del.dataset.armed = '1';
@@ -4328,10 +4366,22 @@
 
       var acts = document.createElement('div');
       acts.className = 'cb-host-acts';
+      /* One of these two is red and the other is not, on purpose. Clearing
+         half-finished uploads removes files nobody has ever been able to
+         play; clearing the folder removes films someone is part-way through.
+         Only the second is destruction, and only the second says so — five
+         red things in one panel is no red things. */
       acts.appendChild(clearButton('Clear half-finished uploads', 'tmp',
-        'Clear half-finished uploads?'));
+        b.usage && b.usage.tmp && b.usage.tmp.count
+          ? 'Clear ' + b.usage.tmp.count + ' half-finished?'
+          : 'Clear half-finished uploads?', false));
+      /* The armed label names the blast radius rather than the verb alone:
+         "every file" is a category, "3 files (1.2 GB)" is a decision. */
       acts.appendChild(clearButton('Clear everything in the folder', 'all',
-        'Delete every file on the host?'));
+        b.files.length
+          ? 'Delete ' + b.files.length + (b.files.length === 1 ? ' file' : ' files') +
+            ' (' + fmtSize(b.files.reduce(function (t, f) { return t + (f.bytes || 0); }, 0)) + ')?'
+          : 'Delete everything?', true));
       list.appendChild(acts);
 
       body.appendChild(list);
@@ -4345,13 +4395,19 @@
     });
   }
 
-  function clearButton(label, what, armedLabel) {
+  function clearButton(label, what, armedLabel, destructive) {
     var b = document.createElement('button');
     b.type = 'button';
-    b.className = 'cb-linkbtn is-danger';
+    b.className = 'cb-linkbtn' + (destructive ? ' is-danger' : '');
     b.textContent = label;
     b.addEventListener('click', function () {
       if (b.dataset.armed === '1') {
+        /* The second tap is the one that spends money on a round trip, so
+           it is also the one that has to stop being tappable. Turning the
+           button off is not the guard — the endpoint is idempotent — but a
+           button that stays live through a request reads as one that did
+           nothing. */
+        b.disabled = true;
         hostPost('/api/storage/clear', { what: what })
           .then(function (body) {
             var freed = 0;
@@ -4360,7 +4416,12 @@
             toast({ text: freed ? 'Freed ' + fmtSize(freed) + '.' : 'Nothing to clear.' });
             renderHost();
           })
-          .catch(function (e) { toast({ text: e.message || 'That did not work.' }); });
+          .catch(function (e) {
+            b.disabled = false;
+            b.dataset.armed = '';
+            b.textContent = label;
+            toast({ text: e.message || 'That did not work.' });
+          });
         return;
       }
       b.dataset.armed = '1';
@@ -4707,7 +4768,9 @@
 
       var out = document.createElement('button');
       out.type = 'button';
-      out.className = 'cb-linkbtn is-danger';
+      /* Signing out destroys nothing — the account is untouched and signing
+         back in takes one tap. Red is for destruction. */
+      out.className = 'cb-linkbtn';
       out.textContent = 'Sign out of Bilibili';
       out.addEventListener('click', function () {
         if (out.dataset.armed === '1') {
