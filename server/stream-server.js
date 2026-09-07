@@ -30,6 +30,41 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+/* Environment, from a file, before anything reads it.
+ *
+ * This service was started once with its variables typed on the command
+ * line, so they lived nowhere but pm2's own dump. `pm2 delete cast-stream`
+ * would have taken STREAM_UPLOAD_SECRET with it, and the only symptom
+ * would have been every upload answering 503 — file casting silently off,
+ * with nothing broken enough to notice. A file is the durable version of
+ * that, and it is read before the requires below because lib/ticket.js
+ * reads the secret at call time and storage.js reads its directories at
+ * load time.
+ *
+ * Anything already in the environment WINS: pm2's env, a systemd unit or a
+ * one-off `FOO=bar node server/...` must still be able to override the
+ * file. No dependency — the stream path deliberately has none.
+ */
+(function loadEnvFile() {
+  const file = process.env.STREAM_ENV_FILE || path.join(__dirname, '..', '.env');
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    return; // no file is a normal deployment, not an error
+  }
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^\s*([A-Z][A-Z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (!m) continue;
+    let value = m[2].trim();
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (process.env[m[1]] === undefined) process.env[m[1]] = value;
+  }
+})();
+
 const streamApi = require('../api/stream.js');
 const storage = require('./storage.js');
 const ticket = require('../lib/ticket.js');

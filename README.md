@@ -146,19 +146,43 @@ git -C /opt/cast-stream pull && pm2 restart cast-stream
 curl -s https://stream.jrvsystems.app/healthz
 ```
 
+Or press **Update** in the bridge dashboard's **Stream** section, which does
+exactly that and then re-reads the health. That panel is the reason
+`/api/system` exists: `/healthz` says the service is up, `/api/system` says
+what the box is doing — load, memory, host uptime, node, pid and the commit
+read out of `.git`, behind the same owner-only ticket as the file list. The
+deploy clone was six commits behind the app it serves for a day and nothing
+on any screen said so; the panel now shows how far behind it is.
+
 First time on a box:
 
 ```
 git clone …/cast-bridge.git /opt/cast-stream        # no npm install — the
                                                     # stream path uses only
                                                     # node's own modules
-mkdir -p /var/lib/cast-stream
-cd /opt/cast-stream && PORT=7801 STREAM_RANGE_WINDOW_MB=64 \
-  STREAM_STATE_DIR=/var/lib/cast-stream \
-  pm2 start server/stream-server.js --name cast-stream --time
+mkdir -p /var/lib/cast-stream/media
+
+cat > /opt/cast-stream/.env <<'ENV'
+PORT=7801
+STREAM_RANGE_WINDOW_MB=64
+STREAM_STATE_DIR=/var/lib/cast-stream
+CAST_FILES_DIR=/var/lib/cast-stream/media
+STREAM_PUBLIC_HOST=https://stream.jrvsystems.app
+STREAM_UPLOAD_SECRET=…same value as the app project's…
+ENV
+chmod 600 /opt/cast-stream/.env
+
+cd /opt/cast-stream && pm2 start server/stream-server.js --name cast-stream --time
 pm2 install pm2-logrotate && pm2 set pm2-logrotate:max_size 20M
 pm2 save
 ```
+
+The `.env` is not decoration. Started with the variables typed on the command
+line instead, they live nowhere but pm2's own dump: `pm2 delete cast-stream`
+takes `STREAM_UPLOAD_SECRET` with it, and the only symptom is every upload
+answering 503 — file casting silently off, with nothing broken enough to
+notice. Anything already in the environment still wins over the file, so pm2's
+env and a one-off `FOO=bar node server/…` both keep working.
 
 The logrotate line is not optional: the service logs one line per range
 request, and a film is thousands of them.
