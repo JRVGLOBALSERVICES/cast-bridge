@@ -583,6 +583,21 @@
     $('devicePillDot').className = 'cb-dot' + (kind ? ' is-' + kind : '');
   }
 
+  /* Safari plays HLS itself, in the media stack, with hardware decoding.
+   * hls.js plays it through Media Source Extensions instead — and an MSE
+   * stream cannot be AirPlayed. AirPlay hands the television a source to
+   * fetch; there is no source, only buffers this page appended.
+   *
+   * Hls.isSupported() is true on macOS Safari and on iPadOS, so the old
+   * check picked hls.js on exactly the browsers where it costs the feature
+   * this app has an AirPlay button for. Native first wherever it exists;
+   * hls.js everywhere else, which is where it is the only option anyway. */
+  function nativeHls() {
+    return Boolean(video.canPlayType &&
+      (video.canPlayType('application/vnd.apple.mpegurl') ||
+       video.canPlayType('application/x-mpegURL')));
+  }
+
   function teardownHls() {
     if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
     qualitySel.hidden = true;
@@ -805,9 +820,13 @@
     screenEl.classList.remove('is-idle');
     screenEl.classList.add('is-live');
 
-    if (mimeOf(u) === 'application/x-mpegURL' && window.Hls && window.Hls.isSupported()) {
+    if (mimeOf(u) === 'application/x-mpegURL' && !nativeHls() &&
+        window.Hls && window.Hls.isSupported()) {
       playHls(u);
     } else {
+      /* Native HLS included: Safari takes the playlist address directly and
+         picks its own rendition, so the quality menu has nothing to offer
+         and stays hidden (teardownHls already did that). */
       video.src = u;
     }
 
@@ -871,6 +890,24 @@
         'manage it — send it over and see.', 'bad');
       return;
     }
+
+    /* hls.js retries a refused stream through our own origin from inside its
+       own error handler. The native player has no such hook, so on Safari —
+       where native HLS is now preferred, precisely so AirPlay works — a host
+       that refuses this origin used to end here with a wrong explanation
+       about webpages. Same retry, one level up, and guarded by the same flag
+       so it happens once. */
+    if (!hlsProxied && current && isHttp(current) &&
+        current.indexOf(STREAM_HOSTS[0] + '/api/stream') !== 0 &&
+        current.indexOf(location.origin + '/api/stream') !== 0) {
+      hlsProxied = true;
+      logCast('Retrying', 'the host refused this origin — serving through the bridge');
+      var via = streamUrl(current, true);
+      video.src = via;
+      video.load();
+      setStatus('That host refused us. Trying again through the bridge…', '');
+      return;
+    }
     setStatus('This link won\'t play here. It has to be the media file itself, not a webpage.', 'bad');
     toast({
       text: 'Nothing played. Try scanning the page it came from.',
@@ -921,6 +958,20 @@
        feature being somewhere else. Give the button a job it can do. */
     setPill('Casting unavailable', '');
 
+    /* Apple is checked FIRST, before the window.chrome fallback below.
+       Chrome on iOS is WebKit with a Chrome badge: it defines window.chrome
+       and it cannot cast, ever, because no browser on iOS has the Cast API.
+       Reaching the "reload and check the Wi-Fi" line there would be advice
+       for a fault that does not exist and a retry that cannot work. */
+    if (isApple()) {
+      castImpossible = true;
+      setStatus('No browser on an iPhone or iPad can reach a Chromecast — ' +
+                'Apple does not allow the Cast API on iOS, and that includes ' +
+                'Chrome. AirPlay is the way to a television from here.', '');
+      offerAirplayInstead();
+      return;
+    }
+
     /* Chrome and Edge both define window.chrome and both can cast, so a false
        here from one of them is the SDK having a bad start, not the wrong
        browser — and turning Chrome's own button into "Open in Chrome" would be
@@ -938,6 +989,36 @@
               'this over with the link already loaded.', '');
     offerChromeHandoff();
   };
+
+  /* iPadOS 13+ reports itself as a Mac, so the touch test is what tells an
+     iPad from a desktop Safari. Both are Apple and both AirPlay, which is
+     all this is deciding. */
+  function isApple() {
+    var ua = navigator.userAgent || '';
+    if (/iPhone|iPad|iPod/i.test(ua)) return true;
+    if (/Macintosh/i.test(ua)) return true;
+    return /^((?!chrome|android|crios|fxios).)*safari/i.test(ua);
+  }
+
+  /* The Cast button is the only control on the idle screen, so leaving it
+     dead is the app reading as broken. On Apple it becomes a pointer to the
+     button that does work, and AirPlay takes the filled treatment because it
+     is now the primary action rather than the alternative one. */
+  function offerAirplayInstead() {
+    var cast = $('btnCast');
+    var air = $('btnRemote');
+    if (cast) {
+      cast.disabled = true;
+      var launcher = cast.querySelector('google-cast-launcher');
+      if (launcher) launcher.hidden = true;
+      cast.querySelector('span').textContent = 'Cast needs Chrome';
+    }
+    if (air && !air.hidden) {
+      air.classList.remove('btn-primary');
+      air.classList.add('btn-secondary');
+    }
+    setPill('AirPlay only', '');
+  }
 
   /* The same app, in the browser that can finish the job — carrying whatever
      is loaded, so nothing has to be pasted twice. */
@@ -1626,11 +1707,24 @@
   } else if (video.webkitShowPlaybackTargetPicker) {
     btnRemote.hidden = false;
     btnRemote.disabled = false;
+    /* Safari's own answer to "is there anything to AirPlay to". Without it
+       the button is always live and a tap on a network with no Apple TV
+       opens an empty picker, which is the same dead end the Cast button had
+       before it learned to say "No TV found". */
+    video.addEventListener('webkitplaybacktargetavailabilitychanged', function (e) {
+      var there = e.availability === 'available';
+      btnRemote.disabled = !there;
+      if (castImpossible) setPill(there ? 'AirPlay ready' : 'No AirPlay device', there ? 'ready' : '');
+    });
     btnRemote.addEventListener('click', function () {
       if (!current) { toast({ text: 'Load something first, then AirPlay it.' }); return; }
       video.webkitShowPlaybackTargetPicker();
     });
   }
+
+  /* The SDK's verdict can land either side of this block, so whichever runs
+     second does the promotion. Idempotent by construction. */
+  if (castImpossible && isApple()) offerAirplayInstead();
 
   /* ------------------------------------------------------------------ *
    * Hand-off — VLC and clipboard
