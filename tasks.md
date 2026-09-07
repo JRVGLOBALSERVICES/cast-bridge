@@ -23,3 +23,18 @@
 - [x] robots.txt, llms.txt, favicon.ico added; service-worker BUILD bumped to
       2026-09-07.4 so installed copies actually update.
 - [x] hallmark audit: 0 critical, exit 0.
+
+## Round 3 — 2026-09-07 (Rj: "no changes, doesn't scan, no login")
+
+- [x] Task 8: Password gate — signed HttpOnly cookie, constant-time compare,
+      per-IP throttle. `/api/extract` and `/api/scan` refuse an unauthenticated
+      caller. Gate makes the shell `inert`, not merely covered.
+- [x] Task 9: Deep scan (`/api/scan`) — headless Chromium runs the page's
+      JavaScript and watches the network for playable media. This is what the
+      Android app does behind its "in-app browser".
+- [x] Task 10: Honest empty result — a page with no findable player returns
+      `ok:false, empty:true, canDeepScan:true` and says why, instead of the
+      `ok:true, media:[]` that made a blind scan look like a working one.
+- [x] Task 11: Build stamp read from the running service worker + a reload
+      prompt, and BUILD stamped from the commit at deploy time so an installed
+      copy can never silently keep serving an old shell.

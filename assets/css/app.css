@@ -666,3 +666,97 @@ google-cast-launcher {
 .cb-star:hover { color: var(--cb-warn); }
 
 .cb-skip:active { box-shadow: var(--cb-shadow-inset); }
+
+/* ------------------------------------------------------------------ *
+ * The gate
+ *
+ * Full-bleed so there is nothing behind it to tap at, and centred on the
+ * short axis so the field sits under the thumb on a phone rather than up
+ * against the notch.
+ * ------------------------------------------------------------------ */
+
+.cb-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--cb-surface);
+}
+
+.cb-gate[hidden] { display: none; }
+
+body.is-gated { overflow: hidden; }
+
+.cb-gate-card {
+  width: 100%;
+  max-width: 340px;
+  padding: 32px 26px 26px;
+  border-radius: var(--cb-radius-xl);
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-soft);
+}
+
+.cb-gate-card .cb-wordmark {
+  margin: 0 0 6px;
+  font-size: 1.55rem;
+}
+
+.cb-gate-sub {
+  margin: 0 0 22px;
+  font-size: .875rem;
+  line-height: 1.5;
+  color: var(--cb-ink-2);
+}
+
+.cb-gate-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: .75rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--cb-ink-2);
+}
+
+.cb-gate-card .form-control { margin-bottom: 4px; }
+.cb-gate-card .btn { margin-top: 16px; }
+
+/* Build stamp — quiet, but present, so "did my change ship" is a glance
+   rather than an argument. --cb-mute is 2.04:1 and banned for text, so this
+   uses --cb-ink-2 even though it is secondary information. */
+.cb-build {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: center;
+  margin: 20px 0 4px;
+  font-size: .72rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--cb-ink-2);
+}
+
+.cb-linkbtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.cb-linkbtn:hover { color: var(--cb-ink); }
+.cb-linkbtn[hidden] { display: none; }
+
+/* The deep-scan offer is a next step, not a failure — it reads as an
+   invitation, not as the red the field errors use. */
+.cb-deepnote {
+  margin-top: 6px;
+  font-size: .8rem;
+  line-height: 1.55;
+  color: var(--cb-ink-2);
+}

@@ -69,3 +69,16 @@ self.addEventListener('fetch', (e) => {
     })
   );
 });
+
+/* The page asks what build is actually being served. Without this the footer
+   can only report what was deployed, which is the number that was never in
+   doubt — the useful one is what this installed copy is running. */
+self.addEventListener('message', (e) => {
+  const data = e.data || {};
+  if (data.type === 'SKIP_WAITING') { self.skipWaiting(); return; }
+  if (data.type === 'GET_BUILD') {
+    const reply = { build: BUILD };
+    if (e.ports && e.ports[0]) e.ports[0].postMessage(reply);
+    else if (e.source) e.source.postMessage(reply);
+  }
+});

@@ -1,0 +1,10 @@
+{
+  "name": "cast-bridge",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Paste a link, play it, cast it to the TV.",
+  "dependencies": {
+    "@sparticuz/chromium": "^131.0.0",
+    "puppeteer-core": "^23.11.1"
+  }
+}

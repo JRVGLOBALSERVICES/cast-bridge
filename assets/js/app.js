@@ -797,6 +797,136 @@
     } : null);
   }
 
+  /* ------------------------------------------------------------------ *
+   * The gate
+   *
+   * One shared password, checked by /api/auth. This screen is the door;
+   * every endpoint checks the cookie for itself, so hiding the UI is a
+   * courtesy rather than the security boundary.
+   * ------------------------------------------------------------------ */
+
+  var signedIn = false;
+
+  /* Covering the app is not the same as taking it out of reach. Left as-is
+     the shell keeps its tab stops and stays in the accessibility tree, so a
+     keyboard or a screen reader walks straight past the gate into a UI whose
+     every button is about to fail on a 401. */
+  function sealShell(on) {
+    /* The skip link lives outside the shell, so sealing only the shell
+       leaves one tab stop pointing into the sealed region. */
+    var parts = document.querySelectorAll('.cb-shell, .cb-skip');
+    for (var i = 0; i < parts.length; i++) {
+      if (on) {
+        parts[i].setAttribute('inert', '');
+        parts[i].setAttribute('aria-hidden', 'true');
+      } else {
+        parts[i].removeAttribute('inert');
+        parts[i].removeAttribute('aria-hidden');
+      }
+    }
+  }
+
+  function showGate(message) {
+    var gate = $('gate');
+    if (!gate) return;
+    gate.hidden = false;
+    sealShell(true);
+    document.body.classList.add('is-gated');
+    if (message) fieldError($('gatePw'), $('gateError'), message, null);
+    var pw = $('gatePw');
+    if (pw) { try { pw.focus(); } catch (e) { /* not focusable yet */ } }
+  }
+
+  function hideGate() {
+    var gate = $('gate');
+    if (!gate) return;
+    gate.hidden = true;
+    sealShell(false);
+    document.body.classList.remove('is-gated');
+    signedIn = true;
+    var out = $('btnSignOut');
+    if (out) out.hidden = false;
+  }
+
+  /* A 401 from anywhere means the session lapsed while the tab sat open.
+     Put the door back rather than letting the next tap fail silently. */
+  function handleAuthLapse() {
+    signedIn = false;
+    var out = $('btnSignOut');
+    if (out) out.hidden = true;
+    showGate('That session expired. Sign in again.');
+  }
+
+  function wireGate() {
+    var form = $('gateForm');
+    if (!form) return;
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var pw = $('gatePw');
+      var btn = $('gateBtn');
+      var value = pw ? pw.value : '';
+
+      if (!value) {
+        fieldError(pw, $('gateError'), 'Enter the password.', null);
+        return;
+      }
+
+      fieldError(pw, $('gateError'), null);
+      busy(btn, true);
+
+      fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ password: value })
+      })
+        .then(function (r) {
+          return r.json().then(function (body) { return { status: r.status, body: body }; });
+        })
+        .then(function (res) {
+          if (res.body && res.body.ok) {
+            pw.value = '';
+            hideGate();
+            toast({ text: 'Signed in.' });
+            return;
+          }
+          fieldError(pw, $('gateError'),
+            (res.body && res.body.error) || 'That password is wrong.', null);
+        })
+        .catch(function () {
+          fieldError(pw, $('gateError'), 'No connection to the sign-in service.', null);
+        })
+        .then(function () { busy(btn, false); });
+    });
+
+    var out = $('btnSignOut');
+    if (out) {
+      out.addEventListener('click', function () {
+        fetch('/api/auth', { method: 'DELETE' })
+          .catch(function () { /* the cookie is gone either way */ })
+          .then(function () { handleAuthLapse(); });
+      });
+    }
+  }
+
+  function checkSession() {
+    return fetch('/api/auth', { headers: { accept: 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (body) {
+        if (body && body.signedIn) { hideGate(); return; }
+        if (body && body.configured === false) {
+          showGate('No password is set for this app yet. Add CAST_PASSWORD in the project settings.');
+          return;
+        }
+        showGate(null);
+      })
+      .catch(function () {
+        /* Offline on an installed copy. Don't lock the person out of the
+           history they already have — the API will refuse anything new. */
+        showGate(null);
+      });
+  }
+
   function scan(rawUrl) {
     var u = String(rawUrl || '').trim();
     if (!u) return;
@@ -820,11 +950,19 @@
         return r.json().then(function (body) { return { status: r.status, body: body }; });
       })
       .then(function (res) {
+        if (res.status === 401) { handleAuthLapse(); return; }
         if (res.body && res.body.walled) {
           renderWalled(res.body);
           return;
         }
         if (res.status !== 200 || !res.body || res.body.ok !== true) {
+          /* The quick scan only reads the HTML that came off the wire. When
+             it finds nothing, the deep scan still might — so offer it here
+             instead of ending on a dead "couldn't read that". */
+          if (res.body && res.body.canDeepScan) {
+            renderDeepOffer(res.body, u);
+            return;
+          }
           var msg = (res.body && res.body.error) || 'That page couldn\'t be read.';
           $('browseResult').innerHTML = '';
           renderBrowseError(msg, true);
@@ -835,6 +973,84 @@
       .catch(function () {
         $('browseResult').innerHTML = '';
         renderBrowseError('No connection to the scanner.', true);
+      })
+      .then(function () {
+        busy(btn, false);
+        scanInFlight = false;
+      });
+  }
+
+  /* The quick scan came back empty. Say plainly what it could and couldn't
+     see, then put the thing that can still work in reach — one tap, not a
+     retry of the same scan that already failed. */
+  function renderDeepOffer(data, url) {
+    fieldError($('pageUrl'), $('pageError'), null);
+    var wrap = $('browseResult');
+    wrap.innerHTML = '';
+
+    var box = document.createElement('div');
+    box.className = 'cb-empty cb-deepoffer';
+
+    var h = document.createElement('h3');
+    h.textContent = 'Nothing on the page itself';
+    box.appendChild(h);
+
+    var p = document.createElement('p');
+    p.textContent = data.error || 'No video link is written into that page.';
+    box.appendChild(p);
+
+    var p2 = document.createElement('p');
+    p2.className = 'cb-deepnote';
+    p2.textContent = 'The deep scan opens the page in a real browser and watches ' +
+      'what it loads. Slower — about ten seconds — but it sees players that build ' +
+      'their link in JavaScript.';
+    box.appendChild(p2);
+
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'btn btn-secondary btn-sm';
+    go.id = 'btnDeep';
+    go.textContent = 'Search harder';
+    go.addEventListener('click', function () { deepScan(url); });
+    box.appendChild(go);
+
+    wrap.appendChild(box);
+  }
+
+  /* The deep scan. Same shape of answer as the quick one, so everything
+     downstream — the list, the quality picker, the cast button — is
+     unchanged. It just took a browser to get there. */
+  function deepScan(rawUrl) {
+    var u = String(rawUrl || lastScanUrl || '').trim();
+    if (!u || scanInFlight) return;
+    if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+
+    scanInFlight = true;
+    lastScanUrl = u;
+    var btn = $('btnScan');
+    busy(btn, true);
+    $('browseResult').innerHTML =
+      '<div class="cb-empty"><p>Opening the page in a browser and watching what it loads…</p>' +
+      '<p class="cb-deepnote">This takes a few seconds longer than the quick scan.</p></div>';
+
+    fetch('/api/scan?url=' + encodeURIComponent(u), { headers: { accept: 'application/json' } })
+      .then(function (r) {
+        return r.json().then(function (body) { return { status: r.status, body: body }; });
+      })
+      .then(function (res) {
+        if (res.status === 401) { handleAuthLapse(); return; }
+        if (res.body && res.body.walled) { renderWalled(res.body); return; }
+        if (res.status !== 200 || !res.body || res.body.ok !== true) {
+          $('browseResult').innerHTML = '';
+          renderBrowseError(
+            (res.body && res.body.error) || 'The deep scan couldn\'t finish.', false);
+          return;
+        }
+        renderScan(res.body);
+      })
+      .catch(function () {
+        $('browseResult').innerHTML = '';
+        renderBrowseError('No connection to the scanner.', false);
       })
       .then(function () {
         busy(btn, false);
@@ -1295,10 +1511,76 @@
 
   if (store.count() && !deepLink && !deepPage) $('linkHint').hidden = false;
 
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(function () {});
+  /* ------------------------------------------------------------------ *
+   * Build stamp and updates
+   *
+   * An installed copy keeps serving the shell it cached. Without a visible
+   * build there is no way to tell a deploy that didn't happen from one that
+   * did and hasn't reached this phone yet — so print it, and offer the
+   * reload the moment a newer worker is waiting.
+   * ------------------------------------------------------------------ */
+
+  function showBuild(id) {
+    var el = $('buildStamp');
+    if (el) el.textContent = 'build ' + (id || '—');
   }
 
-  /* Share target: a link shared into the installed app lands as ?u= or ?p=,
-     handled above. Nothing else to wire. */
+  function offerUpdate(worker) {
+    toast({
+      text: 'A newer version is ready.',
+      actionLabel: 'Reload',
+      onAction: function () {
+        if (worker) worker.postMessage({ type: 'SKIP_WAITING' });
+        setTimeout(function () { location.reload(); }, 120);
+      }
+    });
+  }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js')
+      .then(function (reg) {
+        if (reg.waiting) offerUpdate(reg.waiting);
+
+        reg.addEventListener('updatefound', function () {
+          var next = reg.installing;
+          if (!next) return;
+          next.addEventListener('statechange', function () {
+            /* A fresh install with no controller is the first visit, not
+               an update — don't ask someone to reload a page they just
+               opened for the first time. */
+            if (next.state === 'installed' && navigator.serviceWorker.controller) {
+              offerUpdate(next);
+            }
+          });
+        });
+
+        /* Ask the active worker what it is, so the footer shows the build
+           actually being served rather than the one that was deployed. */
+        var active = navigator.serviceWorker.controller;
+        if (active) {
+          var ch = new MessageChannel();
+          ch.port1.onmessage = function (e) {
+            if (e.data && e.data.build) showBuild(e.data.build);
+          };
+          active.postMessage({ type: 'GET_BUILD' }, [ch.port2]);
+        }
+
+        /* Check on every foreground — an installed app can sit for weeks. */
+        reg.update().catch(function () {});
+        document.addEventListener('visibilitychange', function () {
+          if (!document.hidden) reg.update().catch(function () {});
+        });
+      })
+      .catch(function () {});
+
+    navigator.serviceWorker.addEventListener('message', function (e) {
+      if (e.data && e.data.build) showBuild(e.data.build);
+    });
+  } else {
+    showBuild('no offline copy');
+  }
+
+  /* The door goes up before anything else is usable. */
+  wireGate();
+  checkSession();
 })();

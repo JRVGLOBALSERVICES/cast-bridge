@@ -25,10 +25,32 @@ const TYPES = {
 };
 
 const extract = require('../api/extract.js');
+const scan = require('../api/scan.js');
+const authApi = require('../api/auth.js');
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
   let pathname = decodeURIComponent(url.pathname);
+
+  if (pathname === '/api/auth') {
+    try {
+      await authApi(req, res);
+    } catch (e) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  if (pathname === '/api/scan') {
+    try {
+      await scan(req, res);
+    } catch (e) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
 
   if (pathname === '/api/extract') {
     req.query = Object.fromEntries(url.searchParams.entries());

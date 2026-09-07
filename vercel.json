@@ -1,1 +1,16 @@
-{ "cleanUrls": true }
+{
+  "cleanUrls": true,
+  "functions": {
+    "api/scan.js": {
+      "maxDuration": 60,
+      "memory": 2048
+    },
+    "api/extract.js": {
+      "maxDuration": 20
+    },
+    "api/auth.js": {
+      "maxDuration": 10
+    }
+  },
+  "buildCommand": "node scripts/stamp-build.mjs"
+}

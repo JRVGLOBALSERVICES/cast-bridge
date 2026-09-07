@@ -18,6 +18,24 @@
 </head>
 <body>
 
+<!-- The gate. Present in the markup so it is up before any script runs, and
+     removed only once /api/auth confirms a session. Every endpoint refuses an
+     unauthenticated caller on its own, so this is the door, not the lock. -->
+<div class="cb-gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle" hidden>
+  <form class="cb-gate-card" id="gateForm" novalidate>
+    <p class="cb-wordmark" id="gateTitle">Cast<span>&nbsp;Bridge</span></p>
+    <p class="cb-gate-sub">This one is private. Enter the password to use it.</p>
+
+    <label class="cb-gate-label" for="gatePw">Password</label>
+    <input class="form-control" type="password" id="gatePw" name="password"
+           autocomplete="current-password" aria-describedby="gateError" required>
+    <p class="cb-fielderror" id="gateError" role="alert"></p>
+
+    <button class="btn btn-secondary btn-block" type="submit" id="gateBtn">Sign in</button>
+  </form>
+</div>
+
+
 <a class="cb-skip" href="#main">Skip to the player</a>
 
 <div class="cb-shell">
@@ -189,6 +207,11 @@
         <dd>The TV fetches the link itself, so it has to be a public <b>https</b> address. Links that need a login or a signed cookie won't reach it.</dd>
       </dl>
     </details>
+
+    <p class="cb-build">
+      <span id="buildStamp">build —</span>
+      <button type="button" class="cb-linkbtn" id="btnSignOut" hidden>Sign out</button>
+    </p>
 
   </main>
 </div>
