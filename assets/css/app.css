@@ -55,6 +55,10 @@ body {
 .btn {
   transition: color 0.15s ease, background-color 0.15s ease,
               border-color 0.15s ease, box-shadow 0.15s ease;
+  /* The kit only positions .btn inside an .input-group. The busy spinner is
+     laid out in flow now rather than absolutely, but a .btn is still the
+     containing block anything else in it should measure against. */
+  position: relative;
 }
 
 /* ---------- Focus ---------- *
@@ -538,20 +542,40 @@ google-cast-launcher {
  * currentColor is the fix, because it is the one value that is already
  * correct on every button variant: near-white on the filled ones, ink on
  * the light ones. Never name a colour here again. */
+/* A busy button still has to say what it is busy WITH.
+ *
+ * This used to hide the label and centre a 17px ring in the space it left.
+ * Measured, that ring is where it should be and clears 6.15:1 on the filled
+ * buttons — it is not invisible. It is just not enough: what the eye reads
+ * on a 390px screen is a label that vanished and a solid blue slab, and a
+ * ring that small inside a 65x53 button does not register as an answer to
+ * "did my tap do anything". Reported, twice, as "no loader, and the scan
+ * button turns full blue".
+ *
+ * So the label stays and changes tense — Scan becomes Scanning… — with the
+ * ring beside it rather than instead of it. Two signals, one of them made
+ * of words. The width is locked in JS before the swap so the longer word
+ * cannot shove the field next to it. */
 .btn.is-busy { pointer-events: none; }
-.btn.is-busy .cb-label { visibility: hidden; }
 .cb-spin {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 1.1rem;
-  height: 1.1rem;
-  margin: -0.55rem 0 0 -0.55rem;
+  display: none;
+  flex: none;
+  width: 0.85rem;
+  height: 0.85rem;
+  margin-right: 0.4rem;
+  vertical-align: -0.1em;
+  order: -1;                        /* markup puts it after the label */
   /* Fallback: a ring with one side cut out. Legible anywhere, no alpha. */
   border: 2px solid currentColor;
   border-top-color: transparent;
   border-radius: 50%;
-  display: none;
+}
+/* The spinner leads the label, so the button has to lay its children out
+   in a row — the kit leaves .btn as inline-block. */
+.btn.is-busy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 /* Preferred: faint full track, solid leading arc — the kit's original look,
    just in a colour that can actually be seen on the button underneath. */
@@ -561,7 +585,7 @@ google-cast-launcher {
     border-top-color: currentColor;
   }
 }
-.btn.is-busy .cb-spin { display: block; animation: cb-rotate 0.7s linear infinite; }
+.btn.is-busy .cb-spin { display: inline-block; animation: cb-rotate 0.7s linear infinite; }
 @keyframes cb-rotate { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .btn.is-busy .cb-spin { animation-duration: 2s; }

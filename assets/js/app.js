@@ -342,12 +342,51 @@
    * Buttons — one tap, one request
    * ------------------------------------------------------------------ */
 
-  function busy(btn, on) {
+  /* `label` is the verb in progress — Scan becomes Scanning…. Optional, and
+     a button without a .cb-label (the cast and VLC ones) just gets the ring.
+     The old behaviour was to hide the label and show the ring alone, which
+     on a filled button is a blue rectangle with a speck in it and reads as
+     nothing having happened. A word is the part of this a person sees. */
+  /* Hold the room the busy word will need, before it is ever needed.
+   *
+   * Locking the width at the moment of the swap only stops the button
+   * SHRINKING. "Reading…" is wider than "Play", so the button still grew
+   * from 65px to 126px on tap and took 61px off the address field beside
+   * it — measured. Reserving the wider of the two at boot means the idle
+   * button is already that size and the swap moves nothing at all. */
+  function reserveBusy(btn, labels) {
+    if (!btn) return;
+    var el = btn.querySelector('.cb-label');
+    if (!el) return;
+    var idle = el.textContent;
+    var widest = btn.offsetWidth;
+    for (var i = 0; i < labels.length; i++) {
+      el.textContent = labels[i];
+      btn.classList.add('is-busy');
+      widest = Math.max(widest, btn.offsetWidth);
+      btn.classList.remove('is-busy');
+    }
+    el.textContent = idle;
+    btn.style.minWidth = widest + 'px';
+  }
+
+  function busy(btn, on, label) {
+    var el = btn.querySelector('.cb-label');
     if (on) {
-      btn.style.minWidth = btn.offsetWidth + 'px'; // lock width, spinner moves nothing
+      /* Only a button nobody reserved for needs this, and it can still only
+         stop a shrink. reserveBusy is the one that stops the shove. */
+      if (!btn.style.minWidth) btn.style.minWidth = btn.offsetWidth + 'px';
+      if (el && label) {
+        if (!el.dataset.idle) el.dataset.idle = el.textContent;
+        el.textContent = label;
+      }
       btn.classList.add('is-busy');
       btn.setAttribute('aria-busy', 'true');
     } else {
+      if (el && el.dataset.idle) {
+        el.textContent = el.dataset.idle;
+        delete el.dataset.idle;
+      }
       btn.classList.remove('is-busy');
       btn.removeAttribute('aria-busy');
     }
@@ -1237,9 +1276,15 @@
     if (castImpossible) { offerChromeHandoff(); return; }
     if (!window.cast || !window.cast.framework) { btn.disabled = true; return; }
 
+    /* One noun for one thing. This map used to say "cast device" in the
+       status line, "devices" in the pill and "TV" on the button — three
+       words for the single object the whole app is about, all visible at
+       once on a 390px screen. The button's word wins because it is the one
+       being tapped: it is a TV everywhere now. Sentence case throughout,
+       which is also what a device name arrives in. */
     var map = {
-      NO_DEVICES_AVAILABLE: ['No cast devices on this Wi‑Fi.', '', true, 'No devices', ''],
-      NOT_CONNECTED: ['A cast device is ready — tap Cast to TV.', 'ready', false, 'Device ready', 'ready'],
+      NO_DEVICES_AVAILABLE: ['No TV found on this Wi‑Fi.', '', true, 'No TV found', ''],
+      NOT_CONNECTED: ['A TV is ready — tap Cast to TV.', 'ready', false, 'TV ready', 'ready'],
       CONNECTING: ['Connecting…', 'ready', true, 'Connecting…', 'ready'],
       CONNECTED: ['Connected to ' + deviceName() + '.', 'live', false, deviceName(), 'live']
     };
@@ -1503,7 +1548,7 @@
     fieldError($('subsUrl'), $('subsError'), null);
 
     var btn = $('btnSubs');
-    btn.classList.add('is-busy');
+    busy(btn, true, 'Adding…');
     btn.disabled = true;
 
     var proxy = subsProxyUrl(raw);
@@ -1540,7 +1585,7 @@
     } catch (err) {
       fieldError($('subsUrl'), $('subsError'), "That subtitle file couldn't be reached.");
     } finally {
-      btn.classList.remove('is-busy');
+      busy(btn, false);
       btn.disabled = false;
     }
   });
@@ -1746,8 +1791,16 @@
     var btn = $('btnPlay');
     scanInFlight = true;
     playInFlight = true;
-    busy(btn, true);
+    busy(btn, true, 'Reading…');
     fieldError($('url'), $('urlError'), null);
+
+    /* The Play button is the path almost everything takes, and until now it
+       was the one path with nothing to look at: .is-busy hides the label, so
+       a twenty-second read of a slow page was a blank button and no other
+       sign of life. Browse had the stage/clock/bar panel all along. Same
+       panel, same stages — this is a page being read either way. */
+    $('linkHint').hidden = true;
+    scanStop = startScanProgress($('linkResult'), 'quick');
 
     fetch('/api/extract?url=' + encodeURIComponent(u), { headers: { accept: 'application/json' } })
       .then(function (r) {
@@ -1798,6 +1851,12 @@
         fieldError($('url'), $('urlError'), 'No connection to the scanner.');
       })
       .then(function () {
+        endScanProgress();
+        $('linkResult').textContent = '';
+        /* The explainer is the empty state, so it comes back only if the
+           run ended with the player still empty. A hand-off to Browse or a
+           film now playing has already said what happened. */
+        if (!current) $('linkHint').hidden = false;
         busy(btn, false);
         scanInFlight = false;
         playInFlight = false;
@@ -1828,7 +1887,7 @@
 
     var btn = $('btnPlay');
     playInFlight = true;
-    busy(btn, true);
+    busy(btn, true, 'Loading…');
 
     var ok = load(raw);
     if (ok) $('linkHint').hidden = true;
@@ -2084,6 +2143,12 @@
     gate.hidden = true;
     sealShell(false);
     document.body.classList.remove('is-gated');
+    /* Here rather than at boot: the shell is display:none until this line,
+       and a button that is not laid out measures 0. Reserving against 0 is
+       the same as not reserving at all. */
+    reserveBusy($('btnPlay'), ['Reading…', 'Loading…']);
+    reserveBusy($('btnScan'), ['Scanning…']);
+    reserveBusy($('btnSubs'), ['Adding…']);
     var themeMeta = $('themeColor');
     if (themeMeta) themeMeta.setAttribute('content', '#e6e7ee');
     signedIn = true;
@@ -2276,7 +2341,7 @@
     lastScanUrl = u;
     scanInFlight = true;
     var btn = $('btnScan');
-    busy(btn, true);
+    busy(btn, true, 'Scanning…');
     fieldError($('pageUrl'), $('pageError'), null);
     $('browseHint').hidden = true;
     scanStop = startScanProgress($('browseResult'), 'quick');
@@ -2365,7 +2430,7 @@
     scanInFlight = true;
     lastScanUrl = u;
     var btn = $('btnScan');
-    busy(btn, true);
+    busy(btn, true, 'Scanning…');
     scanStop = startScanProgress($('browseResult'), 'deep');
 
     fetch('/api/scan?url=' + encodeURIComponent(u), { headers: { accept: 'application/json' } })
@@ -3441,7 +3506,7 @@
          tap returned at the line above. */
       fieldError(null, $('userError'), null);
       adding = true;
-      busy(btn, true);
+      busy(btn, true, 'Adding…');
 
       fetch('/api/users', {
         method: 'POST',
