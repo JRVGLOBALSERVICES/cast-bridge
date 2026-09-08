@@ -851,7 +851,15 @@ check('the app keeps looking for a frame, not just the first one', () => {
   assert.ok(at > -1, 'the frame grab is gone');
   const body = APP_SRC.slice(at, at + 700);
   assert.ok(/addEventListener\('timeupdate'/.test(body), 'one look, at the worst moment there is');
-  assert.ok(/artwork\.current\(\)\) return;/.test(body), 'it keeps grabbing after it has a cover');
+  /* `settled`, not `current`. There is now always a cover — assets/js/cover.js
+     draws a card from the title the moment a film loads — so asking whether
+     one EXISTS answers yes on the first tick and would end this search
+     before a frame had decoded. The question the loop has to ask is whether
+     the cover came from the film. Proven in scripts/test-cover.js, where
+     changing this back to a truthiness test goes red. */
+  assert.ok(/artwork\.settled\(\)\) return;/.test(body), 'it keeps grabbing after it has a real cover');
+  assert.ok(!/artwork\.current\(\)\) return;/.test(body),
+    'a card counts as a cover here, so the frame hunt never starts');
   assert.ok(/lastLook < \d+\) return;/.test(body), 'a canvas read on every timeupdate');
 });
 

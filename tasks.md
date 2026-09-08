@@ -1116,3 +1116,22 @@
 - [x] artwork.js — measure a captured frame before trusting it; refuse a blank one
 - [x] app.js — keep looking for a real frame instead of taking the one at `loadeddata`
 - [x] test-notify.js — 5 new checks, 7 deliberate breaks all seen red
+
+## No cover at all: draw one (2026-09-08)
+- [x] assets/js/cover.js — one layout, two outputs: a gradient hue derived from
+      the film's own title, the title set large, the source it came from, and
+      the JRV mark under "Powered by". Character widths MEASURED in a real
+      browser off the widest face the font stack resolves to, because an SVG
+      cannot measure text and a title that overflows is a title with its end
+      cut off.
+- [x] api/cover.js — the same card as an address, because a Chromecast fetches
+      artwork itself and a canvas is a data: URL. Escaped, and served under
+      `default-src 'none'; sandbox`.
+- [x] assets/js/artwork.js — three sources RANKED (poster > frame > made), so
+      the card goes up immediately and is still replaced by the film's own
+      picture when one arrives. Replaced "first to arrive keeps it", which was
+      right until a source existed that always succeeds.
+- [x] app.js + index.html + sw.js — wired; the frame hunt reads `settled()`
+      rather than `current()`, or a card would end the search on tick one.
+- [x] scripts/test-cover.js — 40 checks, 17 deliberate breaks all seen red.
+      Contrast proven at EVERY hue the ring can produce, not a sample.

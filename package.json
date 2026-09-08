@@ -19,6 +19,7 @@
     "test:cookies": "node scripts/test-cookies.js",
     "test:subs": "node scripts/test-subs.js",
     "test:crawl": "node scripts/test-crawl.js",
-    "test:sources": "node scripts/test-sources.js"
+    "test:sources": "node scripts/test-sources.js",
+    "test:cover": "node scripts/test-cover.js"
   }
 }

@@ -1412,3 +1412,36 @@ when the whole frame spans less than 10 levels. A night scene with any highlight
 survives (proven in test-notify.js). If a film he watches still shows the app
 icon where a frame would have done, the spread threshold is the number to lower.
 **Context Rj needs to review:** assets/js/artwork.js blank().
+
+## Cover for a film with no artwork (2026-09-08)
+
+**Question:** will a Chromecast render an SVG as media artwork?
+**Assumption made:** yes — the default receiver is a Chrome application and
+Chrome renders SVG in an `<img>`. Shipped as SVG because the alternative is a
+PNG encoder with a font engine in a serverless function.
+**Context Rj needs to review:** `api/cover.js`. This cannot regress anything:
+before this change a film with no poster sent the television NO artwork at all,
+so the worst case is the status quo. If a card never appears on the TV while it
+does appear on the phone, that is the answer, and the fix is to rasterise —
+tell me and I will.
+
+**Question:** should the card use the film's genre, year, or anything else it
+could scrape?
+**Assumption made:** no. Title, source and mark only. Everything else on those
+pages is unreliable and a confidently wrong subtitle is worse than none.
+**Context Rj needs to review:** `assets/js/cover.js plan()`.
+
+**Question:** how many hues, and which?
+**Assumption made:** twelve anchors with ±6 of jitter, deliberately avoiding the
+olive band (55–115, where a dark desaturated card is army drab) and everything
+within 30 degrees of the brand orange (where the mark stops being visible
+against its own card). A fixed ring is also what makes the contrast proof
+exhaustive rather than a sample.
+**Context Rj needs to review:** `HUES` in `assets/js/cover.js`.
+
+**Question:** the card is bottom-anchored, so a one-word title leaves the top
+two thirds of a 16:9 card empty.
+**Assumption made:** kept. It is consistent across one, two and three lines,
+and the alternative — vertically centring — makes a three-line title collide
+with the mark. Editorial, not a hole.
+**Context Rj needs to review:** the screenshot sent with this change.

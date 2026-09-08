@@ -23,6 +23,7 @@ const SUITES = [
   ['crawl', 'test-crawl.js'],
   ['sources', 'test-sources.js'],
   ['nowplaying', 'test-nowplaying.js'],
+  ['cover', 'test-cover.js'],
   ['notify', 'test-notify.js'],
   ['notify-state', 'test-notifystate.js'],
   ['push', 'test-push.js'],

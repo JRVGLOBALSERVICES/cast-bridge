@@ -1828,7 +1828,12 @@
        this address was played — which is what makes a film opened from
        History or resumed from the TV arrive with its picture rather than
        only the ones opened from a fresh scan. */
-    artwork.set(meta.poster || (record && record.poster) || '');
+    /* The title and the host go with it: without a poster and without a
+       readable frame, they are the only things a cover can be made out of. */
+    artwork.set(meta.poster || (record && record.poster) || '', {
+      title: currentTitle,
+      from: meta.from || currentFrom || hostOf(u) || ''
+    });
     /* Local first so the list is instant, then up to the server, which is
        the copy that survives a reinstall or a different phone. */
     recordPlay(u, { title: currentTitle, kind: record && record.kind });
@@ -1943,12 +1948,18 @@
    * frame with nothing in it, so those early tries simply cost nothing and
    * the first real picture wins. Throttled, and it stops the moment there
    * is a cover — including a cover that came from the page, so a film with
-   * its own artwork never runs this at all. */
+   * its own artwork never runs this at all.
+   *
+   * `settled`, not `current`. There is now always a cover showing: a card
+   * with the title on it goes up the moment the film loads. Asking whether
+   * one exists would answer yes on the first tick and end the search before
+   * a single frame had decoded, which would leave every cross-origin film
+   * on its placeholder for good. */
   video.addEventListener('loadeddata', function () { artwork.tryFrame(); });
   video.addEventListener('seeked', function () { artwork.tryFrame(); });
   var lastLook = 0;
   video.addEventListener('timeupdate', function () {
-    if (artwork.current()) return;
+    if (artwork.settled()) return;
     var now = Date.now();
     if (now - lastLook < 1000) return;
     lastLook = now;
@@ -3034,11 +3045,16 @@
     Image: window.Image,
     setTimeout: function (fn, ms) { return setTimeout(fn, ms); },
     video: video,
+    cover: window.CBCover,
     /* Absolute on purpose. This address is handed to a Chromecast as well
        as to this page, and a receiver on the other side of the room has
        nothing to resolve a leading slash against. */
     proxy: function (u) {
       return location.origin + '/api/img?u=' + encodeURIComponent(u);
+    },
+    coverUrl: function (title, from) {
+      return location.origin + '/api/cover?t=' + encodeURIComponent(title) +
+             '&f=' + encodeURIComponent(from || '');
     }
   });
 
