@@ -293,6 +293,37 @@ read out of `.git`, behind the same owner-only ticket as the file list. The
 deploy clone was six commits behind the app it serves for a day and nothing
 on any screen said so; the panel now shows how far behind it is.
 
+Nobody has to remember any of that any more. `scripts/self-update.sh` runs
+from cron every five minutes, fast-forward only, and refuses outright if the
+box has local commits or modified tracked files — a machine that quietly
+overwrites work in progress is worse than one that drifts. It waits for
+`in_flight` to reach zero before restarting, because bouncing the process
+mid-film stalls the television, and `npm ci` runs only when the lockfile
+actually moved. Every tick stamps `data/self-update-heartbeat.json` whatever
+it decided, including "nothing to do", and `/healthz` reports that stamp's age
+— without it a cron that had stopped and a cron with nothing to do left
+identical evidence, which is how the drift above went unnoticed.
+
+Two watchdogs read that stamp, and the second one exists because of what the
+first cannot see:
+
+| | where it runs | what it catches | how it reaches you |
+|---|---|---|---|
+| `whatsapp-bridge/scripts/cast-update-watch.mjs` | this VPS, cron, 15 min | stale, unreachable, wedged, deferred_stuck, no_heartbeat | WhatsApp |
+| `scripts/watch-stream.mjs` | GitHub Actions, 10 min | all of the above **and the box being off** | WhatsApp if the bridge answers, otherwise a GitHub issue |
+
+The on-box one is blind to exactly one fault: it cannot report that the VPS is
+off, because it would be off too. The external one probes from outside and
+falls back to opening an issue — GitHub emails the repository owner — because
+WhatsApp is sent by a process on the machine being watched, so the total
+outage is precisely the case where that channel cannot work. Neither alerts on
+a single bad probe; a deploy and a pm2 restart look like an outage for a few
+seconds. Both send an all-clear, because an alert with no recovery leaves you
+unable to tell fixed from forgotten.
+
+It is not a Vercel cron, which is what it looks like it should be: this account
+is on Hobby, where a cron runs once per day inside an hour-wide window.
+
 First time on a box:
 
 ```
