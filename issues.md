@@ -1215,3 +1215,27 @@ that makes the shade correct while the app is not running. Say the word.
 
 **Context to review:** `assets/js/app.js` — `notify.options()` and the
 `alerted` map (the sound), `offerNotifications()` (the offer).
+
+## The external watchdog's schedule needs a token scope I do not have
+
+**Question:** none — this is a credential I cannot grant myself.
+
+**Where it stands:** `scripts/watch-stream.mjs` is pushed, the
+`CAST_WATCH_HOOK` repository secret is set, and the bridge route it calls
+(`POST /api/hooks/watch/:token`) is live and proven through the public
+ingress. All four states were driven by hand against the real GitHub API and
+the real WhatsApp channel: outage → issue #1 opened + WhatsApp sent; still
+down → silent, no second issue; recovery → issue closed with the duration +
+all-clear; healthy → nothing at all.
+
+**What is missing:** the one file that makes it run on a schedule.
+`.github/workflows/watch-stream.yml` cannot be written from this box —
+`GITHUB_TOKEN` in the bridge's `.env` is a fine-grained PAT without
+"Workflows: write", and GitHub refuses that write over `git push` and the
+contents API alike (403). The Claude GitHub App is refused the same way. The
+file is parked at `deploy/watch-stream.workflow.yml` with the two ways to
+close it in its header.
+
+**Assumption made:** the on-box watcher stays the only one until then. It
+covers everything except the VPS being off, which is the fault the external
+one exists for.

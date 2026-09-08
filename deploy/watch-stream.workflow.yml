@@ -1,0 +1,65 @@
+# NOT LIVE YET — this file has to sit at .github/workflows/watch-stream.yml
+# to run, and it could not be put there from the VPS: the GitHub token in the
+# bridge's .env is a fine-grained PAT without "Workflows: write", and GitHub
+# refuses that write over both git push and the contents API. The Claude
+# GitHub App is refused for the same reason.
+#
+# Two ways to close it, either is a minute:
+#   - grant that token Workflows: write, and it goes up from here on the next
+#     push with no further work, or
+#   - on github.com: Add file -> Create new file -> path
+#     `.github/workflows/watch-stream.yml` -> paste everything below this
+#     header -> Commit.
+#
+# `scripts/watch-stream.mjs` and the CAST_WATCH_HOOK repository secret are
+# already in place and proven end to end, so this is the last inch.
+#
+# The watchdog that survives the VPS being off.
+#
+# The on-box one reads the self-updater's heartbeat and catches a stopped
+# cron, a crashing script and a blocked tree. It cannot catch the machine
+# being off, because it is on that machine. This one is not.
+#
+# It is here rather than on a Vercel cron because this account is on Hobby,
+# where a cron runs once a day inside an hour-wide window. Ten minutes on
+# GitHub beats a daily postcard on Vercel.
+#
+# Two honest caveats. GitHub does not promise punctuality for scheduled
+# workflows — under load a run is late and occasionally skipped, so treat
+# this as "you will hear within the hour", not "within ten minutes". And
+# GitHub disables schedules on a repository with no commit activity for 60
+# days; the self-updater means commits land here often enough that this has
+# not come up, but a quiet quarter would silence it.
+
+name: watch stream host
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:        # so it can be proven by hand, which it was
+
+permissions:
+  issues: write             # the fallback channel, and the job's only memory
+
+concurrency:
+  group: watch-stream
+  cancel-in-progress: false # a run waiting 90s for a second look must finish
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: probe stream.jrvsystems.app from outside the VPS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional. When present the complaint also goes to WhatsApp, which
+          # is the channel that works for the common fault — a box that is up
+          # and stuck. It cannot work for a box that is off, which is what the
+          # issue is for.
+          CAST_WATCH_HOOK: ${{ secrets.CAST_WATCH_HOOK }}
+        run: node scripts/watch-stream.mjs
