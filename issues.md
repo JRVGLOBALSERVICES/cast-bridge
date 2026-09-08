@@ -1254,6 +1254,27 @@ with its own sentence, naming the worker and what to do about it. Three
 assertions, two of which go red against the previous build — the third
 guards the guard, so a healthy worker cannot be reported as a broken one.
 
+## The registration nobody was told had failed (2026-09-08)
+
+**Found by measurement, not reasoning.** A live browser on the real domain,
+with permission already granted and the current build served
+(`sw.js` 200, push handler present, build 58f2993), reported
+`navigator.serviceWorker.getRegistrations().length === 0` forty seconds after
+load, and the Notifications row rendered as an empty string.
+
+**Cause:** `navigator.serviceWorker.register('sw.js').catch(function () {})`.
+The Vercel Security Checkpoint answers the first request of a session with an
+HTML challenge page — including a request for `/sw.js` — and the browser
+refuses to register a worker served as `text/html`. That is a TRANSIENT
+state: seconds later the same URL serves the script. The empty catch turned
+it into a permanent one, for the life of the page, with nothing on screen.
+No worker means no notifications, no push and no offline copy.
+
+**Fixed:** registration is retried three times (3s, then 9s), and a final
+failure is handed to `notify.setRegFailed()` so the Notifications row states
+the browser's own error — `text/html` in the message is what distinguishes a
+bot wall from a 404, so it is kept verbatim.
+
 **Still not proven from here:** that a delivered push is DECRYPTED and drawn
 by the service worker on a real handset. The send is proven — a live browser
 subscribed against real FCM and the push service returned 201 — and the

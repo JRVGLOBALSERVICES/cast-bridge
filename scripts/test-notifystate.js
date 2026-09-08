@@ -379,6 +379,36 @@ async function checkAsync(name, fn) {
       'the timeout branch fired on a worker that was ready — the guard is mis-wired');
   });
 
+  group('a worker that could not be registered at all');
+
+  await checkAsync('a registration that fails is retried, not swallowed', async () => {
+    const src = APP;
+    const at = src.indexOf('function registerWorker(');
+    assert.notStrictEqual(at, -1, 'registration is not in a retryable function');
+    const body = src.slice(at, at + 3000);
+    assert.ok(/registerWorker\(attempt \+ 1\)/.test(body),
+      'a failed registration must be retried — a bot wall answering /sw.js with HTML is transient');
+    /* `reg.update().catch(function () {})` in the same block is fine — a
+       failed freshness check is genuinely nothing to say. The one that
+       matters is the catch on register() itself, which must receive the
+       error rather than discard it. */
+    assert.ok(/\.catch\(function \(err\)/.test(body),
+      'register() still swallows its error — a transient failure becomes permanent and silent');
+    assert.ok(/setRegFailed\(/.test(body),
+      'giving up has to be reported to the settings row, not just logged nowhere');
+  });
+
+  await checkAsync('and once it has given up, the row says which error it was', async () => {
+    const env = makeEnv({ permission: 'granted' });
+    env.notify.setRegFailed("SecurityError: The script has an unsupported MIME type ('text/html')");
+    const verdict = await env.notify.pushSync();
+    assert.strictEqual(verdict, 'error');
+    const why = env.notify.pushWhy();
+    assert.ok(/background worker/i.test(why), 'the note must name the worker');
+    assert.ok(/text\/html/.test(why),
+      "the browser's own error is the only thing that distinguishes a bot wall from a 404 — keep it");
+  });
+
   console.log('\n' + passed + ' passed, ' + failures.length + ' failed');
   if (failures.length) { failures.forEach((f) => console.log('  - ' + f)); process.exit(1); }
 })();

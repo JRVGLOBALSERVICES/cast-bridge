@@ -764,10 +764,16 @@
      * ==================================================================== */
     var pushed = null;      // the subscription this page registered, if any
     var pushNote = '';      // why push is unavailable, in the server's words
+    var regFailed = '';     // why there is no worker at all, if there is none
 
     function pushSupported() {
       return ('serviceWorker' in navigator) && ('PushManager' in window);
     }
+
+    /* Registration failing is not the same as it being slow, and the two
+       used to be indistinguishable from here: both left `regs` empty and
+       both said nothing. Told which it is, the settings row can name it. */
+    function setRegFailed(why) { regFailed = why || 'the background worker could not be started'; }
 
     /* Chrome takes a base64url string; Safari has wanted the bytes. Handing
        both the bytes costs nothing and removes a per-browser branch that
@@ -822,6 +828,11 @@
        'error' with `pushNote` set to the reason. */
     function pushSync() {
       if (!pushSupported()) { pushNote = ''; return Promise.resolve('unsupported'); }
+      if (regFailed) {
+        pushNote = 'The background worker could not be started (' + regFailed + '), so ' +
+                   'nothing can reach this device while the app is closed. Reopening the app usually settles it.';
+        return Promise.resolve('error');
+      }
 
       return swReady().then(function (r) {
         return r.pushManager.getSubscription().then(function (existing) {
@@ -915,7 +926,7 @@
     function pushWhy() { return pushNote; }
 
     return {
-      setReg: setReg, state: state, on: on, ask: ask, off: setOff,
+      setReg: setReg, setRegFailed: setRegFailed, state: state, on: on, ask: ask, off: setOff,
       show: show, update: update, close: close, clearAll: clearAll,
       onAction: onAction, onChange: onChange, standalone: standalone,
       drainPending: drainPending, result: result, taps: taps,
@@ -5660,8 +5671,21 @@
     });
   }
 
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js')
+  /* Registering the worker is allowed to fail, and on this host it does.
+     A bot wall or a captive portal answers `/sw.js` with an HTML page, and
+     the browser refuses it — `SecurityError: unsupported MIME type
+     ('text/html')`. That is a transient state: the challenge is solved a
+     moment later and the very same URL then serves the script.
+
+     The old `.catch(function () {})` turned that moment into a permanent
+     one. No worker meant no notifications, no push and no offline copy, for
+     the life of the page, with nothing on screen to say so — and reloading
+     is not an obvious thing to try when nothing looks broken.
+
+     So: try again, three times, backing off. If it still will not take,
+     say which error it was rather than swallowing it. */
+  function registerWorker(attempt) {
+    return navigator.serviceWorker.register('sw.js')
       .then(function (reg) {
         /* The worker is what draws notifications, so nothing can be said
            until it exists. Anything the app wanted to report before this
@@ -5711,7 +5735,20 @@
           if (!document.hidden) reg.update().catch(function () {});
         });
       })
-      .catch(function () {});
+      .catch(function (err) {
+        var why = (err && (err.name + ': ' + err.message)) || 'unknown';
+        if (attempt < 3) {
+          /* 3s, then 9s. Long enough for a challenge to be solved and short
+             enough that someone still has the app open when it lands. */
+          setTimeout(function () { registerWorker(attempt + 1); }, attempt === 1 ? 3000 : 9000);
+          return;
+        }
+        notify.setRegFailed(why);
+      });
+  }
+
+  if ('serviceWorker' in navigator) {
+    registerWorker(1);
 
     navigator.serviceWorker.addEventListener('message', function (e) {
       if (e.data && e.data.build) showBuild(e.data.build);
