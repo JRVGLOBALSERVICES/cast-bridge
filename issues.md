@@ -1069,3 +1069,39 @@ which no CDP command does. The two checks in test-notify.js read app.js and
 say so in their group heading. What they prove is that the abandonment is
 gone and the retry cannot stack; what they do not prove is the timing on your
 handset.
+
+## 2026-09-08: the hop spends Vercel's bandwidth, deliberately
+
+**Question:** a link that is signed to the scan's network can only be fetched
+by the Vercel function, so serving it means the whole film leaves Vercel
+rather than this box — which is the cost the VPS was stood up to avoid.
+Should it fail instead?
+
+**Assumption made:** hand it on. A film that plays through the more expensive
+bridge beats a film that does not play, and this is the arrangement that was
+in place before the VPS existed, so it is not a new cost — it is the old one,
+now paid only by the hosts that actually refuse us. Everything else still
+serves from Singapore: verified in the same minute that test-videos.co.uk
+came straight off this box (206, no redirect) while vmpx.online hopped.
+
+**Context Rj needs to review:** `CAST_FALLBACK_ORIGIN` in
+`/opt/cast-stream/.env`. Empty it and the hop stops — the app then reports
+the 403 honestly and these hosts stop casting. `handOff()` in
+`api/stream.js` is the whole mechanism.
+
+## 2026-09-08: the stream host had drifted eight commits behind
+
+Not a question — a finding, recorded because it will happen again. Vercel
+deploys itself on push; `/opt/cast-stream` is a git checkout that someone has
+to pull. It was sitting on `7ac2cbe` (2026-09-07 18:51) while production was
+on `59879d5` (22:34), so the two halves of the app were running different
+code for a day. Among the missing commits was the one that taught
+`lib/media.js` to skip HTML comments — the extractor `reissue()` depends on.
+
+It was not the cause of the casting failure (an address signed to another
+network is refused whatever version reads the page), but it made the failure
+harder to read, and a drifted bridge is its own bug waiting.
+
+**Context Rj needs to review:** the deploy is `git pull && pm2 restart
+cast-stream` on the VPS. Worth a git hook or a line in the deploy notes; for
+now it is a thing a person has to remember.
