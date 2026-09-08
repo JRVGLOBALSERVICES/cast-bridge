@@ -6487,13 +6487,19 @@
       var floor = new Promise(function (r) { setTimeout(r, 480); });
 
       Promise.all([work, floor])
-        .catch(function () {})
-        .then(function () {
+        .catch(function () { return []; })
+        .then(function (res) {
           if (gated) return;          // the page is on its way out
           running = false;
           ind.classList.remove('is-running', 'is-armed');
           settle();
-          toast({ text: 'Up to date.' });
+          /* Say WHICH of the two things happened. A pull that cleared the
+             caches and one that could not — offline, or no Cache API — both
+             reported "Up to date.", so from inside the app there was no way
+             to tell whether the clear this gesture exists for had actually
+             run. res[0] is `work`'s array; its first entry is dropCaches(). */
+          var cleared = !!(res && res[0] && res[0][0]);
+          toast({ text: cleared ? 'Cache cleared \u2014 up to date.' : 'Up to date.' });
         });
     }
 
