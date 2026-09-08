@@ -28,12 +28,24 @@
  * the fault that counts.
  */
 
-const TARGET = process.env.WATCH_TARGET || 'https://stream.jrvsystems.app/healthz';
+const DEFAULT_TARGET = 'https://stream.jrvsystems.app/healthz';
+const TARGET = process.env.WATCH_TARGET || DEFAULT_TARGET;
 const REPO = process.env.GITHUB_REPOSITORY || 'JRVGLOBALSERVICES/cast-bridge';
+const GH_API = process.env.WATCH_GH_API || 'https://api.github.com';
 const GH_TOKEN = process.env.GITHUB_TOKEN || '';
 const HOOK = process.env.CAST_WATCH_HOOK || '';   // https://hook.jrvsystems.app/api/hooks/watch/<token>
 const LABEL = 'watchdog';
 const SECOND_LOOK_MS = Number(process.env.WATCH_SECOND_LOOK_MS || 90000);
+
+/* A run pointed at anything other than the real host is a rehearsal, and a
+   rehearsal must not open issues on the real repository or buzz a real phone.
+   This is not hypothetical. On 2026-09-08 four probes against 127.0.0.1 —
+   fired by hand to prove the wedged/stale/no_heartbeat branches — left four
+   real issues open, and because the job's memory IS the open issue, every
+   scheduled run afterwards found one, closed it, and announced a recovery
+   from an outage that had never happened. Two of those reached his phone.
+   The guard makes that mistake impossible rather than remembered. */
+const REHEARSAL = TARGET !== DEFAULT_TARGET && process.env.WATCH_ALLOW_SIDE_EFFECTS !== '1';
 
 /* ---- the probe ---------------------------------------------------- */
 
@@ -84,6 +96,7 @@ function classify(body, ms) {
 /* ---- the two channels --------------------------------------------- */
 
 async function whatsapp(text) {
+  if (REHEARSAL) { console.log('rehearsal — would have sent: ' + text); return 'suppressed (rehearsal)'; }
   if (!HOOK) return 'no hook configured';
   try {
     const res = await fetch(HOOK, {
@@ -100,7 +113,12 @@ async function whatsapp(text) {
 }
 
 async function gh(method, path, body) {
-  const res = await fetch('https://api.github.com' + path, {
+  /* Reads are harmless from a rehearsal; writes are the whole problem. */
+  if (REHEARSAL && method !== 'GET') {
+    console.log('rehearsal — would have ' + method + ' ' + path);
+    return { number: 0, rehearsal: true };
+  }
+  const res = await fetch(GH_API + path, {
     method,
     headers: {
       accept: 'application/vnd.github+json',
@@ -114,9 +132,19 @@ async function gh(method, path, body) {
   return res.status === 204 ? null : res.json();
 }
 
-async function openComplaint() {
-  const list = await gh('GET', `/repos/${REPO}/issues?state=open&labels=${LABEL}&per_page=1`);
-  return Array.isArray(list) && list.length ? list[0] : null;
+/* Every open complaint, oldest first — not `per_page=1`.
+   Asking for one and closing one meant N stale complaints took N runs to
+   drain, and each run announced its own recovery, with a duration measured
+   from a different issue. Four leftovers produced four "it's back" messages
+   for a host that had never left. One run now clears the board and speaks
+   once, and the duration comes from the OLDEST — the fault actually started
+   at the first complaint, not the last. */
+async function openComplaints() {
+  const list = await gh('GET', `/repos/${REPO}/issues?state=open&labels=${LABEL}&per_page=100`);
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((i) => !i.pull_request)
+    .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
 }
 
 function since(iso) {
@@ -155,16 +183,23 @@ async function main() {
   /* Deliberately not the whole body: these logs are public. */
   console.log('verdict: ' + verdict.kind + ' (' + verdict.detail + ') in ' + verdict.ms + 'ms');
 
-  const open = GH_TOKEN ? await openComplaint() : null;
+  const complaints = GH_TOKEN ? await openComplaints() : [];
 
   if (verdict.kind === 'ok') {
-    if (!open) { console.log('healthy, nothing outstanding — silent'); return; }
-    const lasted = since(open.created_at);
+    if (!complaints.length) { console.log('healthy, nothing outstanding — silent'); return; }
+    const oldest = complaints[0];
+    const lasted = since(oldest.created_at);
     const line = '✅ ' + 'stream.jrvsystems.app is back. It was unreachable or stuck for ' + lasted + '. ' + verdict.detail + '.';
+
+    /* One message, however many complaints are outstanding. */
     console.log('whatsapp: ' + await whatsapp(line));
-    await gh('POST', `/repos/${REPO}/issues/${open.number}/comments`, { body: line + '\n\nClosed by the external watchdog.' });
-    await gh('PATCH', `/repos/${REPO}/issues/${open.number}`, { state: 'closed', state_reason: 'completed' });
-    console.log('closed #' + open.number + ' after ' + lasted);
+
+    for (const issue of complaints) {
+      await gh('POST', `/repos/${REPO}/issues/${issue.number}/comments`, { body: line + '\n\nClosed by the external watchdog.' });
+      await gh('PATCH', `/repos/${REPO}/issues/${issue.number}`, { state: 'closed', state_reason: 'completed' });
+      console.log('closed #' + issue.number);
+    }
+    console.log('cleared ' + complaints.length + ' complaint(s) after ' + lasted);
     return;
   }
 
@@ -180,6 +215,7 @@ async function main() {
      first alert could not reach WhatsApp because the box was off, the message
      he actually reads was never delivered. So a run that finds the bridge
      answering again delivers it late, once, and records that it did. */
+  const open = complaints.length ? complaints[0] : null;
   if (open) {
     const undelivered = /\| WhatsApp \| (unreachable|refused|no hook configured)/.test(open.body || '');
     if (!undelivered) { console.log('already complaining in #' + open.number + ' — silent'); return; }

@@ -1334,3 +1334,27 @@ to Google and Apple on every push. Change it to a `mailto:` if you would rather
 an abuse report reached an inbox.
 **Context you need to review:** Vercel env on `cast-bridge-new`;
 `lib/push-crypto.js` `vapidProblem()` refuses a placeholder rather than warning.
+
+## 2026-09-08 — two false "it's back" alerts, and why the watchdog sent them
+
+**What he saw:** at 8.39pm and 8.53pm MYT, `✅ stream.jrvsystems.app is back.
+It was unreachable or stuck for 1h 25m` and then `for 1h 38m`.
+
+**What actually happened:** nothing. `cast-stream` had been up continuously
+since 12:20 UTC and every scheduled probe (12:39, 12:52, 13:07, 13:24, 13:35)
+returned `ok`. No real run ever raised a 🔴.
+
+**Cause — mine, in two halves.** Proving the watchdog's fault branches meant
+pointing it at `127.0.0.1:9` and `127.0.0.1:7899`, which opened four real
+issues (#2–#5) on the real repository at 11:14 UTC. The job's memory IS the
+open issue, so every scheduled run afterwards found one, closed it, and
+announced a recovery — with the duration measured from that issue's creation.
+Four rehearsal issues, four "it's back" messages, one per run, each a little
+longer than the last. #5 and #4 drained silently at 11:53 and 12:10 (the hook
+secret was not set yet); #3 and #2 reached his phone.
+
+**Fixed:** a rehearsal — any run whose target is not the real host — now
+writes nothing and sends nothing unless `WATCH_ALLOW_SIDE_EFFECTS=1`, and says
+so. Recovery drains every open complaint in one run and speaks once, with the
+duration taken from the oldest. `scripts/test-watchstream.js` covers both, and
+goes red under four mutations including the original per-run drain.

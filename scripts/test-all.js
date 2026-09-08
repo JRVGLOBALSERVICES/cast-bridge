@@ -26,7 +26,8 @@ const SUITES = [
   ['notify-state', 'test-notifystate.js'],
   ['push', 'test-push.js'],
   ['resume', 'test-resume.js'],
-  ['self-update', 'test-selfupdate.js']
+  ['self-update', 'test-selfupdate.js'],
+  ['watchdog', 'test-watchstream.js']
 ];
 
 const results = [];
