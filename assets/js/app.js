@@ -1934,10 +1934,26 @@
      that stops what you wanted. */
   /* A film with no cover gets one from itself, once there are pixels to
      read. `loadeddata` is the first moment a frame exists; `seeked` covers
-     the resume case, where the first frame is a black second of leader and
-     the frame they actually came back to is the better picture. */
+     the resume case, where the frame they actually came back to is a
+     better picture than the opening.
+   *
+   * And then it keeps looking. `loadeddata` is the first frame of the
+   * film, which is black in nearly everything ever shot, so one attempt
+   * there is one attempt at the worst moment available. artwork refuses a
+   * frame with nothing in it, so those early tries simply cost nothing and
+   * the first real picture wins. Throttled, and it stops the moment there
+   * is a cover — including a cover that came from the page, so a film with
+   * its own artwork never runs this at all. */
   video.addEventListener('loadeddata', function () { artwork.tryFrame(); });
   video.addEventListener('seeked', function () { artwork.tryFrame(); });
+  var lastLook = 0;
+  video.addEventListener('timeupdate', function () {
+    if (artwork.current()) return;
+    var now = Date.now();
+    if (now - lastLook < 1000) return;
+    lastLook = now;
+    artwork.tryFrame();
+  });
 
   /* A source that actually started is evidence the set is not the problem,
      so the budget for automatic hops is given back. Without this, a film

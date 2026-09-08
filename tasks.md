@@ -1111,3 +1111,8 @@
       to the history row, so a film reopened next week still has somewhere
       to go. `scripts/test-sources.js` proves both, in a real browser
       against the shipped page, on both player paths.
+
+## Cast notification showed a black square instead of a cover (2026-09-08)
+- [x] artwork.js — measure a captured frame before trusting it; refuse a blank one
+- [x] app.js — keep looking for a real frame instead of taking the one at `loadeddata`
+- [x] test-notify.js — 5 new checks, 7 deliberate breaks all seen red

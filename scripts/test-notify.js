@@ -56,19 +56,52 @@ function fakeImage(rules) {
   };
 }
 
+/* The pixels a frame grab comes back with. 'picture' is an ordinary shot —
+   a range of values, some of it dark. 'black' is the opening frame of very
+   nearly every film ever shot. 'flat' is a solid colour card, bright but
+   just as empty. 'dark' is the case that must NOT be refused: a night
+   scene, mostly black, with a highlight in it. */
+function pixelsOf(kind, w, h) {
+  const d = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0, p = 0; p < w * h; p++, i += 4) {
+    let v;
+    if (kind === 'black') v = p % 7 === 0 ? 3 : 0;      // sensor noise, not a picture
+    else if (kind === 'flat') v = 200;
+    else if (kind === 'dark') v = p % 997 === 0 ? 190 : 4;
+    else v = (p * 37) % 256;
+    d[i] = d[i + 1] = d[i + 2] = v;
+    d[i + 3] = 255;
+  }
+  return d;
+}
+
 /* A <canvas> that either yields a frame or throws SecurityError, which is
-   what a real one does over a cross-origin stream. */
+   what a real one does over a cross-origin stream. `pixels` chooses what
+   was drawn into it; `noImageData` is a browser too old to let us look. */
 function fakeDoc(opts) {
   return {
     createElement() {
-      return {
+      const c = {
         width: 0, height: 0,
-        getContext: () => ({ drawImage() {} }),
+        getContext: () => ({
+          drawImage() {},
+          getImageData: opts.noImageData ? undefined : ((x, y, w, h) => {
+            /* A tainted canvas refuses this exactly as it refuses
+               toDataURL — the rule must survive being unable to look.
+               `refuseRead` is the case that is NOT tainted: a canvas that
+               will not be sampled but will still hand over a picture. */
+            if (opts.tainted || opts.refuseRead) {
+              const e = new Error('canvas read refused'); e.name = 'SecurityError'; throw e;
+            }
+            return { data: pixelsOf(opts.pixels || 'picture', w, h) };
+          })
+        }),
         toDataURL() {
           if (opts.tainted) { const e = new Error('tainted canvas'); e.name = 'SecurityError'; throw e; }
           return 'data:image/jpeg;base64,AAAA';
         }
       };
+      return c;
     }
   };
 }
@@ -78,7 +111,12 @@ const READY = { readyState: 2, videoWidth: 1280, videoHeight: 720 };
 function art(opts) {
   opts = opts || {};
   return CBArtwork.create({
-    document: fakeDoc({ tainted: Boolean(opts.tainted) }),
+    document: fakeDoc({
+      tainted: Boolean(opts.tainted),
+      pixels: opts.pixels,
+      noImageData: Boolean(opts.noImageData),
+      refuseRead: Boolean(opts.refuseRead)
+    }),
     Image: fakeImage(opts.rules || {}),
     setTimeout: (fn, ms) => setTimeout(fn, opts.probeMs || ms),
     probeMs: opts.probeMs || 40,
@@ -146,6 +184,63 @@ check('a cross-origin stream taints the canvas and yields nothing', () => {
   const a = art({ tainted: true });
   assert.strictEqual(a.tryFrame(), '');
   assert.strictEqual(a.current(), '');
+});
+
+check('the black frame a film opens on is refused, not shown as its cover', () => {
+  /* The reported bug, exactly. tvarticles serves no og:image and no
+     <video poster>, so a frame was the only source there was — and the
+     frame taken at `loadeddata` is the first frame of the film, which is
+     black in nearly everything ever shot. It was adopted, never replaced,
+     and the shade showed a black square while the episode played. */
+  const a = art({ pixels: 'black' });
+  assert.strictEqual(a.tryFrame(), '');
+  assert.strictEqual(a.current(), '', 'the app mark is better than a black square');
+});
+
+check('a solid colour card is refused too, bright though it is', () => {
+  const a = art({ pixels: 'flat' });
+  assert.strictEqual(a.tryFrame(), '');
+});
+
+check('a dark shot with a highlight in it is kept', () => {
+  /* The rule has to be spread, not brightness. Half of what Rj watches is
+     a night scene, and refusing those would trade one missing cover for a
+     great many. */
+  const a = art({ pixels: 'dark' });
+  assert.ok(a.tryFrame().startsWith('data:image/jpeg'));
+  assert.strictEqual(a.source(), 'frame');
+});
+
+check('a refused frame leaves the next one free to be taken', () => {
+  /* Refusing is only half a fix: the app looks again a second later, and
+     the black opening must not have consumed the one chance. */
+  const doc = { black: fakeDoc({ pixels: 'black' }), real: fakeDoc({ pixels: 'picture' }) };
+  let which = 'black';
+  const a = CBArtwork.create({
+    document: { createElement: (t) => doc[which].createElement(t) },
+    Image: fakeImage({}),
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    video: READY,
+    proxy: (u) => viaUs(u)
+  });
+  assert.strictEqual(a.tryFrame(), '', 'the opening frame');
+  which = 'real';
+  assert.ok(a.tryFrame().startsWith('data:image/jpeg'), 'a second later, the film');
+  assert.strictEqual(a.source(), 'frame');
+});
+
+check('a canvas that will not be measured is still used', () => {
+  /* A browser with no getImageData, or one that refuses the read. No
+     frame should be thrown away because we failed to look at it — the
+     tainted case above is toDataURL's answer to give, not blank()'s. */
+  const a = art({ noImageData: true });
+  assert.ok(a.tryFrame().startsWith('data:image/jpeg'));
+  /* And the other half: a canvas that HAS the call and refuses it, while
+     still handing over the picture. Kept separate because the tainted case
+     cannot tell these apart — there toDataURL refuses as well, so the
+     frame is dropped either way and the rule goes unproven. */
+  const b = art({ refuseRead: true });
+  assert.ok(b.tryFrame().startsWith('data:image/jpeg'), 'a frame lost to a failed measurement');
 });
 
 check('a frame is not taken before there are pixels', () => {
@@ -746,6 +841,18 @@ check('the wait cannot stack up', () => {
   const at = APP_SRC.indexOf('function drainPending()');
   const body = APP_SRC.slice(at, at + 1800);
   assert.ok(/if \(drainWaiting\) return;/.test(body), 'three callers, no guard');
+});
+
+check('the app keeps looking for a frame, not just the first one', () => {
+  /* artwork refusing a black frame achieves nothing on its own: if the app
+     only ever looks at `loadeddata` and `seeked`, a film that opens on
+     black now has no cover at all instead of a black one. */
+  const at = APP_SRC.indexOf("addEventListener('loadeddata'");
+  assert.ok(at > -1, 'the frame grab is gone');
+  const body = APP_SRC.slice(at, at + 700);
+  assert.ok(/addEventListener\('timeupdate'/.test(body), 'one look, at the worst moment there is');
+  assert.ok(/artwork\.current\(\)\) return;/.test(body), 'it keeps grabbing after it has a cover');
+  assert.ok(/lastLook < \d+\) return;/.test(body), 'a canvas read on every timeupdate');
 });
 
 (async () => {

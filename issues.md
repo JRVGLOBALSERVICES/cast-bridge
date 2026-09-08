@@ -1396,3 +1396,19 @@ under a cast that is merely slow to start would look like the app losing the
 film. The picker still works while casting, so you can switch by hand.
 **Context you need to review:** `assets/js/app.js` — the two
 `castState !== 'CONNECTED'` guards in the error handlers.
+
+## Cast artwork: black frame (2026-09-08)
+**Question:** what should the shade show when a film has no cover of its own AND
+is playing on the television — where the local <video> is deliberately paused and
+will never decode a frame to grab?
+**Assumption made:** the app icon. `art` stays empty, sw.js falls back to
+`/assets/icon-192.png`. A black rectangle claiming to be the cover is worse than
+an honest app mark, and there is no third source available.
+**Context Rj needs to review:** assets/js/artwork.js frame()/blank(); sw.js:398.
+
+**Question:** how dark is too dark?
+**Assumption made:** refuse when the brightest sampled pixel is under 16/255, or
+when the whole frame spans less than 10 levels. A night scene with any highlight
+survives (proven in test-notify.js). If a film he watches still shows the app
+icon where a frame would have done, the spread threshold is the number to lower.
+**Context Rj needs to review:** assets/js/artwork.js blank().

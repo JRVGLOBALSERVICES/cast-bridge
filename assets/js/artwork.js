@@ -73,9 +73,54 @@
       return seen[url];
     }
 
+    /* Is there anything in this picture?
+     *
+     * Nearly every film opens on black. `loadeddata` is by definition the
+     * FIRST frame, so a frame taken there is a black rectangle far more
+     * often than it is the film — and once adopted it was never replaced,
+     * which is how a notification ends up showing a black square as the
+     * cover of an episode that has one on screen a second later.
+     *
+     * The test is spread, not darkness: a genuinely dark shot still has
+     * highlights somewhere, while a leader frame, a white flash and a
+     * solid colour card are all one value everywhere. Sampled on a stride
+     * rather than pixel by pixel — this runs on a phone, several times a
+     * film, and a coarse read answers the only question being asked.
+     *
+     * Returns false when it cannot see the pixels at all. A canvas that
+     * refuses to be read is a tainted one, and that is toDataURL's answer
+     * to give, not this function's — no frame should ever be thrown away
+     * because we failed to measure it. */
+    function blank(ctx, w, h) {
+      var d;
+      try {
+        if (!ctx.getImageData) return false;
+        d = ctx.getImageData(0, 0, w, h).data;
+      } catch (e) {
+        return false;
+      }
+      if (!d || !d.length) return false;
+      var px = (w * h) || (d.length / 4);
+      var step = Math.max(1, Math.floor(px / 2000)) * 4;
+      var lo = 255, hi = 0, n = 0;
+      for (var i = 0; i + 2 < d.length; i += step) {
+        /* Rounded luma. The exact weights do not matter at this coarseness;
+           what matters is that one number stands for the pixel. */
+        var l = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
+        if (l < lo) lo = l;
+        if (l > hi) hi = l;
+        n++;
+      }
+      if (!n) return false;
+      /* Two ways to be nothing: too dark to show anything, or the same
+         value everywhere at any brightness. */
+      return hi < 16 || (hi - lo) < 10;
+    }
+
     /* A still from the element already decoding the film. Returns '' rather
        than throwing on a cross-origin stream: that canvas is tainted by
-       design and there is nothing to be done about it here. */
+       design and there is nothing to be done about it here. Also '' for a
+       frame with nothing in it — see blank(). */
     function frame() {
       try {
         var v = video();
@@ -86,7 +131,9 @@
         var c = doc.createElement('canvas');
         c.width = Math.round(w * scale);
         c.height = Math.round(h * scale);
-        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+        var ctx = c.getContext('2d');
+        ctx.drawImage(v, 0, 0, c.width, c.height);
+        if (blank(ctx, c.width, c.height)) return '';
         return c.toDataURL('image/jpeg', 0.7);
       } catch (e) {
         return '';
