@@ -1158,3 +1158,12 @@ edge I measured without pulling in a public-suffix dependency.
 site. No stream host in use looks like that, and the only thing the rule
 permits is re-fetching from a neighbour of the host that already refused us —
 never an address of the page's choosing.
+
+## VPS drift — auto-update installed (2026-09-08)
+**Question:** should the VPS pull itself, given a pull implies a service restart?
+**Assumption made:** yes, every 5 minutes, but only when `in_flight == 0` so a
+restart can never stall a television mid-film, and fast-forward only — local
+commits or modified tracked files stop it and raise a WhatsApp alert instead.
+**Context Rj needs to review:** `scripts/self-update.sh`, root crontab
+`*/5 * * * *`. Kill it with `crontab -e` (delete that line) if you'd rather
+deploy the VPS by hand. Log: `data/self-update.log`.
