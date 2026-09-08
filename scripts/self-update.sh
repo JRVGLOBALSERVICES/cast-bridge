@@ -19,8 +19,11 @@
 #   * npm ci runs only when package-lock.json actually moved.
 set -uo pipefail
 
-REPO=/opt/cast-stream
+# Overridable so the whole script can be driven against a throwaway clone in
+# a test, rather than only against the one checkout it protects.
+REPO=${CAST_REPO:-/opt/cast-stream}
 LOG=$REPO/data/self-update.log
+BEAT=$REPO/data/self-update-heartbeat.json
 LOCK=/tmp/cast-stream-self-update.lock
 # Overridable so the guards below can be exercised against a stub rather than
 # only in production, where "a cast is in flight" is not a state you can stage.
@@ -28,6 +31,20 @@ HEALTH=${CAST_HEALTH_URL:-http://127.0.0.1:7801/healthz}
 
 mkdir -p "$(dirname "$LOG")"
 log() { echo "[$(date -u +%FT%TZ)] $*" >> "$LOG"; }
+
+# A tick with nothing to do writes nothing to the log, on purpose: 288
+# identical lines a day is a file nobody reads. But that makes "ran, nothing
+# to do" and "has not run since Tuesday" the same observation — and not
+# noticing the box had stopped moving is the exact failure this script was
+# written for. So every tick stamps its own liveness here whatever it
+# decided, and /healthz reports the age. Silence stays cheap; death stops
+# being invisible.
+beat() {
+  printf '{"ts":"%s","state":"%s","head":"%s","behind":%s,"ahead":%s}\n' \
+    "$(date -u +%FT%TZ)" "$1" \
+    "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+    "${2:-0}" "${3:-0}" > "$BEAT.tmp" 2>/dev/null && mv "$BEAT.tmp" "$BEAT"
+}
 
 notify() {
   [ "${CAST_UPDATE_NOTIFY:-on}" = off ] && return 0
@@ -48,11 +65,11 @@ flock -n 9 || exit 0
 
 cd "$REPO" || exit 1
 
-git fetch -q origin main 2>>"$LOG" || { log "fetch failed"; exit 0; }
+git fetch -q origin main 2>>"$LOG" || { log "fetch failed"; beat fetch_failed; exit 0; }
 
 BEHIND=$(git rev-list --count HEAD..origin/main)
 AHEAD=$(git rev-list --count origin/main..HEAD)
-[ "$BEHIND" -eq 0 ] && exit 0
+[ "$BEHIND" -eq 0 ] && { beat up_to_date 0 "$AHEAD"; exit 0; }
 
 # Never discard work that only exists here.
 # --untracked-files=no is deliberate: a fast-forward cannot touch a file git
@@ -60,6 +77,7 @@ AHEAD=$(git rev-list --count origin/main..HEAD)
 # here". Counting them made the guard refuse every update forever.
 if [ "$AHEAD" -ne 0 ] || [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   log "BLOCKED: behind $BEHIND but ahead $AHEAD / tree dirty — not touching it"
+  beat blocked "$BEHIND" "$AHEAD"
   notify "⚠️ cast-stream VPS is $BEHIND commit(s) behind but has local work (ahead $AHEAD, dirty tree). Auto-update refused — needs a human."
   exit 0
 fi
@@ -68,13 +86,14 @@ fi
 INFLIGHT=$(curl -s -m 10 "$HEALTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("in_flight",0))' 2>/dev/null || echo 0)
 if [ "${INFLIGHT:-0}" -gt 0 ]; then
   log "deferred: $BEHIND behind, $INFLIGHT stream(s) in flight"
+  beat deferred "$BEHIND" "$AHEAD"
   exit 0
 fi
 
 OLD=$(git rev-parse --short HEAD)
 LOCK_BEFORE=$(git rev-parse HEAD:package-lock.json 2>/dev/null || echo none)
 
-git pull -q --ff-only origin main 2>>"$LOG" || { log "pull failed"; notify "⚠️ cast-stream auto-update: git pull failed on the VPS."; exit 1; }
+git pull -q --ff-only origin main 2>>"$LOG" || { log "pull failed"; beat pull_failed "$BEHIND"; notify "⚠️ cast-stream auto-update: git pull failed on the VPS."; exit 1; }
 
 NEW=$(git rev-parse --short HEAD)
 LOCK_AFTER=$(git rev-parse HEAD:package-lock.json 2>/dev/null || echo none)
@@ -88,6 +107,7 @@ pm2 restart cast-stream --update-env >/dev/null 2>&1
 sleep 4
 HEALTH_OK=$(curl -s -m 10 "$HEALTH" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("ok" if d.get("ok") else "notok", int(d.get("uptime_s",999)))' 2>/dev/null || echo "down 999")
 log "updated $OLD -> $NEW ($BEHIND commit(s)); health: $HEALTH_OK"
+beat updated
 case "$HEALTH_OK" in
   "ok "[0-9]|"ok "[0-9][0-9]) notify "🔄 cast-stream VPS updated $OLD → $NEW ($BEHIND commit(s) behind Vercel). Back up, healthy." ;;
   *) notify "⚠️ cast-stream VPS updated $OLD → $NEW but the service did not come back clean: $HEALTH_OK" ;;

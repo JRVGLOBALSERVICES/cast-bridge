@@ -23,7 +23,8 @@ const SUITES = [
   ['crawl', 'test-crawl.js'],
   ['nowplaying', 'test-nowplaying.js'],
   ['notify', 'test-notify.js'],
-  ['resume', 'test-resume.js']
+  ['resume', 'test-resume.js'],
+  ['self-update', 'test-selfupdate.js']
 ];
 
 const results = [];

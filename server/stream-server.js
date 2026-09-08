@@ -425,6 +425,42 @@ const server = http.createServer(async (req, res) => {
     return res.end();
   }
 
+/* Did the auto-updater actually fire?
+ *
+ * scripts/self-update.sh is a cron line, and a cron line that has stopped
+ * firing is indistinguishable from one with nothing to do: both say nothing.
+ * That equivalence is what let this box sit eight commits behind Vercel for a
+ * whole day. Every tick now stamps a heartbeat whatever it decided, so the
+ * age of that stamp — not the quiet — is the signal.
+ *
+ * The public probe gets the verdict and the age. It does not get the commit:
+ * the sha is of no use to a viewer and of some use to a stranger, so it stays
+ * behind the owner ticket with the rest of /api/system.
+ */
+const SELF_UPDATE_BEAT = path.join(__dirname, '..', 'data', 'self-update-heartbeat.json');
+const SELF_UPDATE_STALE_S = Number(process.env.SELF_UPDATE_STALE_S) || 1800;
+
+function selfUpdateBeat() {
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(SELF_UPDATE_BEAT, 'utf8'));
+  } catch (e) {
+    // Never stamped, or unreadable. Either way nothing has proved it ran.
+    return { ts: null, state: 'never', head: null, behind: null, ahead: null, age_s: null, stale: true };
+  }
+  const at = Date.parse(raw.ts);
+  const age = Number.isFinite(at) ? Math.round((Date.now() - at) / 1000) : null;
+  return {
+    ts: raw.ts || null,
+    state: raw.state || 'unknown',
+    head: raw.head || null,
+    behind: raw.behind ?? null,
+    ahead: raw.ahead ?? null,
+    age_s: age,
+    stale: age === null || age > SELF_UPDATE_STALE_S
+  };
+}
+
   if (url.pathname === '/healthz') {
     const day = today();
     const month = day.slice(0, 7);
@@ -444,6 +480,10 @@ const server = http.createServer(async (req, res) => {
          or simply lost. `deep_reissue.ok` false means this box is one
          network-signed link away from a failure it cannot fix. */
       deep_reissue: browserReady(),
+      /* `stale` true means nothing has pulled this box recently — it may be
+         serving different code from the half of the app Vercel runs. */
+      self_update: (() => { const b = selfUpdateBeat();
+        return { state: b.state, age_s: b.age_s, stale: b.stale }; })(),
       fallback_origin: null,
       storage: disk
     });
@@ -590,6 +630,7 @@ const server = http.createServer(async (req, res) => {
         mem_free: free,
         mem_used_pct: total ? Math.round(((total - free) / total) * 1000) / 10 : null
       },
+      self_update: selfUpdateBeat(),
       storage: disk,
       served: { today: usage[day] || 0, days: days }
     });

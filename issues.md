@@ -1167,3 +1167,16 @@ commits or modified tracked files stop it and raise a WhatsApp alert instead.
 **Context Rj needs to review:** `scripts/self-update.sh`, root crontab
 `*/5 * * * *`. Kill it with `crontab -e` (delete that line) if you'd rather
 deploy the VPS by hand. Log: `data/self-update.log`.
+
+## The updater's quiet was indistinguishable from its death (2026-09-08)
+**Question:** a tick with nothing to do logs nothing, so how would anyone tell
+a working cron from one that stopped firing?
+**Assumption made:** they couldn't, and that is the same blindness that let the
+box sit eight commits behind for a day — so every tick now stamps
+`data/self-update-heartbeat.json` whatever it decided (`up_to_date`, `deferred`,
+`blocked`, `updated`, `fetch_failed`), and the age of that stamp is reported.
+**Context Rj needs to review:** public `/healthz` shows
+`self_update {state, age_s, stale}` — `stale` flips past 30 min
+(`SELF_UPDATE_STALE_S`). Owner-only `/api/system` carries the commit too; the
+public probe deliberately does not. Nothing *pages* you on staleness yet — it
+is visible when asked, not pushed. Say the word if you want an alert.
