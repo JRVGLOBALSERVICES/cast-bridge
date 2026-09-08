@@ -7,7 +7,7 @@
  * identical sw.js is never re-installed by the browser, so bump this on
  * every deploy that touches index.html or anything under assets/.
  */
-const BUILD = '2026-09-07.8';
+const BUILD = '2026-09-08.1';
 const CACHE = 'cast-bridge-' + BUILD;
 
 const SHELL = [
@@ -362,4 +362,101 @@ self.addEventListener('message', (e) => {
     return;
   }
   if (data.type === 'GET_BUILD') reply({ build: BUILD });
+});
+
+
+/* ==========================================================================
+ * REAL PUSH — the half a page cannot do
+ *
+ * Everything above this line is a LOCAL notification: a running page asks,
+ * the worker draws. That covers a backgrounded app and nothing else. The
+ * phone freezes a tab it has not seen for a while, and a closed app is not
+ * running at all, and those are most of the moments a notification would
+ * have been worth having. Rj, twice: "I still can't see background
+ * notifications on the cast."
+ *
+ * A push is delivered to the browser, and the browser STARTS this worker to
+ * draw it. There does not have to be a page.
+ * ======================================================================== */
+
+/* Chrome will not let a push be received silently: a worker that returns
+   without calling showNotification gets "This site has been updated in the
+   background" drawn over it, and repeatedly doing so costs the origin its
+   push permission. So every branch here draws something, including the
+   branch where the payload was unreadable — an honest "something happened"
+   beats a browser-authored notice about a site being updated. */
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) { d = {}; }
+
+  const title = d.title || 'Cast Bridge';
+  const tag = d.tag || 'cast';
+  const options = {
+    body: d.body || '',
+    tag: tag,
+    icon: d.art || '/assets/icon-192.png',
+    badge: '/assets/icon-192.png',
+    /* NOT silent. This is the whole point of the exercise: a silent
+       notification is filed by Android under "Silent" below the fold and
+       given no banner at all by iOS, which is how months of working
+       notifications read as broken ones. The page's local path still uses
+       the tag to keep an update quiet — see notify.options() in app.js —
+       but a push only ever fires for something worth saying once. */
+    silent: false,
+    renotify: false,
+    requireInteraction: Boolean(d.ongoing),
+    data: { url: d.url || '/', tag: tag, push: true }
+  };
+  if (d.art) options.image = d.art;
+  if (d.actions && d.actions.length) options.actions = d.actions.slice(0, 2);
+
+  /* waitUntil, and the promise must be the showNotification one. Returning
+     early ends the worker's permitted lifetime and the draw is cancelled
+     mid-flight, which looks exactly like a push that never arrived. */
+  e.waitUntil(self.registration.showNotification(title, options));
+});
+
+/* The browser rotated this install's keys, or the subscription expired.
+ *
+ * When this fires the OLD endpoint is already dead — every send to it will
+ * answer 410 — and the app may not be opened for a week. Re-subscribing here
+ * and telling the server is the only thing standing between a key rotation
+ * and a phone that quietly stops receiving anything, with nothing anywhere
+ * reporting a fault.
+ *
+ * `e.oldSubscription` is not universally populated, so the server is asked
+ * to forget the old endpoint only when there is one to name; the fanout
+ * prunes on 410 regardless, so a missed delete costs one wasted send. */
+self.addEventListener('pushsubscriptionchange', (e) => {
+  e.waitUntil((async () => {
+    const old = e.oldSubscription || null;
+    let key = null;
+    try {
+      const res = await fetch('/api/push', { credentials: 'include' });
+      const j = await res.json();
+      key = j && j.publicKey;
+    } catch (err) { /* offline: the app re-subscribes on its next boot */ }
+    if (!key) return;
+
+    try {
+      const fresh = await self.registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: key
+      });
+      await fetch('/api/push', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fresh.toJSON ? fresh.toJSON() : fresh)
+      });
+      if (old && old.endpoint) {
+        await fetch('/api/push', {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: old.endpoint })
+        }).catch(() => {});
+      }
+    } catch (err) { /* nothing more this worker can do without a page */ }
+  })());
 });

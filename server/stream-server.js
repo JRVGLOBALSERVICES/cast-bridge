@@ -69,6 +69,7 @@ const streamApi = require('../api/stream.js');
 const reissue = require('../lib/reissue.js');
 const storage = require('./storage.js');
 const ticket = require('../lib/ticket.js');
+const pushHook = require('./push-hook.js');
 
 const PORT = Number(process.env.PORT || 7801);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -514,6 +515,25 @@ function selfUpdateBeat() {
       });
       console.log(new Date().toISOString() + ' upload ' + meta.id + ' ' + meta.bytes + 'B ' +
         'keep=' + (meta.keepHours === 0 ? 'forever' : meta.keepHours + 'h') + ' ' + meta.name);
+
+      /* The upload finished HERE. Whether anybody is still looking at the app
+         that started it is not knowable from this side — a phone locks, a tab
+         is frozen, and the response below goes to a page that may be gone. So
+         the app half is asked to push, which reaches the handset through the
+         operating system and needs no page to exist.
+         Awaited so the logged line says what actually happened, and never
+         allowed to fail the upload: the file is already on the disk. */
+      if (pushHook.configured()) {
+        const told = await pushHook.notify(t.uid, {
+          title: 'Ready to cast',
+          body: meta.name,
+          tag: 'upload-done',
+          category: 'ready',
+          url: '/'
+        });
+        console.log(new Date().toISOString() + ' upload-push ' + meta.id + ' ' +
+          (told && told.ok ? 'sent=' + (told.sent || 0) : 'no (' + ((told && told.error) || 'unknown') + ')'));
+      }
       return json(res, 201, {
         ok: true,
         file: Object.assign({}, meta, { slug: storage.slugOf(meta.name) }),

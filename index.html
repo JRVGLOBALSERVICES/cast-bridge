@@ -558,6 +558,15 @@
         <p class="cb-setv" id="notifyNote">Casting, upload progress and anything
           that goes wrong, while you are in another app.</p>
         <p class="cb-setsaved" id="notifySaved" role="status" hidden></p>
+        <!-- Push, said separately from the switch on purpose.
+             "Notifications are on" only ever meant this browser granted
+             permission. Whether a SERVER can reach it while the app is shut
+             is a different fact, it is the one that was missing, and it is
+             the one that cannot be settled from a laptop — so it is reported
+             here in its own sentence, and the button below fires a real push
+             down the real path to settle it. -->
+        <p class="cb-setv" id="notifyPush" hidden></p>
+        <button type="button" class="cb-linkbtn" id="notifyTest" hidden>Send a test notification</button>
         <!-- What became of the last button tapped on a notification. Hidden
              until there has been one. A dead Pause can fail in three separate
              places (the worker, this page, the television), none of which can

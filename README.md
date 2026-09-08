@@ -50,9 +50,23 @@ not by its name.
   know the set it cannot poll: `live` says "Still playing on <TV>", `maybe` says
   "You were watching this", and the two sentences are written separately on
   purpose, because only one of them is a fact.
-- **Notifications while you are elsewhere** — cast state, upload percentage,
-  scan results and anything that fails, drawn by the service worker so they
-  arrive when the app is backgrounded. Nothing is drawn while the app is on
+- **Notifications while you are elsewhere, and while the app is shut** — two
+  separate mechanisms, and the difference is the whole reason background
+  notifications kept reading as broken. Cast state, upload percentage and scan
+  results are drawn LOCALLY: a running page asks, the worker draws. That covers
+  a backgrounded app and nothing else — a phone freezes a tab it has not looked
+  at in a while, and a closed app is not running at all, so neither can be woken
+  by the page, by definition. Anything the SERVER knows on its own is a real
+  Web Push instead (RFC 8291/8292, `lib/push-crypto.js`, proved against the
+  RFC's own published vector): the browser mints a URL, `castbridge.push_subscriptions`
+  keeps it, and pushing to it starts the worker whether or not this app exists.
+  A finished upload is the first of those — the stream host completes the write
+  and asks the app half to push, because the reply to that upload goes to a page
+  that may be long gone. The Notifications row in More has a **Send a test
+  notification** button that fires one down the real path and reports what each
+  registered device answered; it says *sent*, never *delivered*, because what a
+  handset does with an accepted push is the operating system's business and is
+  not visible from here. Nothing is drawn while the app is on
   screen; one tag per subject, so the upload is one notification that changes
   rather than twenty-four. Pause and Stop ride on the cast one. Off by default
   and asked for from the Notifications row in More, never on boot.
@@ -339,6 +353,8 @@ STREAM_STATE_DIR=/var/lib/cast-stream
 CAST_FILES_DIR=/var/lib/cast-stream/media
 STREAM_PUBLIC_HOST=https://stream.jrvsystems.app
 STREAM_UPLOAD_SECRET=…same value as the app project's…
+CAST_APP_ORIGIN=https://cast.jrvsystems.app
+CAST_PUSH_HOOK_TOKEN=…same value as the app project's…
 ENV
 chmod 600 /opt/cast-stream/.env
 

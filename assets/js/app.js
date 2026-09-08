@@ -472,7 +472,16 @@
 
     function setOff() { writePref('0'); clearAll(); announce(); }
 
-    function setReg(r) { reg = r; paint(); clearShade(); }
+    function setReg(r) {
+      reg = r;
+      paint();
+      clearShade();
+      /* Every open re-registers. Nearly always a no-op — the endpoint
+         outlives the session — but it is the one moment a rotated key, a
+         reinstalled app or a server that lost the row can be noticed, and
+         every one of those failures is otherwise completely silent. */
+      try { pushSync(); } catch (e) { /* push is a bonus, never a blocker */ }
+    }
 
     function post(msg) {
       var w = (reg && (reg.active || reg.waiting)) || navigator.serviceWorker.controller;
@@ -730,11 +739,152 @@
       setTimeout(function () { if (!answered) cb([]); }, 1200);
     }
 
+    /* ======================================================================
+     * REAL PUSH — registering this browser so a SERVER can reach it
+     *
+     * Everything above draws a notification because a running page asked for
+     * one. That is the whole of what this app could do until now, and it is
+     * why background notifications kept reading as broken: a phone freezes a
+     * tab it has not looked at in a while, and a closed app is not running at
+     * all. Neither state can be woken by the page — by definition.
+     *
+     * A push subscription is a URL the browser mints and the server keeps.
+     * Pushing to it wakes the service worker whether or not this page exists.
+     *
+     * Three rules that are easy to get wrong and silent when you do:
+     *  · Subscribe only AFTER permission is granted. `pushManager.subscribe`
+     *    prompts by itself otherwise, from wherever it was called, which is
+     *    the boot-time prompt this app deliberately does not do.
+     *  · Re-subscribe on every open. The endpoint survives, so this is nearly
+     *    always a no-op — but it is also the only moment a rotated key or a
+     *    server that lost the row can be noticed, and a phone that quietly
+     *    stopped receiving reports nothing at all.
+     *  · `userVisibleOnly: true` is required by Chrome and is not a setting:
+     *    a push that draws nothing is refused at subscribe time.
+     * ==================================================================== */
+    var pushed = null;      // the subscription this page registered, if any
+    var pushNote = '';      // why push is unavailable, in the server's words
+
+    function pushSupported() {
+      return ('serviceWorker' in navigator) && ('PushManager' in window);
+    }
+
+    /* Chrome takes a base64url string; Safari has wanted the bytes. Handing
+       both the bytes costs nothing and removes a per-browser branch that
+       would only ever be discovered on the one browser without it. */
+    function keyBytes(b64) {
+      var pad = '='.repeat((4 - (b64.length % 4)) % 4);
+      var raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+      var out = new Uint8Array(raw.length);
+      for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+      return out;
+    }
+
+    function pushConfig() {
+      return fetch('/api/push', { credentials: 'include' })
+        .then(function (r) { return r.json(); })
+        .catch(function () { return null; });
+    }
+
+    /* Bring the server's idea of this browser in line with this browser's.
+       Returns a word for the settings panel: 'on', 'off', 'unsupported', or
+       'error' with `pushNote` set to the reason. */
+    function pushSync() {
+      if (!pushSupported()) { pushNote = ''; return Promise.resolve('unsupported'); }
+
+      return navigator.serviceWorker.ready.then(function (r) {
+        return r.pushManager.getSubscription().then(function (existing) {
+          /* Switched off, or never allowed: tear down rather than leave a
+             live endpoint on the server. A subscription the person believes
+             is off, still able to wake their phone, is worse than no push. */
+          if (!on()) {
+            pushed = null;
+            if (!existing) return 'off';
+            var gone = existing.endpoint;
+            return existing.unsubscribe().catch(function () { return false; }).then(function () {
+              return fetch('/api/push', {
+                method: 'DELETE',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ endpoint: gone })
+              }).catch(function () {});
+            }).then(function () { return 'off'; });
+          }
+
+          return pushConfig().then(function (cfg) {
+            if (!cfg || !cfg.ok) { pushNote = 'The server could not be asked about push.'; return 'error'; }
+            if (!cfg.configured || !cfg.publicKey) {
+              /* The server's own sentence, verbatim. This is the branch that
+                 says a key is missing or a placeholder — and the reason it is
+                 shown on the phone rather than logged is that a server log is
+                 not somewhere the person who can fix it is looking. */
+              pushNote = cfg.problem || 'Push is not switched on for this deployment.';
+              return 'error';
+            }
+
+            var want = keyBytes(cfg.publicKey);
+            var reuse = existing;
+
+            /* An existing subscription made against a DIFFERENT key is dead
+               and will never be told so: sends to it fail server-side and the
+               phone sees nothing. Rotating the keys without this check is how
+               push stops working with no error anywhere. */
+            if (existing && existing.options && existing.options.applicationServerKey) {
+              var had = new Uint8Array(existing.options.applicationServerKey);
+              var same = had.length === want.length;
+              for (var i = 0; same && i < had.length; i++) if (had[i] !== want[i]) same = false;
+              if (!same) reuse = null;
+            }
+
+            var step = reuse
+              ? Promise.resolve(reuse)
+              : (existing ? existing.unsubscribe().catch(function () {}) : Promise.resolve())
+                  .then(function () {
+                    return r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: want });
+                  });
+
+            return step.then(function (sub) {
+              pushed = sub;
+              return fetch('/api/push', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(sub.toJSON ? sub.toJSON() : sub)
+              }).then(function (res) { return res.json(); }).then(function (j) {
+                if (j && j.ok) { pushNote = ''; return 'on'; }
+                pushNote = (j && j.error) || 'The server would not keep this browser.';
+                return 'error';
+              });
+            }).catch(function (e) {
+              /* A refusal here is nearly always the permission being revoked
+                 between the check and the call, or an iOS copy that is not on
+                 the Home Screen. Either way the message is the browser's. */
+              pushNote = (e && e.message) || 'This browser refused to register for push.';
+              return 'error';
+            });
+          });
+        });
+      }).catch(function () { pushNote = 'The service worker is not ready yet.'; return 'error'; });
+    }
+
+    /* Fire one, for real, through the server. The only thing that can answer
+       "does a push actually reach this handset", which is a question no
+       amount of correct code can settle from a laptop. */
+    function pushTest() {
+      return fetch('/api/push?test=1', { method: 'POST', credentials: 'include' })
+        .then(function (r) { return r.json(); })
+        .catch(function () { return { ok: false, error: 'The server could not be reached.' }; });
+    }
+
+    function pushWhy() { return pushNote; }
+
     return {
       setReg: setReg, state: state, on: on, ask: ask, off: setOff,
       show: show, update: update, close: close, clearAll: clearAll,
       onAction: onAction, onChange: onChange, standalone: standalone,
-      drainPending: drainPending, result: result, taps: taps
+      drainPending: drainPending, result: result, taps: taps,
+      pushSync: pushSync, pushTest: pushTest, pushWhy: pushWhy,
+      pushSupported: pushSupported
     };
   })();
 
@@ -831,6 +981,64 @@
       });
     }
 
+    /* ------------------------------------------------------------------
+     * Push: the state, and the one button that can prove it
+     *
+     * "Notifications are on" has never been the whole truth. It says this
+     * browser granted permission; it says nothing about whether a server can
+     * reach it while the app is shut, which is the thing that was actually
+     * missing and the thing that cannot be established from here. So the
+     * state is reported separately, and the test send is a real push down
+     * the real path — the only way anybody finds out whether the handset's
+     * own settings are swallowing it.
+     * ---------------------------------------------------------------- */
+    var pushEl = $('notifyPush');
+    var testBtn = $('notifyTest');
+
+    function paintPush(word) {
+      if (!pushEl) return;
+      if (typeof word === 'undefined') { pushEl.hidden = true; return; }
+      var why = notify.pushWhy();
+      var text = '';
+      if (word === 'on') text = 'This device is registered — the server can reach it while the app is closed.';
+      else if (word === 'off') text = '';
+      else if (word === 'unsupported') text = 'This browser has no push, so notifications only arrive while the app is running.';
+      else text = why || 'This device could not be registered for push.';
+      if (!text) { pushEl.hidden = true; }
+      else { pushEl.textContent = text; pushEl.hidden = false; }
+      if (testBtn) testBtn.hidden = (word !== 'on');
+    }
+
+    if (testBtn) {
+      testBtn.addEventListener('click', function () {
+        testBtn.disabled = true;
+        var before = testBtn.textContent;
+        testBtn.textContent = 'Sending…';
+        notify.pushTest().then(function (out) {
+          testBtn.disabled = false;
+          testBtn.textContent = before;
+          if (!out || out.ok === false) { say((out && out.error) || 'That did not send.', true); return; }
+          if (!out.installs) { say('Nothing is registered yet. Turn the switch off and on again.', true); return; }
+          if (!out.sent) {
+            /* Accepted by nobody. Naming the count is the difference between
+               "the app is broken" and "the one device you registered is
+               gone", which have different fixes. */
+            say('The push service refused all ' + out.installs + ' registered device' +
+                (out.installs === 1 ? '' : 's') + '.', true);
+            return;
+          }
+          /* Deliberately not "delivered". The push service accepted it; what
+             the handset then does with it is the operating system's decision
+             and this app cannot see it. Claiming delivery here is exactly the
+             lie that made the last two rounds of this unfalsifiable. */
+          say('Sent to ' + out.sent + ' device' + (out.sent === 1 ? '' : 's') +
+              '. If nothing appears, the phone is holding it back, not the app.');
+        });
+      });
+    }
+
+    notify.pushSync().then(paintPush);
+
     paintTaps();
     /* Refreshed when the row is actually looked at, which needs no
        knowledge of how views are switched — and a stale sentence on a
@@ -848,11 +1056,26 @@
 
     row.addEventListener('click', function () {
       var state = notify.state();
-      if (state === 'on') { notify.off(); paint(notify.state()); say('Off.'); return; }
+      if (state === 'on') {
+        notify.off();
+        paint(notify.state());
+        say('Off.');
+        /* Not fire-and-forget bookkeeping: this deletes the endpoint at the
+           server. Left behind, it would still be able to wake the phone,
+           which is precisely what the switch just said would not happen. */
+        notify.pushSync().then(paintPush);
+        return;
+      }
 
       notify.ask().then(function (next) {
         paint(next);
-        if (next === 'on') { say('On — saved.'); return; }
+        if (next === 'on') {
+          say('On — saved.');
+          /* Only now. Subscribing before the grant makes the browser raise
+             its own prompt from wherever the call happened to be. */
+          notify.pushSync().then(paintPush);
+          return;
+        }
         if (next === 'blocked') {
           /* Said twice on purpose. The note explains the state; this line
              confirms that the tap was received and did what it could. */

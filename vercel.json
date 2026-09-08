@@ -39,6 +39,9 @@
     "api/now-playing.js": {
       "maxDuration": 10
     },
+    "api/push.js": {
+      "maxDuration": 15
+    },
     "api/img.js": {
       "maxDuration": 15
     }

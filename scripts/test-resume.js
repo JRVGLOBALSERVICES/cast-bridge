@@ -224,7 +224,20 @@ check('the shell loads resume.js before app.js', () => {
 
 check('an installed copy is given the new file and a reason to fetch it', () => {
   assert.ok(SW.includes("'/assets/js/resume.js'"), 'not precached — offline opens would 404');
-  assert.ok(/const BUILD = '2026-09-07\.8'/.test(SW), 'BUILD not bumped for this shipment');
+  /* This used to pin the literal '2026-09-07.8' — the exact build resume.js
+     shipped in. That assertion was right for one afternoon and wrong from the
+     next change onwards: it went red on every later shipment, for the crime of
+     being a later shipment, which is a gate that has to be edited to stay
+     green and therefore stops being read.
+     What actually has to hold is that an installed copy is given a REASON to
+     re-fetch — a byte-identical worker is never reinstalled — and that the
+     line stamp-build.mjs rewrites is still in the shape it looks for. It
+     exits non-zero if this regex ever fails to match, so shape is the real
+     contract, and the value itself is the deploy's commit sha. */
+  const m = SW.match(/^const BUILD = '([^']*)';$/m);
+  assert.ok(m, 'no BUILD line for stamp-build.mjs to rewrite — it refuses to ship an unstamped worker');
+  assert.ok(m[1].length > 0, 'BUILD is empty, so every deploy looks identical to the last');
+  assert.ok(m[1] !== '2026-09-07.7', 'BUILD is the value from before resume.js existed');
 });
 
 (async () => {

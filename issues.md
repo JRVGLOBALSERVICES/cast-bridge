@@ -1239,3 +1239,50 @@ close it in its header.
 **Assumption made:** the on-box watcher stays the only one until then. It
 covers everything except the VPS being off, which is the fault the external
 one exists for.
+
+## Push: what it can and cannot reach (2026-09-08)
+
+**Question:** which events should wake the phone through a real push, rather
+than being drawn by the page?
+**Assumption made:** only the ones a server genuinely knows on its own. That is
+a shorter list than it looks, and being honest about it matters more than
+having a long one:
+
+- **A finished upload** — the stream host completes the write itself, so it
+  knows, and the reply goes to a page that may be gone. Wired, and it is the
+  only automatic trigger so far.
+- **The test send** — fired by hand from More → Notifications.
+- **Cast state, position, buffering, upload percentage** — NOT pushed, and
+  cannot be. The Cast session lives in the SDK, which lives in the page. The
+  server is told what is playing by that page's 15s beat, and the beat stops
+  when the page freezes — so at exactly the moment a push would be useful, the
+  server's copy is as stale as the shade's. Pushing it would mean pushing an
+  old position as though it were current. The local path still draws these,
+  and still stops when the tab freezes.
+
+**Context you need to review:** `server/stream-server.js` (the upload hook),
+`lib/push.js` `urgencyFor`/`ttlFor`. If you want the television's state to
+survive the phone sleeping, the fix is not push — it is something that can
+poll the Cast session without the page, which nothing here can do today.
+
+## Push on an iPhone needs the Home Screen copy
+
+**Question:** what happens on iOS Safari in a tab?
+**Assumption made:** nothing, and the app says so rather than pretending. Web
+push on iOS exists only inside a copy added to the Home Screen — in a tab the
+`Notification` constructor is not defined at all. The Notifications row already
+told that truth for local notifications (`needs-install`); the push line
+inherits it.
+**Context you need to review:** `assets/js/app.js` `notify.support()`.
+
+## The VAPID subject is the site, not a mailbox
+
+**Question:** what goes in `CAST_VAPID_SUBJECT`?
+**Assumption made:** `https://cast.jrvsystems.app`. RFC 8292 allows a `mailto:`
+or an `https:` and Apple's push service rejects a placeholder or unresolvable
+domain outright — so a real one is required, but it did not have to be an email
+address, and using the site avoids putting a personal mailbox in a header sent
+to Google and Apple on every push. Change it to a `mailto:` if you would rather
+an abuse report reached an inbox.
+**Context you need to review:** Vercel env on `cast-bridge-new`;
+`lib/push-crypto.js` `vapidProblem()` refuses a placeholder rather than warning.
