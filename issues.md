@@ -1180,3 +1180,38 @@ box sit eight commits behind for a day — so every tick now stamps
 (`SELF_UPDATE_STALE_S`). Owner-only `/api/system` carries the commit too; the
 public probe deliberately does not. Nothing *pages* you on staleness yet — it
 is visible when asked, not pushed. Say the word if you want an alert.
+
+## Notifications: why they were never seen, and what still cannot work
+
+**Question:** "I still can't see background notifications on the cast."
+
+**What it actually was:** every notification except a failure was drawn with
+`silent: true`, deliberately — the comment said "a failure is the one thing
+allowed to make a sound". But `silent` is not a volume control. Android files
+a silent notification under "Silent" in the shade, below the fold, with no
+heads-up banner; iOS delivers it with no banner and no lock screen. They were
+all arriving and none of them were visible. The thing `silent` was there to
+prevent — the upload notification buzzing once per percent — was already
+prevented by `renotify: false` with a tag, which lands a replacement without
+re-alerting. So the first draw of a subject now alerts once and every update
+after it is silent by way of the tag. `scripts/test-notifystate.js` covers it,
+and fails on the previous `app.js`.
+
+**Second half:** permission is only ever asked for from the Notifications row
+in More, and if it was never granted the app drew nothing and said nothing
+about it — indistinguishable from a broken feature. A cast now offers, once,
+at the first cast, with the iOS "Add to Home Screen" sentence where a
+permission prompt would be a dead end. Still never on boot.
+
+**What still cannot work, and is not a bug:** there is no push server. Every
+notification is drawn by the page. That is fine while the app is backgrounded
+and merely frozen — the draw happens at the moment you leave — but nothing at
+all reaches the phone if the app was never opened or has been swiped away,
+and nothing can UPDATE while the page is frozen, so the shade shows the film
+as it was when you left rather than where it has got to. Fixing that means
+real Web Push: VAPID keys, a subscription stored server-side, and the stream
+host pushing on state changes. It is a day's work and it is the only thing
+that makes the shade correct while the app is not running. Say the word.
+
+**Context to review:** `assets/js/app.js` — `notify.options()` and the
+`alerted` map (the sound), `offerNotifications()` (the offer).

@@ -383,6 +383,12 @@
     var drainWaiting = false;
     var wanted = {};      // tag -> the notification that SHOULD be up
     var painted = {};     // tag -> is up right now
+    /* tag -> this subject has already made its one sound. Deliberately NOT
+       `painted`: leaving and re-entering the app takes a notification down
+       and puts it back, and a film that buzzes every time you glance at your
+       phone is the reason the whole thing was silent in the first place. One
+       alert per subject, cleared only when the subject ends. */
+    var alerted = {};
     var swiped = {};      // tag -> the person dismissed it; stop redrawing
     var listeners = [];
     var changed = [];
@@ -475,10 +481,27 @@
       return true;
     }
 
-    /* What one notification looks like on the shade. `renotify` with a tag
-       is what makes an UPDATE silent instead of a fresh buzz per percent —
-       without it the progress notification vibrates twenty times. */
-    function options(n) {
+    /* What one notification looks like on the shade.
+     *
+     * `first` is whether this tag is being DRAWN, as opposed to redrawn with
+     * newer text, and it decides the one thing that determines whether any
+     * of this is ever seen: `silent`.
+     *
+     * Everything used to be silent except a failure. That is why background
+     * notifications appeared not to work. A silent notification is not a
+     * quieter notification — Android files it under "Silent" in the shade,
+     * below the fold and with no heads-up banner, and iOS delivers it with
+     * no banner and no lock screen. It arrives, and there is nothing to see
+     * unless you already went looking. An app that only tells you things
+     * you have to go and ask for has not told you anything.
+     *
+     * The reason it was silent was the progress notification buzzing per
+     * percent, and that was never what `silent` was holding back: `renotify`
+     * false with a tag already means a replacement lands without re-alerting.
+     * So the first draw of a subject alerts once, every update after it is
+     * silent by way of the tag, and twenty percent ticks still make one
+     * sound between them. */
+    function options(n, first) {
       var o = {
         body: n.body || '',
         tag: n.tag,
@@ -492,7 +515,7 @@
            stretched across it says nothing and costs a whole row. */
         icon: n.art || '/assets/icon-192.png',
         badge: '/assets/icon-192.png',
-        silent: n.urgent ? false : true,
+        silent: !(n.urgent || first),
         renotify: false,
         requireInteraction: Boolean(n.ongoing),
         data: { url: n.url || '/', tag: n.tag }
@@ -512,8 +535,9 @@
         var n = wanted[tag];
         var should = !visible && on() && !swiped[tag];
         if (should) {
-          post({ type: 'NOTIFY_SHOW', title: n.title, options: options(n) });
+          post({ type: 'NOTIFY_SHOW', title: n.title, options: options(n, !alerted[tag]) });
           painted[tag] = true;
+          alerted[tag] = true;
         } else if (painted[tag]) {
           post({ type: 'NOTIFY_CLOSE', tag: tag });
           painted[tag] = false;
@@ -542,6 +566,7 @@
     function close(tag) {
       delete wanted[tag];
       delete swiped[tag];
+      delete alerted[tag];
       if (painted[tag]) post({ type: 'NOTIFY_CLOSE', tag: tag });
       delete painted[tag];
     }
@@ -2743,8 +2768,51 @@
     ];
   }
 
+  /* The offer to turn notifications on, made once, at the only moment it
+   * means anything.
+   *
+   * Permission is never asked for on boot — a prompt at second one is how an
+   * app earns a permanent "Blocked". But the opposite failure is the one that
+   * actually happened: permission was never granted, so nothing was ever
+   * shown, and the app said nothing about it either. Silence that looks
+   * identical to a broken feature IS a broken feature. The first cast is the
+   * moment the app has earned the question and the person has a reason to say
+   * yes, so it is asked here, once, and never again whatever the answer.
+   *
+   * An iPhone in a Safari tab gets a different sentence, because there the
+   * answer is not a permission at all — `Notification` does not exist outside
+   * an installed copy, and "allow notifications" is advice that cannot be
+   * followed. */
+  var OFFER_KEY = 'cb.notify.offered';
+  function offerNotifications() {
+    var state;
+    try { state = notify.state(); } catch (e) { return; }
+    if (state !== 'ask' && state !== 'needs-install') return;
+    try {
+      if (localStorage.getItem(OFFER_KEY)) return;
+      localStorage.setItem(OFFER_KEY, '1');
+    } catch (e) { /* private mode: offer once per session rather than never */ }
+
+    if (state === 'needs-install') {
+      toast({
+        text: 'Add Cast Bridge to your Home Screen and it can keep you posted ' +
+              'while you are out of the app. Share → Add to Home Screen.',
+        ms: 9000
+      });
+      return;
+    }
+    toast({
+      text: 'Want the film in your notification shade, with Pause and Stop, ' +
+            'while you are doing something else?',
+      actionLabel: 'Yes',
+      ms: 12000,
+      onAction: function () { notify.ask(); }
+    });
+  }
+
   function reportCast(headline, detail, opts) {
     opts = opts || {};
+    if (!opts.urgent) offerNotifications();
     notify.show('cast', {
       title: headline,
       body: detail || currentTitle || (current ? nameOf(current) : ''),
