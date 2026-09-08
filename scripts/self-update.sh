@@ -55,7 +55,10 @@ AHEAD=$(git rev-list --count origin/main..HEAD)
 [ "$BEHIND" -eq 0 ] && exit 0
 
 # Never discard work that only exists here.
-if [ "$AHEAD" -ne 0 ] || [ -n "$(git status --porcelain)" ]; then
+# --untracked-files=no is deliberate: a fast-forward cannot touch a file git
+# is not tracking, so runtime artifacts must not count as "someone is working
+# here". Counting them made the guard refuse every update forever.
+if [ "$AHEAD" -ne 0 ] || [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   log "BLOCKED: behind $BEHIND but ahead $AHEAD / tree dirty — not touching it"
   notify "⚠️ cast-stream VPS is $BEHIND commit(s) behind but has local work (ahead $AHEAD, dirty tree). Auto-update refused — needs a human."
   exit 0
