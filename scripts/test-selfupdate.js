@@ -15,7 +15,7 @@
  *   SELF_UPDATE_SCRIPT=/tmp/old.sh node scripts/test-selfupdate.js   # see it red
  */
 
-const { execFileSync, spawnSync } = require('child_process');
+const { execFileSync, spawnSync, spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -140,6 +140,78 @@ console.log('self-update heartbeat');
   const beat = beatOf(clone);
   check('untracked files do not block an update', beat && beat.state === 'updated',
     'state=' + (beat && beat.state));
+}
+
+
+/* 5. The alert path itself. Everything above proves the script DECIDES
+      correctly; none of it proved it can tell anyone. It could not:
+      the first version posted {"message": ...} to an endpoint that reads
+      `text`, so every alert was refused with a 400 that `>/dev/null || true`
+      reported as success. And the BLOCKED branch fires every tick, so once
+      correct it would have sent 288 identical messages a day.
+
+      Driven against a stub that records what it was actually sent. */
+{
+  const stub = path.join(os.tmpdir(), 'wa-stub-' + process.pid);
+  fs.mkdirSync(stub, { recursive: true });
+  const portFile = path.join(stub, 'port');
+  const bodyFile = path.join(stub, 'bodies.jsonl');
+  const code = `
+    const http=require('http'),fs=require('fs');
+    const status=Number(process.env.STUB_STATUS||200);
+    http.createServer((q,res)=>{let b='';q.on('data',d=>b+=d);q.on('end',()=>{
+      fs.appendFileSync(${JSON.stringify(bodyFile)},b+String.fromCharCode(10));
+      res.writeHead(status,{'content-type':'application/json'});
+      res.end(JSON.stringify(status===200?{ok:true,stanza_id:'X'}:{ok:false,error:'text required'}));
+    });}).listen(0,'127.0.0.1',function(){fs.writeFileSync(${JSON.stringify(portFile)},String(this.address().port));});
+  `;
+  const serve = (status) => {
+    fs.rmSync(portFile, { force: true });
+    const c = spawn(process.execPath, ['-e', code], {
+      env: { ...process.env, STUB_STATUS: String(status) }, stdio: 'ignore', detached: true
+    });
+    for (let i = 0; i < 200 && !fs.existsSync(portFile); i++) spawnSync('sleep', ['0.02']);
+    return { child: c, url: 'http://127.0.0.1:' + fs.readFileSync(portFile, 'utf8').trim() };
+  };
+
+  const envFile = path.join(stub, 'fake.env');
+  fs.writeFileSync(envFile, 'API_TOKEN=tok-123\nOWNER_NUMBER=+60111222333\n');
+
+  const bodies = () => (fs.existsSync(bodyFile) ? fs.readFileSync(bodyFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
+
+  const { clone } = stage();
+  fs.writeFileSync(path.join(clone, 'app.js'), 'local edit\n');   // guarantees BLOCKED
+  const wa = serve(200);
+  const alertEnv = { CAST_UPDATE_NOTIFY: 'on', CAST_WA_API: wa.url, CAST_WA_ENV: envFile };
+
+  run(clone, alertEnv);
+  let sent = bodies();
+  check('a blocked tick actually reaches the send endpoint', sent.length === 1,
+    'the endpoint recorded ' + sent.length + ' request(s)');
+  check('it sends `text`, the field bridgeSend reads', sent[0] && typeof sent[0].text === 'string' && sent[0].text.length > 0,
+    'body was ' + JSON.stringify(sent[0]));
+  check('it does not send `message`, which is refused with a 400', sent[0] && sent[0].message === undefined);
+  check('the recipient comes from the env, not a number typed into the script',
+    sent[0] && sent[0].jid === '60111222333@s.whatsapp.net', 'jid=' + (sent[0] || {}).jid);
+  check('the delivery is written down rather than discarded', /alert_sent/.test(logOf(clone)));
+
+  run(clone, alertEnv);
+  run(clone, alertEnv);
+  check('a fault that persists is reported once, not once per tick', bodies().length === 1,
+    'three blocked ticks produced ' + bodies().length + ' messages');
+  check('the suppressed ticks say so in the log', /alert_throttled/.test(logOf(clone)));
+  try { process.kill(-wa.child.pid); } catch (e) { void e; }
+
+  /* A refused send must not read as a delivered one — that is the exact
+     failure that hid this for a day. */
+  fs.rmSync(bodyFile, { force: true });
+  const { clone: c2 } = stage();
+  fs.writeFileSync(path.join(c2, 'app.js'), 'local edit\n');
+  const wa400 = serve(400);
+  run(c2, { CAST_UPDATE_NOTIFY: 'on', CAST_WA_API: wa400.url, CAST_WA_ENV: envFile });
+  check('a rejected send is visible in the log', /alert_sent.*(ok":false|text required)/.test(logOf(c2)),
+    'log said: ' + logOf(c2).split('\n').filter((l) => /alert_/.test(l)).join(' | '));
+  try { process.kill(-wa400.child.pid); } catch (e) { void e; }
 }
 
 console.log('');
