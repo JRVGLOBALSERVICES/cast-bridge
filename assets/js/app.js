@@ -2553,15 +2553,79 @@
     screenEl.classList.add('is-onair');
   }
 
+  /* ------------------------------------------------------------------ *
+   * Stopping, and why the order of these two calls is the whole fix.
+   *
+   * Rj, 2026-09-08: *"stop button pauses the cast."*
+   *
+   * It used to call `remoteCtl.stop()` FIRST and `endSession(true)` second,
+   * with both wrapped in catches that threw the answer away. `stop()` is a
+   * MEDIA command: the receiver goes idle and the television sits on the
+   * Default Media Receiver's backdrop, still connected. `endSession(true)` is
+   * the SESSION command and it is the one that actually lets go — and it was
+   * the one whose failure nobody could see, because its catch says "already
+   * gone" about an exception that has not been read.
+   *
+   * So a refused or failed endSession left the television connected and
+   * showing a stopped film, while this app said "Stopped casting." From the
+   * sofa that is a Stop button that paused it. The app could not tell the
+   * difference because it never asked.
+   *
+   * Now: end the SESSION first — which stops the receiver as a consequence,
+   * that is what the `true` argument means — then verify by re-reading the
+   * session, and only fall back to the media-level stop where there was no
+   * session to end. And the sentence on screen follows what actually
+   * happened rather than what was attempted.
+   * ------------------------------------------------------------------ */
   function stopCasting(why) {
     disarmStallWatch();
     logCast('Stop casting' + (why ? ' (' + why + ')' : '') + '.');
-    try { if (remoteCtl) remoteCtl.stop(); } catch (e) { /* nothing loaded */ }
+
     var s = castSession();
-    if (s) { try { s.endSession(true); } catch (e) { /* already gone */ } }
+    var refusal = null;
+
+    if (s) {
+      try {
+        s.endSession(true);
+      } catch (e) {
+        refusal = (e && e.message) || String(e);
+      }
+      /* The verification. `getCurrentSession()` answering null is the only
+         evidence the television let go; everything above it is a request. */
+      if (castSession()) {
+        logCast('Session did not end on the first ask', refusal || 'no error reported');
+        try {
+          if (remoteCtl) remoteCtl.stop();
+        } catch (e2) { /* nothing loaded to stop */ }
+        try {
+          var again = castSession();
+          if (again) again.endSession(true);
+        } catch (e3) {
+          refusal = refusal || (e3 && e3.message) || String(e3);
+        }
+      }
+    } else {
+      /* No session, but the remote may still hold loaded media — that is the
+         state a rejoin can leave behind. */
+      try { if (remoteCtl) remoteCtl.stop(); } catch (e4) { /* nothing loaded */ }
+    }
+
+    var stillOn = !!castSession();
     lastPlayerState = null;
-    screenEl.classList.remove('is-onair');
     notify.close('cast');
+
+    if (stillOn) {
+      /* SAY SO. An app reporting a stop it did not make is what turned one
+         defect into a report about the wrong button. */
+      logCast('Still connected after stopping', refusal || 'the receiver kept the session');
+      setStatus(deviceName() + ' has not let go. Stop it from the TV, or from the ' +
+                'Cast menu in Chrome.', 'bad');
+      toast({ text: 'The TV kept the connection. Stop it from the TV itself.', ms: 8000 });
+      openCastLog(true);
+      return;
+    }
+
+    screenEl.classList.remove('is-onair');
     setStatus('Stopped casting.', '');
     toast({ text: 'Stopped. Tap Cast to TV to send it back.' });
   }
@@ -2873,7 +2937,13 @@
     seek.addEventListener('pointercancel', function () { scrubbing = false; syncRemote(); });
 
     $('rPlay').addEventListener('click', function () {
-      if (remotePlayer && remotePlayer.isMediaLoaded) remoteCtl.playOrPause();
+      if (!transportReady()) {
+        logCast('Play/pause ignored',
+                'TV reports: ' + ((remotePlayer && remotePlayer.playerState) || 'no state at all'));
+        toast({ text: 'Nothing is playing on ' + deviceName() + ' to pause.' });
+        return;
+      }
+      remoteCtl.playOrPause();
     });
     $('rBack').addEventListener('click', function () { nudge(-10); });
     $('rFwd').addEventListener('click', function () { nudge(10); });
@@ -2895,6 +2965,32 @@
     /* Stopping is one tap back from where it was, so it gets distance
        from the transport rather than a dialog in front of it. */
     $('rStop').addEventListener('click', function () { stopCasting('you asked'); });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Can this receiver be paused RIGHT NOW?
+   *
+   * Rj, 2026-09-08: *"pause buttons stop everything."*
+   *
+   * Every transport control used to gate on `remotePlayer.isMediaLoaded`, and
+   * that is not the question. `isMediaLoaded` stays TRUE after the receiver
+   * has gone IDLE — a film that reached its end, a stall, a load the
+   * television accepted and abandoned. `playOrPause()` toggles from whatever
+   * state the player reports, so into an idle receiver it sends PLAY for
+   * media that is finished, and the Default Media Receiver's answer to that
+   * is to end the session. The button labelled Pause takes the cast down.
+   *
+   * So the gate is the STATE and not the flag: there has to be something
+   * actually playing, paused or buffering for a pause to mean anything. An
+   * idle receiver is told about rather than commanded — a control that
+   * silently does nothing is the same dead button by another road.
+   * ------------------------------------------------------------------ */
+  function transportReady() {
+    if (!remoteCtl || !remotePlayer || !remotePlayer.isMediaLoaded) return false;
+    var PS = window.chrome && window.chrome.cast && window.chrome.cast.media.PlayerState;
+    if (!PS) return false;
+    var st = remotePlayer.playerState;
+    return st === PS.PLAYING || st === PS.PAUSED || st === PS.BUFFERING;
   }
 
   function nudge(by) {
@@ -3075,11 +3171,14 @@
     }
 
     handle('play', function () {
-      if (casting()) { remoteCtl.playOrPause(); return; }
+      if (casting()) { if (transportReady()) remoteCtl.playOrPause(); return; }
       video.play().catch(function () { /* policy */ });
     });
     handle('pause', function () {
-      if (casting()) { remoteCtl.playOrPause(); return; }
+      /* `casting()` says a session exists; `transportReady()` says there is
+         something to pause. Sending a toggle into an idle receiver is what
+         made this key end the cast. */
+      if (casting()) { if (transportReady()) remoteCtl.playOrPause(); return; }
       video.pause();
     });
     handle('stop', function () {
@@ -3376,6 +3475,13 @@
       /* The television owns the position, so the phone asks it — and a
          throw here used to be swallowed by the caller and told to nobody,
          which is the same dead button by another road. */
+      if (!transportReady()) {
+        /* Said in the shade, because that is where the person is — and NOT by
+           toggling anyway, which is what ended the cast from a Pause button. */
+        castActionFailed(tap, 'nothing-to-do',
+          'Nothing is playing on ' + deviceName() + ' to pause.');
+        return;
+      }
       try { remoteCtl.playOrPause(); }
       catch (e) {
         castActionFailed(tap, 'refused',
@@ -6253,10 +6359,36 @@
      worker in charge is not one. Ask for the update first, give it a beat to
      take over, then go — but never hang on it, because offline the update
      never resolves and the reload still has to happen. */
+  /* Throw away every cache this origin holds.
+   *
+   * Rj, 2026-09-08, about the helm apps and this one: *"add pull to refresh
+   * that clear cache."* Asking for a newer WORKER fixes the ordinary case and
+   * does nothing for the case somebody actually pulls in — the build has not
+   * changed and a stored response is what is wrong. The asset caches here are
+   * read cache-first and never revalidated, so anything wrong in one is
+   * permanent and every reload re-reads it.
+   *
+   * ONLINE ONLY, and that guard is the whole safety argument: the cached
+   * shell is the only reason this app opens with no signal, so dropping it
+   * offline turns the gesture that gets somebody unstuck into the one that
+   * bricks the app until they find signal. `navigator.onLine` is only trusted
+   * in the direction it is reliable — a definite false means definitely
+   * offline. */
+  function dropCaches() {
+    if (typeof caches === 'undefined') return Promise.resolve(false);
+    if (navigator.onLine === false) return Promise.resolve(false);
+    return caches.keys()
+      .then(function (names) {
+        return Promise.all(names.map(function (n) { return caches.delete(n); }));
+      })
+      .then(function () { return true; })
+      .catch(function () { return false; });
+  }
+
   function reloadShell() {
-    var updated = Promise.resolve();
-    if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistration) {
-      updated = navigator.serviceWorker.getRegistration()
+    var updated = dropCaches().then(function () {
+      if (!('serviceWorker' in navigator) || !navigator.serviceWorker.getRegistration) return null;
+      return navigator.serviceWorker.getRegistration()
         .then(function (reg) {
           if (!reg) return null;
           return reg.update().then(function () {
@@ -6264,8 +6396,12 @@
           });
         })
         .catch(function () {});
-    }
-    var cap = new Promise(function (r) { setTimeout(r, 1500); });
+    });
+    /* 2500, not 1500: the cache drop is now inside the race and a full asset
+       cache takes longer to clear than an update check takes to answer. The
+       cap still exists for the same reason it always did — offline the update
+       never resolves and the reload still has to happen. */
+    var cap = new Promise(function (r) { setTimeout(r, 2500); });
     return Promise.race([updated, cap]).then(function () {
       location.reload();
     });
@@ -6336,9 +6472,15 @@
       /* Signed in, there is data to re-read. On the gate there is none, so
          "pull to reload" means what it says — take the newest build. */
       var gated = document.body.classList.contains('is-gated');
+      /* SIGNED IN THE CACHES GO AND THE PAGE DOES NOT. Reloading here would
+         throw away whatever is half-typed in the paste box and lose the
+         player's position; dropping the stale assets is the part a data
+         re-read cannot do, and it is the part that was asked for. The gate,
+         where there is nothing to lose, is the one that reloads. */
       var work = gated
         ? reloadShell()
-        : Promise.all([refreshHistory(), restoreSession(), isOwner() ? renderUsers() : null]);
+        : Promise.all([dropCaches(), refreshHistory(), restoreSession(),
+                       isOwner() ? renderUsers() : null]);
 
       /* A refresh that resolves in 40ms reads as a broken button, so hold
          the ring long enough to be seen finishing. */

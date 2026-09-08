@@ -1445,3 +1445,63 @@ two thirds of a 16:9 card empty.
 and the alternative — vertically centring — makes a three-line title collide
 with the mark. Editorial, not a hole.
 **Context Rj needs to review:** the screenshot sent with this change.
+
+---
+
+## 2026-09-08 · The Stop button that paused, and the Pause button that stopped
+
+Rj: *"For bridge cast pause buttons stop everything, stop button pauses the
+cast. Please check."*
+
+**Checked, and the wiring is NOT swapped.** `rPlay` calls `playOrPause`, `rStop`
+calls `stopCasting`, the shade's `toggle` calls `playOrPause` and its `stop`
+calls `stopCasting`. `stopCasting` is reachable from five places and every one
+of them is somebody explicitly stopping. No pause path can reach it.
+
+What produces the two reported sentences is what those two SDK calls DO.
+
+**"Stop button pauses the cast."** `stopCasting` called `remoteCtl.stop()` first
+and `endSession(true)` second, with both wrapped in catches that threw the
+answer away. `stop()` is a MEDIA command — the receiver goes idle and the
+television sits on the Default Media Receiver's backdrop, still connected.
+`endSession(true)` is the SESSION command and it is the one that lets go, and it
+was the one whose failure nobody could see: its catch says *"already gone"*
+about an exception it never reads. A refused endSession left the TV connected
+showing a stopped film while the app said "Stopped casting." From the sofa that
+is a Stop button that paused it. It ends the session FIRST now, verifies by
+re-reading `getCurrentSession()`, and says the TV kept the connection when it
+did.
+
+**"Pause buttons stop everything."** Every transport control gated on
+`remotePlayer.isMediaLoaded`, and that is not the question. `isMediaLoaded`
+stays TRUE after the receiver has gone IDLE — a film that reached its end, a
+stall, a load the television accepted and abandoned. `playOrPause()` toggles
+from whatever state the player reports, so into an idle receiver it sends PLAY
+for media that is finished, and the Default Media Receiver's answer to that is
+to end. The button labelled Pause takes the cast down. `transportReady()` gates
+on the STATE now — PLAYING, PAUSED or BUFFERING — and an idle receiver is told
+about rather than commanded.
+
+**Question I would have asked:** was the film at or near its end when Pause did
+this?
+**Assumption made:** yes, or the receiver had stalled — those are the two states
+that make `isMediaLoaded` true while the player is idle, and they are the only
+readable path from a Pause press to an ended session. I have no Chromecast here,
+so this is a diagnosis from source and a fix for what it found, not a
+reproduction. If Pause ends the cast on a film that is plainly mid-play, the
+cause is elsewhere and the new `logCast('Play/pause ignored', …)` line is what
+will say so.
+**Context to review:** `assets/js/app.js`, `transportReady` and `stopCasting`.
+
+## 2026-09-08 · The pull now clears the cache
+
+Asking for a newer WORKER fixes the ordinary case and does nothing for the case
+somebody actually pulls in — the build has not changed and a stored response is
+what is wrong. The asset caches are read cache-first and never revalidated.
+
+`dropCaches()` runs first in `reloadShell`, and the race cap moved 1500 → 2500
+because a full asset cache takes longer to clear than an update check takes to
+answer. Signed in, the caches are dropped alongside the data re-read and the
+page does NOT reload — a reload there throws away whatever is in the paste box
+and loses the player's position. Online only: the cached shell is the only
+reason this app opens with no signal.
