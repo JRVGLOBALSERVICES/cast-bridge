@@ -1275,12 +1275,18 @@ failure is handed to `notify.setRegFailed()` so the Notifications row states
 the browser's own error — `text/html` in the message is what distinguishes a
 bot wall from a 404, so it is kept verbatim.
 
-**Still not proven from here:** that a delivered push is DECRYPTED and drawn
-by the service worker on a real handset. The send is proven — a live browser
-subscribed against real FCM and the push service returned 201 — and the
-encryption is proven against RFC 8291 §5's published vector. The last hop
-was not observed, because this VPS's IP is now answered by the Vercel
-Security Checkpoint and headless Chrome cannot pass its fingerprint check.
+**Proven after the fix, on the live domain, build d4f8695:** a real browser
+loaded the app, the app subscribed ON ITS OWN against real FCM, the server
+sent through the machine door, the push service returned 201, and the
+SERVICE WORKER decrypted the payload and drew it — observed via
+`registration.getNotifications()` as
+`{title:'Decrypt me', tag:'proof', silent:false}`. Every hop of the chain has
+now been watched end to end, not inferred.
+
+The harness needed a HEADED browser under Xvfb: this VPS's IP is answered by
+the Vercel Security Checkpoint, and headless Chrome fails its WebGL
+fingerprint. That is also what surfaced the registration bug above, so the
+wall was worth the trouble.
 
 ## Push: what it can and cannot reach (2026-09-08)
 
