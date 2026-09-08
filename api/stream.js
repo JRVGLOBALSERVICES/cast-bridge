@@ -82,6 +82,56 @@ const REISSUE_NOTE =
   ' The page it came from was asked for a fresh address and could not give one — ' +
   'scan the page again.';
 
+/* The bridge to hand a refused address to, when this one may not have it.
+ *
+ * Some CDNs sign a media address to the NETWORK that asked for it rather
+ * than to a clock. Measured on vmpx.online, which puts the fact in the
+ * address: `asn=14618` is Amazon's, because the deep scan runs on the
+ * Vercel function. The same signed link, in the same minute, answers 200
+ * to that function and 403 to this box in Singapore. Nothing about it is
+ * expired and nothing about it is wrong — it simply is not ours.
+ *
+ * reissue() is the first answer to that: re-read the page from here and be
+ * handed an address of our own. It cannot help when the player builds its
+ * source in JavaScript, because then the page's HTML holds no address to
+ * re-read — which is the entire reason the deep scan exists.
+ *
+ * So the last answer is to stop trying to fetch it and let the bridge that
+ * CAN. A receiver follows a redirect, so this asks nothing of the
+ * television, and it spends the other host's bandwidth only on the
+ * addresses that actually refuse us. Unset, nothing changes.
+ */
+const FALLBACK_ORIGIN = String(process.env.CAST_FALLBACK_ORIGIN || '')
+  .trim().replace(/\/+$/, '');
+
+/* Hands the whole request on, unchanged but for the marker that stops it
+   coming back. Returns whether it was handed on, so the caller can fall
+   through to its own error when it was not. */
+function handOff(req, res, params) {
+  /* `b` is set by whoever forwarded this. One hop, never two: the far side
+     must answer or fail, and a pair of boxes each pointing at the other
+     would otherwise bounce a television between them until it gave up. */
+  if (!FALLBACK_ORIGIN || params.get('b')) return false;
+
+  let out;
+  try {
+    out = new URL(FALLBACK_ORIGIN + '/api/stream');
+  } catch (e) {
+    return false;
+  }
+  params.forEach((v, k) => { if (k !== 'b') out.searchParams.set(k, v); });
+  out.searchParams.set('b', '1');
+
+  res.statusCode = 302;
+  res.setHeader('Location', out.toString());
+  /* A signed address is refused for as long as it belongs to someone else,
+     but that is a fact about this minute, not about the link. Caching the
+     redirect would outlive it. */
+  res.setHeader('Cache-Control', 'no-store');
+  res.end();
+  return true;
+}
+
 /* Vercel gives this function 60 seconds, and a receiver asking a
    progressive file for "everything from here on" means one response that
    has to carry the rest of the film. At the 3.7 Mbit/s a 3-hour 5 GB
@@ -381,6 +431,7 @@ module.exports = async function handler(req, res) {
   }
 
   if (!opened) {
+    if (handOff(req, res, params)) return;
     fail(res, 502, (openError && openError.message) || "That stream couldn't be reached.");
     return;
   }
@@ -393,6 +444,7 @@ module.exports = async function handler(req, res) {
     /* 403 here is the referer check refusing us, which is the one failure
        worth naming — it means the address is real but the host wants a
        different page in the header than the one we were told. */
+    if (handOff(req, res, params)) return;
     const why = upstream.status === 403
       ? 'That host refused the stream (403). It expects the page it was embedded in.'
       : 'That stream answered ' + upstream.status + '.';
@@ -409,6 +461,9 @@ module.exports = async function handler(req, res) {
      someone else's HTML from our origin is the thing this endpoint most
      needs not to do. */
   if (REFUSED_TYPE.test(type)) {
+    /* This is a refusal wearing a 200, so it hands on for the same reason a
+       403 does — the other bridge may be the one the address belongs to. */
+    if (handOff(req, res, params)) return;
     fail(res, 415, 'That address is a web page, not a stream.' +
       (reissueFailed ? REISSUE_NOTE : ''));
     return;
