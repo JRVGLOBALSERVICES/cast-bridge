@@ -57,6 +57,13 @@ function makeEnv(opts) {
 
   const worker = { postMessage: (m) => posts.push(m) };
 
+  /* Enough of a registration for pushSync to get past readiness. It reports
+     no existing subscription, which is the state a fresh install is in. */
+  const registration = {
+    active: worker,
+    pushManager: { getSubscription: () => Promise.resolve(null) }
+  };
+
   const navigator = {
     userAgent: opts.userAgent || 'Mozilla/5.0 (Linux; Android 14) Chrome/120',
     platform: opts.platform || 'Linux armv8l',
@@ -65,7 +72,11 @@ function makeEnv(opts) {
     serviceWorker: opts.noServiceWorker ? undefined : {
       controller: worker,
       addEventListener: () => {},
-      ready: Promise.resolve({ active: worker })
+      /* A worker that never activates is the case the real code used to hang
+         on: `ready` is specified to WAIT, not to reject, so a worker script
+         that 404s or is answered with HTML by a proxy leaves the promise
+         pending for the life of the page. */
+      ready: opts.swNeverReady ? new Promise(() => {}) : Promise.resolve(registration)
     }
   };
   if (opts.noServiceWorker) delete navigator.serviceWorker;
@@ -86,7 +97,15 @@ function makeEnv(opts) {
       removeItem: (k) => { delete store[k]; }
     },
     MessageChannel: function () { this.port1 = {}; this.port2 = {}; },
-    setTimeout, clearTimeout, Promise, console
+    /* `pushSupported()` asks for this by name. Without it every pushSync
+       test answers 'unsupported' and proves nothing about the code under it. */
+    PushManager: function () {},
+    /* The guard is twelve seconds in a browser, which is right there and
+       useless here. Firing timers at once lets the suite drive the timeout
+       branch without the suite taking twelve seconds to say so. */
+    setTimeout: opts.instantTimers ? ((fn) => { Promise.resolve().then(fn); return 0; }) : setTimeout,
+    clearTimeout: opts.instantTimers ? (() => {}) : clearTimeout,
+    Promise, console
   };
   if (!opts.noNotification) {
     sandbox.Notification = {
@@ -291,7 +310,75 @@ check('a cast offers to turn notifications on when they have never been asked fo
     'the offer belongs on a cast starting, not on a failure report');
 });
 
-/* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * The worker that never starts
+ *
+ * `navigator.serviceWorker.ready` is a promise that waits. It does not
+ * reject when the worker script cannot be fetched — a 404, or a bot wall
+ * answering /sw.js with an HTML challenge page, both leave it pending
+ * forever. Awaiting it bare means every `.catch` downstream is unreachable
+ * and the settings row keeps whatever it last painted.
+ *
+ * That is the same failure shape as the silent notification this suite was
+ * written for: the code is running, nothing is drawn, and there is nothing
+ * anywhere to contradict "it doesn't work". Losing the race has to be an
+ * answer the person can read.
+ * ------------------------------------------------------------------ */
 
-console.log('\n' + passed + ' passed, ' + failures.length + ' failed');
-if (failures.length) { failures.forEach((f) => console.log('  - ' + f)); process.exit(1); }
+async function checkAsync(name, fn) {
+  try { await fn(); passed += 1; console.log('  ok   ' + name); }
+  catch (err) { failures.push(name + ' — ' + err.message); console.log('  FAIL ' + name + ' — ' + err.message); }
+}
+
+(async function () {
+  group('a service worker that never starts is said out loud, not waited on');
+
+  await checkAsync('pushSync gives up rather than hanging forever', async () => {
+    const env = makeEnv({ permission: 'granted', swNeverReady: true, instantTimers: true });
+    const verdict = await Promise.race([
+      env.notify.pushSync(),
+      new Promise((r) => setTimeout(() => r('HUNG'), 2000))
+    ]);
+    assert.notStrictEqual(verdict, 'HUNG',
+      'pushSync waited on serviceWorker.ready with no timeout — it can never report');
+    assert.strictEqual(verdict, 'error', 'a worker that never starts is an error state');
+  });
+
+  await checkAsync('and it says which failure it was, in words a phone can act on', async () => {
+    const env = makeEnv({ permission: 'granted', swNeverReady: true, instantTimers: true });
+    /* Raced, not awaited. Against a build without the guard this call never
+       settles, and an un-raced await would hang the whole suite instead of
+       failing it — a suite that cannot finish reports nothing. */
+    const verdict = await Promise.race([
+      env.notify.pushSync(),
+      new Promise((r) => setTimeout(() => r('HUNG'), 2000))
+    ]);
+    assert.notStrictEqual(verdict, 'HUNG', 'pushSync never settled');
+    const why = env.notify.pushWhy();
+    assert.ok(why && why.length > 20, 'a silent failure state is the bug, not the fix');
+    assert.ok(/background worker/i.test(why),
+      'the note must name the worker — "not ready yet" reads as a wait, and this is not one');
+    assert.ok(/reopen/i.test(why), 'a diagnosis with nothing to do about it is half an answer');
+  });
+
+  await checkAsync('a ready worker still reaches the server, not the timeout', async () => {
+    /* Real timers on purpose. Instant ones would settle the guard before the
+       already-resolved `ready` gets its turn on the microtask queue, and the
+       test would then be measuring the stub's ordering rather than the code.
+       The worker here is ready immediately, so this still costs nothing.
+
+       No fetch in this sandbox, so pushConfig's own catch returns null and
+       pushSync reports the config failure. The point is only that it got
+       PAST readiness — the guard must not fire on a healthy worker. */
+    const env = makeEnv({ permission: 'granted' });
+    const env2 = env;
+    let verdict;
+    try { verdict = await env2.notify.pushSync(); } catch (e) { verdict = 'threw:' + e.message; }
+    assert.strictEqual(verdict, 'error');
+    assert.ok(!/background worker/i.test(env2.notify.pushWhy()),
+      'the timeout branch fired on a worker that was ready — the guard is mis-wired');
+  });
+
+  console.log('\n' + passed + ' passed, ' + failures.length + ' failed');
+  if (failures.length) { failures.forEach((f) => console.log('  - ' + f)); process.exit(1); }
+})();

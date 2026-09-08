@@ -1232,6 +1232,35 @@ Contents, and its refusal looks identical over both transports — a 403 that
 names neither the scope nor the file. If a push of an otherwise ordinary repo
 fails only when `.github/workflows/` is in the diff, that is the cause.
 
+## A promise that waits is not a promise that reports (2026-09-08)
+
+**Question:** why did a device with permission granted register no push
+subscription, and say nothing about it?
+
+**What was found:** `pushSync()` awaited `navigator.serviceWorker.ready`
+bare. That promise is specified to WAIT for an active registration — it does
+not reject when the worker script cannot be fetched. A 404, a proxy or bot
+wall answering `/sw.js` with an HTML challenge page, private mode, storage
+pressure: all of them leave it pending for the life of the page, so every
+`.catch` after it is unreachable and the Notifications row keeps whatever it
+painted last.
+
+Same shape as the `silent: true` bug this app already had once: the code is
+running, nothing is drawn, and nothing anywhere contradicts "it doesn't
+work".
+
+**Fixed:** the wait is raced against twelve seconds and losing is an answer
+with its own sentence, naming the worker and what to do about it. Three
+assertions, two of which go red against the previous build — the third
+guards the guard, so a healthy worker cannot be reported as a broken one.
+
+**Still not proven from here:** that a delivered push is DECRYPTED and drawn
+by the service worker on a real handset. The send is proven — a live browser
+subscribed against real FCM and the push service returned 201 — and the
+encryption is proven against RFC 8291 §5's published vector. The last hop
+was not observed, because this VPS's IP is now answered by the Vercel
+Security Checkpoint and headless Chrome cannot pass its fingerprint check.
+
 ## Push: what it can and cannot reach (2026-09-08)
 
 **Question:** which events should wake the phone through a real push, rather

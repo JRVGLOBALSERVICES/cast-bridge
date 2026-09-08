@@ -786,13 +786,44 @@
         .catch(function () { return null; });
     }
 
+    /* `navigator.serviceWorker.ready` never rejects and never times out. It
+       waits for an ACTIVE registration, and if one never arrives — the worker
+       script 404s, a proxy or a bot wall answers it with HTML, storage is
+       full, the tab is in private mode — the promise simply hangs. Every
+       `.catch` after it is then unreachable, so the settings row keeps
+       whatever it painted last and the person is told nothing at all.
+       That is the same shape of fault as the silent notification: working
+       code, no output, nothing anywhere to contradict "it doesn't work".
+       Losing the race is a real answer and gets said out loud. */
+    function swReady() {
+      return new Promise(function (resolve, reject) {
+        var settled = false;
+        var t = setTimeout(function () {
+          if (settled) return;
+          settled = true;
+          reject(new Error('no-sw'));
+        }, 12000);
+        navigator.serviceWorker.ready.then(function (r) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(t);
+          resolve(r);
+        }, function (e) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(t);
+          reject(e);
+        });
+      });
+    }
+
     /* Bring the server's idea of this browser in line with this browser's.
        Returns a word for the settings panel: 'on', 'off', 'unsupported', or
        'error' with `pushNote` set to the reason. */
     function pushSync() {
       if (!pushSupported()) { pushNote = ''; return Promise.resolve('unsupported'); }
 
-      return navigator.serviceWorker.ready.then(function (r) {
+      return swReady().then(function (r) {
         return r.pushManager.getSubscription().then(function (existing) {
           /* Switched off, or never allowed: tear down rather than leave a
              live endpoint on the server. A subscription the person believes
@@ -864,7 +895,12 @@
             });
           });
         });
-      }).catch(function () { pushNote = 'The service worker is not ready yet.'; return 'error'; });
+      }).catch(function (e) {
+        pushNote = (e && e.message === 'no-sw')
+          ? 'This browser never started the background worker, so nothing can be delivered while the app is closed. Closing and reopening the app usually settles it.'
+          : 'The service worker is not ready yet.';
+        return 'error';
+      });
     }
 
     /* Fire one, for real, through the server. The only thing that can answer
