@@ -16,6 +16,7 @@ const SHELL = [
   '/assets/css/neumorphism.css',
   '/assets/css/app.css',
   '/assets/js/artwork.js',
+  '/assets/js/sources.js',
   '/assets/js/castaction.js',
   '/assets/js/resume.js',
   '/assets/js/qr.js',

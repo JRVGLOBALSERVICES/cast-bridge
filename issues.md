@@ -1358,3 +1358,41 @@ writes nothing and sends nothing unless `WATCH_ALLOW_SIDE_EFFECTS=1`, and says
 so. Recovery drains every open complaint in one run and speaks once, with the
 duration taken from the oldest. `scripts/test-watchstream.js` covers both, and
 goes red under four mutations including the original per-run drain.
+
+## Task 66: what a scan does when it cannot read the playlist
+
+**Question:** a signed playlist is often minted for the browser that asked for
+it, so re-fetching it from this box answers 404. If the body cannot be read,
+the strongest rule — "a playlist listed this address" — has no evidence.
+**Assumption made:** the playlist is read from the response the PAGE already
+received, inside the scanning browser, so the signature is the right one. When
+even that is unavailable the three weaker rules stand alone, and they caught
+the reported case on their own (proved: `test-sources.js`, the check named "it
+is refused on its name alone"). An unreadable playlist therefore costs at most
+one segment left in the list, never a stream dropped.
+**Context you need to review:** `api/scan.js` — the `page.on('response')`
+playlist read, and `PLAYLIST_READ_MS`, which caps how long the last bodies get
+to arrive after watching stops.
+
+## Task 67: two automatic hops, not the whole list
+
+**Question:** when a stream fails, how many others should the app try on its
+own before it stops and tells you?
+**Assumption made:** two. Walking a six-address set unattended is a spinner
+changing its mind for half a minute and arriving at the same answer more
+slowly, and every hop is a fresh page of network on a phone. The picker is
+uncapped, so nothing is out of reach — the cap only governs what happens
+without you. A source that actually starts playing hands the budget back.
+**Context you need to review:** `assets/js/sources.js` — `AUTO_MAX`. Say a
+number and I will change it.
+
+## Task 67: the app does not hop while it is casting
+
+**Question:** should a failure switch the source when the film is on the
+television?
+**Assumption made:** no. The receiver fetches for itself, so "the phone could
+not play it" is not evidence the TV cannot, and swapping the address out from
+under a cast that is merely slow to start would look like the app losing the
+film. The picker still works while casting, so you can switch by hand.
+**Context you need to review:** `assets/js/app.js` — the two
+`castState !== 'CONNECTED'` guards in the error handlers.

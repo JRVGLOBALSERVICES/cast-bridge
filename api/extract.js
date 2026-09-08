@@ -15,7 +15,7 @@ const {
   MAX_RESULTS, MEDIA_EXT, safeFetch, readCapped, kindOf, labelFor, extract,
   expandHlsMaster, walledService, walledMessage,
   normalizeShare, collectFrames, collectCandidates, probeMedia, probeAll, readFrames,
-  deobfuscate
+  deobfuscate, offerable
 } = require('../lib/media');
 const auth = require('../lib/auth');
 const bili = require('../lib/bilibili');
@@ -199,6 +199,12 @@ module.exports = async function handler(req, res) {
         }
       }
     }
+
+    /* Whatever the page named, a piece of a stream is not a stream. The
+       page-HTML parser already refuses anything whose path does not end in
+       a media extension, so this is here for the two paths that do not go
+       through it — a frame's own media list, and a probed player config. */
+    parsed.media = parsed.media.filter((m) => offerable(m.url));
 
     /* Master playlists get expanded into their real quality variants. */
     const masters = parsed.media.filter((x) => x.kind === 'HLS').slice(0, 2);

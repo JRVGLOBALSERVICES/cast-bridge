@@ -17,7 +17,8 @@
 const {
   MAX_RESULTS, MEDIA_EXT, assertPublic, kindOf, labelFor, rank,
   expandHlsMaster, walledService, walledMessage,
-  DEFERRED_SRC_ATTRS, NOT_A_PLAYER, botWallPhrase, emptyVerdict
+  DEFERRED_SRC_ATTRS, NOT_A_PLAYER, botWallPhrase, emptyVerdict,
+  offerable, playlistLinks
 } = require('../lib/media');
 const auth = require('../lib/auth');
 
@@ -26,6 +27,10 @@ const NAV_TIMEOUT_MS = 20000;
 const WATCH_MS = 18000;
 const WATCH_STEP_MS = 3000;
 const FRAME_BOOT_MS = 2500;
+/* How long the last playlist bodies get to arrive once watching has stopped.
+   A cap rather than a wait: an unread playlist costs one segment left in the
+   list, and that is a far smaller failure than a scan that never returns. */
+const PLAYLIST_READ_MS = 2000;
 const HARD_BUDGET_MS = 45000;
 
 /* Where a lazy-loading page parks the real address until it decides to load.
@@ -321,7 +326,16 @@ function poke() {
 async function collect(page, target) {
   const found = new Map();
 
-  const note = (url, via) => {
+  /* Every address a playlist named. Filled while the page plays, read once
+     at the end — a segment is nearly always requested BEFORE the playlist
+     that lists it has finished being read, so deciding at the moment of
+     capture would decide too early and keep it. */
+  const segments = new Set();
+  /* Reads of playlist bodies that have not landed yet. Awaited before the
+     list is filtered, because a filter that runs first has no evidence. */
+  const pending = [];
+
+  const note = (url, via, type) => {
     if (!url || found.has(url)) return;
     if (!/^https?:\/\//i.test(url)) return;
     if (found.size >= 200) return;
@@ -329,7 +343,10 @@ async function collect(page, target) {
       url,
       kind: kindOf(url),
       label: labelFor(url),
-      detail: detailFor(url, via)
+      detail: detailFor(url, via),
+      /* Kept only to decide, below, whether this is a stream or a piece of
+         one. It is stripped before the answer leaves this function. */
+      type: type || ''
     });
   };
 
@@ -342,8 +359,35 @@ async function collect(page, target) {
     const url = r.url();
     const type = (r.headers()['content-type'] || '').toLowerCase();
     if (MEDIA_EXT.test(url) || MEDIA_TYPE.test(type)) {
-      note(url, 'served to the page');
+      note(url, 'served to the page', type);
     }
+    /* A segment is captured at REQUEST time, a round trip before anything
+       has said what it is, so by the time the type arrives the address is
+       already known and note() would decline to touch it. Record the type
+       anyway: it is the difference between refusing a fragment because a
+       server called it video/mp2t and having to infer it from a name the
+       site invented. */
+    const known = found.get(url);
+    if (known && !known.type && type) known.type = type;
+
+    /* A playlist is the only thing on the wire that can say, without
+       guessing, which of these addresses are parts rather than wholes. Read
+       it here — the body is already in flight, and asking the CDN for it
+       again from this box would be a second fetch of a signed address that
+       is very often bound to the browser that asked first. */
+    if (!/\.m3u8(\?|$)/i.test(url) && !/mpegurl/i.test(type)) return;
+    pending.push(
+      r.text()
+        .then((body) => {
+          if (!/#EXTM3U/.test(body)) return;
+          const links = playlistLinks(body, url);
+          /* A master's URIs are other playlists, and those are worth
+             offering — expandHlsMaster exists to find exactly them. */
+          if (links.master) return;
+          links.urls.forEach((u) => segments.add(u));
+        })
+        .catch(() => { /* a body already discarded proves nothing either way */ })
+    );
   });
 
   /* Before the navigation, so it lands in the top document AND in every
@@ -510,7 +554,8 @@ async function collect(page, target) {
      next. Watch instead — poke whatever is new, read what is there, and stop
      as soon as something playable turns up that is not an advert. */
   const realMedia = () =>
-    Array.from(found.keys()).some((u) => !NOT_A_PLAYER.test(u));
+    Array.from(found.values()).some(
+      (m) => !NOT_A_PLAYER.test(m.url) && offerable(m.url, m.type, segments));
 
   /* Did this page even have something to play? "Nothing found" on a page
      carrying a player and "nothing found" on a page carrying no player are
@@ -622,7 +667,21 @@ async function collect(page, target) {
     poster = meta.p;
   } catch (e) { /* keep the media, drop the trimmings */ }
 
-  return { media: Array.from(found.values()), title, poster, evidence };
+  /* The playlists have to be read before their segments can be recognised
+     as segments. A few hundred milliseconds at the end of a scan that has
+     already spent its budget watching. */
+  try {
+    await Promise.race([
+      Promise.all(pending),
+      new Promise((r) => setTimeout(r, PLAYLIST_READ_MS))
+    ]);
+  } catch (e) { /* a body that would not come is one fewer piece of evidence */ }
+
+  const media = Array.from(found.values())
+    .filter((m) => offerable(m.url, m.type, segments))
+    .map((m) => ({ url: m.url, kind: m.kind, label: m.label, detail: m.detail }));
+
+  return { media, title, poster, evidence };
 }
 
 module.exports = async function handler(req, res) {

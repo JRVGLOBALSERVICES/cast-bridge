@@ -21,6 +21,7 @@ const SUITES = [
   ['cookies', 'test-cookies.js'],
   ['subs', 'test-subs.js'],
   ['crawl', 'test-crawl.js'],
+  ['sources', 'test-sources.js'],
   ['nowplaying', 'test-nowplaying.js'],
   ['notify', 'test-notify.js'],
   ['notify-state', 'test-notifystate.js'],

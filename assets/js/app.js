@@ -204,6 +204,16 @@
         if (meta.title) found.title = meta.title;
         if (meta.from) found.from = meta.from;
         if (meta.poster) found.poster = meta.poster;
+        /* The other streams the same scan found for this film. Written only
+           when there are any, so replaying a row from History — which knows
+           of no siblings — cannot erase the set the scan put there. Address
+           and name only: the rest of a scan row is measurement that will be
+           stale by the time anyone comes back to it. */
+        if (meta.sources && meta.sources.length > 1) {
+          found.sources = meta.sources.slice(0, 12).map(function (m) {
+            return { url: m.url, label: m.label || '', kind: m.kind || kindOf(m.url) };
+          });
+        }
         found.kind = kindOf(url);
         d.items.unshift(found);
         if (d.items.length > CAP) d.items.length = CAP;
@@ -1381,6 +1391,12 @@
      ever has to ask the page for a fresh address this is the only thing
      that tells 720p apart from 192p. */
   var currentLabel = '';
+  /* Every other stream the same scan found. The rules live in
+     assets/js/sources.js so they can be proved without a browser; this file
+     owns the DOM and the loading, which cannot be. */
+  var sources = window.CBSources.create({
+    isHttp: isHttp, kindOf: kindOf, nameOf: nameOf
+  });
   var hls = null;
   /* One proxy retry per load, or a stream that is genuinely gone loops. */
   var hlsProxied = false;
@@ -1488,6 +1504,13 @@
           playHls(streamUrl(current));
           return;
         }
+        /* Refused through our own origin as well. Another address from the
+           same scan is the cheap thing to try before telling anyone this
+           needs a television — see the note in the <video> error handler
+           for why casting is left alone. */
+        if (castState !== 'CONNECTED' &&
+            advanceSource('That host blocked the stream')) return;
+
         setStatus('This stream won\'t open in a browser tab — the server blocks it. The TV can still fetch it directly.', 'bad');
         toast({
           text: 'Blocked here, but Cast and VLC fetch it themselves.',
@@ -1495,6 +1518,8 @@
           onAction: handoffVlc
         });
       } else {
+        if (castState !== 'CONNECTED' &&
+            advanceSource('That stream failed — ' + data.details)) return;
         setStatus('Stream error: ' + data.details, 'bad');
       }
     });
@@ -1645,6 +1670,106 @@
     });
   }
 
+  /* ---------- Source set ---------- */
+
+  var sourcesBox = $('sources');
+  var sourcePick = $('sourcePick');
+
+  function renderSources() {
+    /* One source is not a choice, and a picker offering it is a control
+       that cannot do anything. Hidden rather than disabled — a disabled
+       control is a promise of something you might unlock. */
+    if (sources.count() < 2) {
+      sourcesBox.hidden = true;
+      sourcePick.innerHTML = '';
+      return;
+    }
+
+    sourcesBox.hidden = false;
+    sourcePick.innerHTML = '';
+    sources.list().forEach(function (m, i) {
+      var o = document.createElement('option');
+      o.value = String(i);
+      o.textContent = (i + 1) + ' of ' + sources.count() + ' \u00b7 ' + sources.name(i);
+      sourcePick.appendChild(o);
+    });
+    sourcePick.value = String(Math.max(0, sources.at()));
+  }
+
+  /* Load one of the set. `why` is null for a deliberate pick and a sentence
+     for an automatic hop — the difference is whether the person is told
+     anything, because a switch they made themselves needs no announcement. */
+  /* One tap, one switch. Not a cooldown — somebody stepping through four
+     sources looking for the one that works should be able to tap four times
+     in four seconds. This only refuses the second half of a double-fire,
+     and it is released by the element reporting back rather than by a
+     timer, so it cannot outlive the load it is guarding. */
+  var switching = false;
+
+  ['loadstart', 'error', 'emptied', 'loadedmetadata'].forEach(function (ev) {
+    video.addEventListener(ev, function () {
+      switching = false;
+      sourcesBox.classList.remove('is-switching');
+    });
+  });
+
+  function playSource(i, why) {
+    var m = sources.item(i);
+    if (!m) return false;
+    if (switching) return false;
+    switching = true;
+    sourcesBox.classList.add('is-switching');
+    var ok = load(m.url, {
+      title: m.label || currentTitle,
+      label: m.label || '',
+      from: currentFrom,
+      /* Left empty rather than carried across: load() falls back to the
+         cover remembered on the history row, which is the page's own
+         artwork. artwork.current() may by now be a frame grabbed off the
+         video, and a frame of the stream that just failed is not a cover. */
+      poster: '',
+      sources: sources.list(),
+      sourceIndex: i
+    });
+    if (!ok) {
+      switching = false;
+      sourcesBox.classList.remove('is-switching');
+      return false;
+    }
+    if (why) {
+      setStatus(why + ' \u2014 trying source ' + (i + 1) + ' of ' + sources.count() + '.', '');
+      toast({ text: why + '. Now on ' + sources.name(i) + '.', ms: 6000 });
+    }
+    return true;
+  }
+
+  /* The automatic hop, after something failed to play. Returns false when
+     there is nowhere left to go, so the caller says the thing it was going
+     to say anyway rather than failing silently. */
+  function advanceSource(why) {
+    var i = sources.takeAuto();
+    if (i < 0) return false;
+    return playSource(i, why);
+  }
+
+  sourcePick.addEventListener('change', function () {
+    var i = parseInt(sourcePick.value, 10);
+    if (isNaN(i) || i === sources.at()) return;
+    playSource(i, null);
+  });
+
+  $('btnNextSource').addEventListener('click', function () {
+    var i = sources.next();
+    if (i < 0) return;
+    if (playSource(i, null)) {
+      toast({
+        text: (i === 0 ? 'Back to the first source \u2014 ' : 'Source ' + (i + 1) +
+          ' of ' + sources.count() + ' \u2014 ') + sources.name(i) + '.',
+        ms: 5000
+      });
+    }
+  });
+
   function load(rawUrl, meta) {
     meta = meta || {};
     var u = String(rawUrl || '').trim();
@@ -1661,6 +1786,16 @@
     currentFrom = meta.from || '';
     currentLabel = meta.label || '';
     hlsProxied = false;
+    /* The siblings this address arrived with. An address that arrived on
+       its own — pasted, opened from a file, deep-linked — genuinely has
+       none, and passing nothing here clears the last page's set rather
+       than leaving a picker pointing at a different film. */
+    /* The siblings this address arrived with. An address that arrived on
+       its own — pasted, opened from a file, deep-linked — genuinely has
+       none, and passing nothing here clears the last page's set rather than
+       leaving a picker pointing at a different film. */
+    sources.set(meta.sources || [], u, meta.sourceIndex);
+    renderSources();
     /* Some addresses are only fetchable with the referer of the page they
        belong to — Bilibili's CDN is the case this exists for, and it answers
        403 to anything else. That is true of the phone as well as the
@@ -1686,7 +1821,8 @@
     }
 
     var record = store.touch(u, {
-      title: currentTitle, from: meta.from || '', poster: meta.poster || ''
+      title: currentTitle, from: meta.from || '', poster: meta.poster || '',
+      sources: sources.forStore()
     });
     /* The cover the scan found, or the one remembered from the last time
        this address was played — which is what makes a film opened from
@@ -1773,9 +1909,21 @@
       setStatus('That host refused us. Trying again through the bridge…', '');
       return;
     }
+    /* The bridge could not save it either. If the same scan found other
+       addresses for this episode, one of them is the next thing to try —
+       and it is already in hand, so trying it costs nothing but a load.
+       Only while the phone is playing: on a television the receiver
+       fetches for itself, and swapping the source out from under a cast
+       that is merely slow to start would look like the app losing the
+       film. */
+    if (castState !== 'CONNECTED' &&
+        advanceSource('That source would not play here')) return;
+
     setStatus('This link won\'t play here. It has to be the media file itself, not a webpage.', 'bad');
     toast({
-      text: 'Nothing played. Try scanning the page it came from.',
+      text: sources.count() > 1
+        ? 'None of the streams from that page played here.'
+        : 'Nothing played. Try scanning the page it came from.',
       actionLabel: 'Browse',
       onAction: function () { showTab('browse', { focus: true }); }
     });
@@ -1790,6 +1938,12 @@
      the frame they actually came back to is the better picture. */
   video.addEventListener('loadeddata', function () { artwork.tryFrame(); });
   video.addEventListener('seeked', function () { artwork.tryFrame(); });
+
+  /* A source that actually started is evidence the set is not the problem,
+     so the budget for automatic hops is given back. Without this, a film
+     paused for an hour and resumed onto a stale token would find the app
+     had already spent its two hops on a different stream last night. */
+  video.addEventListener('playing', function () { sources.resetAuto(); });
 
   video.addEventListener('play', function () { mediaSession.update({ state: 'playing' }); });
   video.addEventListener('pause', function () { mediaSession.update({ state: 'paused' }); });
@@ -4684,7 +4838,12 @@
         label: m.label || '',
         from: page.finalUrl,
         poster: page.poster || '',
-        proxy: Boolean(m.viaProxy)
+        proxy: Boolean(m.viaProxy),
+        /* Picking one stream keeps the rest. They cost a scan to find and
+           nothing to carry, and which of them plays is the one thing the
+           scan could not tell anybody. */
+        sources: page.media,
+        sourceIndex: index
       });
       showTab('link');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -5477,7 +5636,13 @@
     play.className = 'btn btn-secondary btn-sm';
     play.textContent = 'Play';
     play.addEventListener('click', function () {
-      load(it.url, { title: it.title, from: it.from, poster: it.poster || '' });
+      load(it.url, {
+        title: it.title, from: it.from, poster: it.poster || '',
+        /* Remembered from the scan that first played it, so a film reopened
+           a week later still has somewhere to go when its host has changed
+           its mind. */
+        sources: it.sources || []
+      });
       $('linkHint').hidden = true;
       showTab('link');
       window.scrollTo({ top: 0, behavior: 'smooth' });

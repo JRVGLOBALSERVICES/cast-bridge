@@ -1092,3 +1092,22 @@
       `deep_reissue {configured, executable, ok}`, checked at the path rather
       than trusted from the variable, and the service names it at boot.
       README carries the `npm ci --omit=dev` a `git pull` does not do.
+- [x] Task 66: The third row was a PIECE of the second. tvlogy.to names its
+      HLS segments `01852-000.juicycodes` and serves them as `video/mp2t`,
+      and the deep scan watches the network, so six seconds of the episode
+      was offered beside the episode. Naming cannot settle it — the site is
+      free to call a segment anything — so `lib/media.js offerable()` asks,
+      in order: did a playlist we read list this address, is the body a
+      transport stream, is the name a segment extension, is the kind one a
+      player opens. `api/scan.js` reads every `.m3u8` the page fetches and
+      remembers what it named. A master's URIs survive; a media playlist's
+      do not. The quick scan is gated at the same rule, so a segment cannot
+      arrive by the other door.
+- [x] Task 67: Picking one stream keeps the rest. `assets/js/sources.js` owns
+      the set, what has been tried and where to go next; app.js owns the
+      strip under the status line and the loading. A stream that will not
+      play moves the app on by itself, twice at most, and says so; the
+      picker goes anywhere including back to the first; the set is written
+      to the history row, so a film reopened next week still has somewhere
+      to go. `scripts/test-sources.js` proves both, in a real browser
+      against the shipped page, on both player paths.

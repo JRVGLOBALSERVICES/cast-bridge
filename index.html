@@ -229,6 +229,23 @@
       </select>
     </div>
 
+    <!-- ---------- The other streams from the same page ----------
+         A scan usually finds more than one address for the same episode,
+         and which of them plays is not something the scan can know: one
+         host refuses this origin, another expired its token an hour ago,
+         a third works. Picking one used to throw the rest away, so a
+         stream that did not play meant scanning the page again.
+
+         Shown only when there is genuinely a choice — a single stream with
+         a picker offering it to you is a control that does nothing. -->
+    <div class="cb-sources" id="sources" hidden>
+      <label class="cb-sources-label" for="sourcePick">Source</label>
+      <select class="form-control custom-select cb-sources-pick" id="sourcePick"></select>
+      <button type="button" class="btn btn-secondary btn-sm cb-sources-next" id="btnNextSource">
+        Try the next one
+      </button>
+    </div>
+
     <!-- ---------- Nothing found ----------
          "No TV found" with a dead button is a wall, not an answer. This page
          does not discover anything. Chrome does, over the local network, so the
@@ -745,6 +762,7 @@
      opened and a deferred script that is not there yet is a panel that
      silently draws nothing. -->
 <script src="assets/js/artwork.js" defer></script>
+<script src="assets/js/sources.js" defer></script>
 <script src="assets/js/castaction.js" defer></script>
 <script src="assets/js/resume.js" defer></script>
 <script src="assets/js/qr.js" defer></script>

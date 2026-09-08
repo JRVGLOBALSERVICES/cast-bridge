@@ -607,6 +607,59 @@ summary:focus-visible {
 }
 .cb-status.is-bad { color: var(--cb-bad); }
 
+/* ---------- Source strip ----------
+   The other addresses the same scan found. It sits under the status line
+   because that is where the player says what it is doing, and switching
+   source is the answer to the thing it most often has to say.
+
+   Below 26rem of container the button drops to its own line rather than
+   squeezing the picker down to a stub — a select showing "480p — H…" is a
+   choice you cannot read. */
+.cb-sources {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.55rem 0.85rem 0.7rem;
+  margin: -0.35rem 0 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--cb-ink-soft);
+}
+.cb-sources-label {
+  flex: none;
+  margin: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.cb-sources .cb-sources-pick {
+  flex: 1 1 9rem;
+  min-width: 0;
+  width: auto;
+  font-size: 0.8125rem;
+  padding: 0.3rem 1.6rem 0.3rem 0.6rem;
+  height: auto;
+}
+.cb-sources-next { flex: none; }
+.cb-sources.is-switching .cb-sources-pick { opacity: 0.6; }
+
+/* On a phone these two are the recovery action for a film that would not
+   play, and 37px of button is a miss away from a second tap on something
+   else. Raised only where the pointer is a finger, so the desktop strip
+   stays the compact one line it is at 414px and above. */
+@media (pointer: coarse) {
+  .cb-sources .cb-sources-pick,
+  .cb-sources .cb-sources-next { min-height: 44px; }
+}
+
+/* Once the button has been pushed onto its own line it should own that
+   line. A half-width button left-aligned under a full-width select is the
+   ragged edge you get from letting a flex row wrap and then not saying what
+   the wrapped item should do. */
+@media (max-width: 420px) {
+  .cb-sources-next { flex: 1 1 100%; }
+}
+
 /* ---------- Action grid ---------- */
 .cb-actions {
   display: grid;
