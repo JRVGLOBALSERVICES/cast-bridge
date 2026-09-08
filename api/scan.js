@@ -260,6 +260,64 @@ const INSTRUMENT = function () {
   } catch (e) { /* instrumentation must never cost the page its load */ }
 };
 
+/* The synthetic nudge that starts a player, run inside every frame.
+ *
+ * At module scope rather than buried in collect() so the suite can execute
+ * THIS function against a real page instead of a retyped copy of the rule
+ * it enforces. It closes over nothing — the page is its whole world.
+ */
+function poke() {
+  /* A click that leaves the page is worse than no click at all.
+   *
+   * Measured on tamildude.net: this used to take the FIRST match of a
+   * selector that includes a bare `button`, and the first button on that
+   * page is the search field's submit. Clicking it navigated the top
+   * document to /?s= before the vidmoly embed had built its player — so a
+   * page whose stream is perfectly reachable reported no video at all,
+   * three times over, once per poke. `[class*="play" i]` has the same
+   * hazard from the other end: "display" contains "play", so any
+   * display-classed wrapper wearing a link matches.
+   *
+   * Nothing here is a play control: a form submits, an anchor navigates,
+   * and neither has ever been the thing that starts a video. Skipping
+   * them costs nothing and is the difference between scanning the page
+   * and leaving it. */
+  const leaves = (el) => {
+    if (!el) return true;
+    try {
+      if (el.closest('form')) return true;
+      if (el.closest('a[href]')) return true;
+    } catch (e) { /* no closest() on an exotic node */ }
+    const type = String((el.getAttribute && el.getAttribute('type')) || '').toLowerCase();
+    return type === 'submit' || type === 'reset';
+  };
+
+  const hits = Array.prototype.slice.call(document.querySelectorAll(
+    '[class*="play" i],[id*="play" i],[aria-label*="play" i],button,video'
+  )).filter((el) => !leaves(el) && typeof el.click === 'function');
+
+  /* A real control before a container that merely sounds like one. The
+     first match in document order is routinely the player's own wrapper
+     div — measured on desicinema.org, where a 1138x573 div carries a
+     "play" class and sits above the control that actually starts the film.
+     Clicking the wrapper is not wrong, it is just not the click the player
+     is waiting for, and taking it means nothing below ever gets one. */
+  const control = hits.find((el) => {
+    const tag = (el.tagName || '').toUpperCase();
+    if (tag === 'BUTTON' || tag === 'VIDEO') return true;
+    return String(el.getAttribute('role') || '').toLowerCase() === 'button';
+  });
+
+  const hit = control || hits[0];
+  if (hit) hit.click();
+
+  document.querySelectorAll('video').forEach((v) => {
+    v.muted = true;
+    const p = v.play();
+    if (p && p.catch) p.catch(() => {});
+  });
+}
+
 async function collect(page, target) {
   const found = new Map();
 
@@ -327,18 +385,6 @@ async function collect(page, target) {
   /* The play control is nearly always inside the player's own frame, not on
      the page that embeds it. Poking only the top document clicks the site's
      own chrome and leaves the player untouched, so walk every frame. */
-  const poke = () => {
-    const hit = document.querySelector(
-      '[class*="play" i],[id*="play" i],[aria-label*="play" i],button,video'
-    );
-    if (hit && typeof hit.click === 'function') hit.click();
-    document.querySelectorAll('video').forEach((v) => {
-      v.muted = true;
-      const p = v.play();
-      if (p && p.catch) p.catch(() => {});
-    });
-  };
-
   /* A player that builds its source only on a real user gesture ignores
      everything above. `el.click()` from page script arrives with
      `isTrusted: false`, and that flag is exactly what such a player tests —
@@ -358,6 +404,24 @@ async function collect(page, target) {
         /* No box means off-screen or `display:none`; a sliver means an icon
            that never rendered. Neither is the control a person would hit. */
         if (!box || box.width < 16 || box.height < 16) continue;
+        /* And nothing that leaves the document, for the reason poke()
+           gives at length. A real mouse event on a form or a link inside an
+           embed tears down the player just as thoroughly as one on the page
+           above it — the only difference is that it is harder to see. */
+        let leaves = true;
+        try {
+          leaves = await handle.evaluate((el) => {
+            try {
+              if (el.closest('form')) return true;
+              if (el.closest('a[href]')) return true;
+            } catch (e) { /* exotic node */ }
+            const type = String((el.getAttribute && el.getAttribute('type')) || '').toLowerCase();
+            return type === 'submit' || type === 'reset';
+          });
+        } catch (e) {
+          leaves = false; /* unreadable is not a reason to refuse to poke */
+        }
+        if (leaves) continue;
         used++;
         /* A click can block indefinitely: puppeteer scrolls the element into
            view first, and a frame that is busy loading an ad never settles.
@@ -731,3 +795,23 @@ module.exports = async function handler(req, res) {
     if (browser) { try { await browser.close(); } catch (e) { /* gone already */ } }
   }
 };
+
+/* The two halves of the deep scan, on their own, so something other than
+ * this endpoint can run one.
+ *
+ * The reason is cost, not tidiness. Some CDNs sign a media address to the
+ * NETWORK that asked for it, so an address minted here is an address only
+ * this host may fetch — and when the box that has to fetch it is the VPS
+ * carrying the film, "scan on Vercel, fetch on the VPS" is a refusal by
+ * construction. The answer is to run the scan where the fetching happens,
+ * which means lib/reissue.js needs the browser half of this file without
+ * the endpoint half: no session, no store, no HTTP.
+ *
+ * Exported rather than copied for the reason server/stream-server.js
+ * requires api/stream.js rather than reimplementing it — two scanners
+ * would drift, and the one that drifted would be the one nobody runs
+ * locally.
+ */
+module.exports.launch = launch;
+module.exports.collect = collect;
+module.exports.poke = poke;

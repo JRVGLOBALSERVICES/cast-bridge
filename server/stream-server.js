@@ -66,6 +66,7 @@ const path = require('path');
 })();
 
 const streamApi = require('../api/stream.js');
+const reissue = require('../lib/reissue.js');
 const storage = require('./storage.js');
 const ticket = require('../lib/ticket.js');
 
@@ -175,6 +176,32 @@ const COMMIT = (function () {
 
 function commit() {
   return COMMIT;
+}
+
+/* Whether this box can mint its own stream address.
+ *
+ * The failure this answers: a CDN that signs a link to the network that
+ * asked for it refuses every other network, so a film scanned elsewhere is
+ * a 403 here. The repair is to re-scan the page from this machine with a
+ * real browser — which needs a real browser. Unset or missing, that repair
+ * silently does not happen and the only symptom is films that fail for a
+ * reason nothing on the box names, which is exactly how the last one cost
+ * a day.
+ *
+ * Checked at the path rather than trusted from the variable, because a
+ * variable pointing at a browser that was uninstalled reads as configured
+ * and behaves as broken. */
+function browserReady() {
+  const path = String(process.env.CHROME_EXECUTABLE_PATH || '').trim();
+  if (!path) return { configured: false, executable: null, ok: false };
+  let ok = false;
+  try {
+    fs.accessSync(path, fs.constants.X_OK);
+    ok = true;
+  } catch (e) {
+    ok = false;
+  }
+  return { configured: true, executable: path, ok: ok };
 }
 
 /* The app lives on another origin, so every call it makes here is a
@@ -413,6 +440,11 @@ const server = http.createServer(async (req, res) => {
       served_today_gb: gb(usage[day] || 0),
       served_this_month_gb: gb(monthBytes),
       uploads_enabled: ticket.configured(),
+      /* The two things that decide whether a refused film is repaired here
+         or simply lost. `deep_reissue.ok` false means this box is one
+         network-signed link away from a failure it cannot fix. */
+      deep_reissue: browserReady(),
+      fallback_origin: null,
       storage: disk
     });
     return;
@@ -718,4 +750,18 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 server.listen(PORT, HOST, () => {
   console.log('[stream] listening on http://' + HOST + ':' + PORT +
     ' (window ' + ((Number(process.env.STREAM_RANGE_WINDOW_MB) || 8)) + ' MiB)');
+
+  /* Said at boot, not only on /healthz, because nobody reads a health
+     endpoint on a good day. A box that cannot re-scan a page is a box that
+     will one day refuse a film for a reason it does not mention. */
+  const b = browserReady();
+  if (b.ok) {
+    console.log('[stream] deep re-issue armed — ' + b.executable);
+  } else {
+    console.error('[stream] deep re-issue OFF' +
+      (b.configured
+        ? ' — CHROME_EXECUTABLE_PATH is set to ' + b.executable + ', which is not executable here.'
+        : ' — CHROME_EXECUTABLE_PATH is unset.') +
+      ' A network-signed address refused to this host cannot be repaired.');
+  }
 });

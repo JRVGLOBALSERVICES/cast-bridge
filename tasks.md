@@ -1054,3 +1054,41 @@
       controller, which is the state of a page the worker just opened; and
       because the tap opened the app, the visibilitychange retry never fires.
       It waits on `navigator.serviceWorker.ready` and asks again.
+
+## Round 9 — 2026-09-08 (Rj: "the purpose of vps is to cut Vercel cost")
+
+- [x] Task 60: The redirect to Vercel is gone from api/stream.js, not switched
+      off. It repaired a refusal by sending the film back through the meter
+      the VPS exists to escape — a cost fix whose failure mode is the cost.
+      `scripts/test-deepreissue.js` runs the real handler against a refusing
+      origin with CAST_FALLBACK_ORIGIN set and fails on any 3xx. Seen red
+      against HEAD: "answered 302 — a television was pointed at another host".
+- [x] Task 61: The address is minted where it will be fetched. api/scan.js
+      exports its browser half (`launch`, `collect`); lib/reissue.js gains
+      `deepReissue`, which runs the deep scan on this box when re-reading the
+      page's HTML finds nothing — which is every page whose player builds its
+      source in JavaScript, i.e. the ones this app is for. Off unless
+      CHROME_EXECUTABLE_PATH names a browser, so the serverless deploy never
+      pays for a Chromium it has no use for.
+- [x] Task 62: A film costs one browser, not one per segment. A refused HLS
+      playlist puts every segment into the retry at once; the scans are
+      single-flighted by page and the answer memoised, including when the
+      answer is no.
+- [x] Task 63: THE CAUSE, and it was not the CDN. The synthetic poke took the
+      FIRST match of a selector containing a bare `button`, and the first
+      button on tamildude.net is the search field's submit — every scan
+      navigated the page to /?s= before the vidmoly embed built its player, so
+      a film sitting right there reported as "no video on this page". Nothing
+      inside a form or a link is clicked now, a real control is preferred over
+      a wrapper that merely sounds like one, and `scripts/test-poke.js` proves
+      it in a browser against the exported function. Yesterday's poke on the
+      same fixture: submitted: true, clicked: ["search-play-btn"].
+- [x] Task 64: A rotating CDN edge is the same site. The replacement arrived on
+      prx-1559-ant.vmpx.online where the refusal was prx-1317-ant.vmpx.online,
+      and a same-HOST guard threw it away — a repair that could never once
+      succeed. `sameSite()` allows one differing leftmost label over at least
+      two agreeing ones, and still refuses a.co.uk against b.co.uk.
+- [x] Task 65: A box that cannot re-scan says so. `/healthz` reports
+      `deep_reissue {configured, executable, ok}`, checked at the path rather
+      than trusted from the variable, and the service names it at boot.
+      README carries the `npm ci --omit=dev` a `git pull` does not do.

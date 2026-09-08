@@ -1105,3 +1105,56 @@ harder to read, and a drifted bridge is its own bug waiting.
 **Context Rj needs to review:** the deploy is `git pull && pm2 restart
 cast-stream` on the VPS. Worth a git hook or a line in the deploy notes; for
 now it is a thing a person has to remember.
+**Resolved 2026-09-08, same day:** Rj's answer was that the box exists to
+cut Vercel cost, so the hop is gone. See Task 60 below — the address is now
+minted on the VPS instead, and no film byte leaves Vercel.
+
+## Task 60: I removed the Vercel hand-off rather than gating it
+
+**Question:** should the redirect have stayed behind a default-off switch?
+**Assumption made:** no — deleted. You said the box exists to cut Vercel cost,
+and a switch that repairs a refusal by spending the thing it was bought to
+save is a switch someone turns on at 1am and forgets. The comment where it
+stood says what it was and why it went, so it cannot be reinvented by
+accident, and a test fails if any 3xx ever comes back out of that endpoint.
+**Worth your eye:** the APP still lists Vercel as its second stream host
+(`STREAM_HOSTS` in assets/js/app.js), so a film the VPS refuses outright is
+still retried there by the phone. That is availability, not a hidden redirect
+— it survives the box rebooting — but it IS a Vercel-billed path and it is the
+only one left. Say the word and it goes too.
+
+## Task 61: the deep re-issue can take half a minute
+
+**Question:** is a viewer better served by a thirty-second wait or a fast
+failure?
+**Assumption made:** the wait. It happens once per film — the answer is
+memoised for five minutes and every segment after the first rides on it — and
+the alternative is a film that does not play at all. The HTML re-read is tried
+first and, on today's link, answered in 2.4s, so the browser is the exception
+rather than the rule.
+**Worth your eye:** if a cast ever feels like it hangs for half a minute
+before starting, that is this, and `pm2 logs cast-stream` will show the gap.
+
+## Task 63: I changed the scan the phone uses, not just the one the VPS runs
+
+**Question:** may a fix for the VPS change what Vercel's /api/scan does?
+**Assumption made:** yes, and it had to — it is one file by design, and the
+bug was in the shared half. The upside is that the deep scan now finds
+tamildude.net's stream on the first try from either host instead of navigating
+away from the page. The risk is a site somewhere that needed a click on a link
+or a form to reveal its player; I have not found one, and clicking either of
+those has never been what starts a video.
+**Worth your eye:** if a site that used to scan now reports "no video", this
+is the first thing to suspect.
+
+## Task 64: sameSite() is a heuristic, not a public-suffix list
+
+**Question:** how wide may "the same site" be before it stops being a guard?
+**Assumption made:** one differing leftmost label over at least two agreeing
+ones, with a short list of registry labels (co, com, net, org, gov, edu, ac,
+or, ne, in) that refuses a.co.uk against b.co.uk. That covers every rotating
+edge I measured without pulling in a public-suffix dependency.
+**Worth your eye:** it would treat `a.github.io` and `b.github.io` as one
+site. No stream host in use looks like that, and the only thing the rule
+permits is re-fetching from a neighbour of the host that already refused us —
+never an address of the page's choosing.

@@ -233,6 +233,24 @@ Two things differ on the VPS, both by environment:
   film in fewer, longer reads.
 - Bytes served are counted per day into `/var/lib/cast-stream/usage.json` and
   reported by `/healthz`, so "what does this cost" has a measured answer.
+- `CHROME_EXECUTABLE_PATH=/usr/bin/google-chrome`. Some CDNs sign a media
+  address to the NETWORK that asked for it — vmpx.online puts the fact in the
+  address, `asn=14618` being Amazon's because the scan ran on the Vercel
+  function — so an address minted there is a 403 here, on a link that has not
+  expired and is not wrong. It simply is not ours. `lib/reissue.js` re-asks the
+  page from this box: first from its HTML, then, for the players that build
+  their source in JavaScript, by running the deep scan's own browser here. What
+  comes back is signed to this network.
+
+  This is the difference between a refused film being repaired and being lost,
+  so `/healthz` reports `deep_reissue.ok` and the service says which it is at
+  boot. It needs `node_modules` on the box — `npm ci --omit=dev` in
+  `/opt/cast-stream`, once, and again after a dependency changes; a `git pull`
+  does not install anything.
+
+  There is deliberately **no redirect to Vercel**. There was one for a day, and
+  it worked by putting exactly the films this box cannot fetch back on the meter
+  it exists to avoid. `scripts/test-deepreissue.js` fails if one ever returns.
 
 It carries the uploaded files too, under one root and nothing outside it:
 
@@ -262,8 +280,9 @@ which one served it.
 Deploying the stream host:
 
 ```
-git -C /opt/cast-stream pull && pm2 restart cast-stream
-curl -s https://stream.jrvsystems.app/healthz
+git -C /opt/cast-stream pull && npm --prefix /opt/cast-stream ci --omit=dev
+pm2 restart cast-stream --update-env
+curl -s https://stream.jrvsystems.app/healthz    # deep_reissue.ok must be true
 ```
 
 Or press **Update** in the bridge dashboard's **Stream** section, which does

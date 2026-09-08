@@ -14,6 +14,8 @@
     "test": "node scripts/test-all.js",
     "test:unpack": "node scripts/test-unpack.js",
     "test:reissue": "node scripts/test-reissue.js",
+    "test:deep": "node scripts/test-deepreissue.js",
+    "test:poke": "node scripts/test-poke.js",
     "test:cookies": "node scripts/test-cookies.js",
     "test:subs": "node scripts/test-subs.js",
     "test:crawl": "node scripts/test-crawl.js"
