@@ -3365,10 +3365,12 @@
          something to pause. Sending a toggle into an idle receiver is what
          made this key end the cast. */
       if (casting()) { if (transportReady()) remoteCtl.playOrPause(); return; }
+      tvPausedByUser = Date.now();
       video.pause();
     });
     handle('stop', function () {
       if (casting()) { stopCasting('from the lock screen'); return; }
+      tvPausedByUser = Date.now();
       video.pause();
     });
     handle('seekbackward', function (d) {
@@ -3973,6 +3975,78 @@
       }
     });
   });
+
+  /* Another app took the TV. An AirPlay from Safari rides the phone's one
+     shared audio route, so when Instagram (or anything with sound) starts
+     playing, iOS interrupts this page — the film pauses — and that app's
+     sound goes out on the same route to the TV. No page can hold the route
+     against that; iOS gives it to whoever played last. What a page CAN do is
+     notice, keep the place, and put the film back the moment it is in front
+     of the person again. A pause while hidden that did not come from the
+     lock screen is the interruption; one the person asked for is left alone. */
+  var tvPausedByUser = 0;
+  var tvInterrupted = null;
+  function onTv() {
+    return !!(video.webkitCurrentPlaybackTargetIsWireless || (video.remote && video.remote.state === 'connected'));
+  }
+  var wasOnTv = false;
+  function noteTvState() { if (onTv()) wasOnTv = true; }
+  video.addEventListener('playing', noteTvState);
+  video.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', noteTvState);
+  if (video.remote && video.remote.addEventListener) video.remote.addEventListener('connect', noteTvState);
+
+  function markTvInterrupted(why) {
+    if (!current || !wasOnTv || tvInterrupted) return;
+    if (document.visibilityState !== 'hidden') return;
+    if (Date.now() - tvPausedByUser < 2000) return;
+    tvInterrupted = { at: video.currentTime || 0, src: current };
+    logCast('AirPlay: another app took the TV', why + ' at ' + clock(tvInterrupted.at));
+  }
+  video.addEventListener('pause', function () { markTvInterrupted('paused while in another app'); });
+  video.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', function () {
+    if (!video.webkitCurrentPlaybackTargetIsWireless) markTvInterrupted('route left the TV');
+  });
+  if (video.remote && video.remote.addEventListener) {
+    video.remote.addEventListener('disconnect', function () { markTvInterrupted('AirPlay disconnected'); });
+  }
+
+  function reopenTvPicker() {
+    if (video.remote && video.remote.prompt) return video.remote.prompt();
+    if (video.webkitShowPlaybackTargetPicker) { video.webkitShowPlaybackTargetPicker(); return Promise.resolve(); }
+    return Promise.reject(new Error('no picker'));
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible' || !tvInterrupted) return;
+    var gap = tvInterrupted;
+    tvInterrupted = null;
+    if (gap.src !== current) return;
+    if (Math.abs((video.currentTime || 0) - gap.at) > 2) video.currentTime = gap.at;
+    /* Still routed to the TV: playing again sends it straight back there.
+       Route lost: only a tap can open the picker, so ask for one. */
+    if (onTv()) {
+      video.play().then(function () {
+        logCast('AirPlay: film back on the TV', clock(gap.at));
+        toast({ text: 'Another app took the TV. The film is back on at ' + clock(gap.at) + '.' });
+      }).catch(function () { askBackToTv(gap); });
+      return;
+    }
+    askBackToTv(gap);
+  });
+
+  function askBackToTv(gap) {
+    logCast('AirPlay: waiting for a tap to reclaim the TV', clock(gap.at));
+    toast({
+      text: 'Another app took the TV. Your film is paused at ' + clock(gap.at) + '.',
+      actionLabel: 'Back to TV',
+      ms: 30000,
+      onAction: function () {
+        var p = reopenTvPicker();
+        video.play().catch(function () { /* the picker tap already counts */ });
+        p.catch(function (err) { logCast('AirPlay picker closed or refused', (err && err.message) || 'refused'); });
+      }
+    });
+  }
 
   /* The SDK's verdict can land either side of this block, so whichever runs
      second does the promotion. Idempotent by construction. */

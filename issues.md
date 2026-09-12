@@ -1660,3 +1660,8 @@ film plays in the app on your phone and this refuses it with 10015001 or
 **Question:** was Rj's 1001 the 15-minute token, or a segment refused mid-stream?
 **Assumption made:** the token. His workflow replays from History, the stored address is `/api/bstar?t=…` signed for 15 minutes, and production answers an expired one 403 (checked: `{"ok":false,"error":"That link is no longer valid…"}`). No request of his reached stream.jrvsystems.app in that minute, and Vercel's runtime log API timed out, so the refused URL itself was not seen.
 **Context Rj needs to review:** `assets/js/app.js` bstarExpired / load / castLoad re-read the page. If a 1001 comes back, the log line now carries `HTTP <status> <url>`; a status other than 403 on `/api/bstar` means a different cause. A page with several films shows the pick list instead of playing straight away.
+
+## Task 15: AirPlay taken over by another app
+**Question:** can the web app stop Instagram's sound from taking the TV?
+**Assumption made:** no. Safari's AirPlay uses the phone's single system audio route and iOS hands it to the last app to play sound. No web API holds it. Shipped the recovery path instead: resume when you come back, or a "Back to TV" button. Chromecast doesn't have this problem because the TV plays the film itself.
+**Context Rj needs to review:** `assets/js/app.js`, the "Another app took the TV" block. If the film doesn't come back, the cast log should show `AirPlay: another app took the TV` then either `film back on the TV` or `waiting for a tap`.

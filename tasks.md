@@ -1295,3 +1295,10 @@ things were, and the second one was invisible until the first was fixed.
       NOT verified: a real Bilibili TV episode through `?f=hls` (region-gated
       from this VPS, and the test account does not exist on production), a
       real Apple TV, and a real Chromecast join. First real test is Rj's.
+
+- [x] Task 15: AirPlay — another app (Instagram) takes the TV mid-film
+      iOS gives the shared AirPlay audio route to whichever app played last;
+      a page cannot hold it. The app now detects the interruption (pause or
+      route loss while hidden, not from the lock screen), keeps the position,
+      and on return either resumes on the TV or shows "Back to TV" (a tap
+      reopens the picker). NOT verified on a real iPhone + Apple TV.
