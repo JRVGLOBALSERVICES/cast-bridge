@@ -1405,6 +1405,10 @@
     isHttp: isHttp, kindOf: kindOf, nameOf: nameOf
   });
   var hls = null;
+  /* The DASH counterpart of `hls`. No phone browser plays a DASH manifest
+     from a bare <video src>, so a Bilibili TV film — which only exists as
+     DASH — used to resolve, name its quality and size, and then sit there. */
+  var dash = null;
   /* One proxy retry per load, or a stream that is genuinely gone loops. */
   var hlsProxied = false;
   var castState = 'NO_DEVICES_AVAILABLE';
@@ -1529,6 +1533,73 @@
             advanceSource('That stream failed — ' + data.details)) return;
         setStatus('Stream error: ' + data.details, 'bad');
       }
+    });
+  }
+
+  /* Shaka Player, fetched the first time a DASH address is opened rather
+     than on every page load — it is ~750 KB and most films are not DASH.
+     The same library the Cast receiver runs, so what plays here is what the
+     television will be asked to play. */
+  var SHAKA_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.16.8/shaka-player.compiled.js';
+  var shakaReady = null;
+  function loadShaka() {
+    if (window.shaka) return Promise.resolve(window.shaka);
+    if (shakaReady) return shakaReady;
+    shakaReady = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = SHAKA_SRC;
+      s.async = true;
+      s.onload = function () {
+        if (!window.shaka) { reject(new Error('shaka missing')); return; }
+        window.shaka.polyfill.installAll();
+        resolve(window.shaka);
+      };
+      s.onerror = function () { shakaReady = null; reject(new Error('shaka failed to load')); };
+      document.head.appendChild(s);
+    });
+    return shakaReady;
+  }
+
+  function teardownDash() {
+    if (dash) { try { dash.destroy(); } catch (e) {} dash = null; }
+  }
+
+  function playDash(src, autoplay) {
+    var mine = src;
+    setStatus('Opening the stream…', '');
+    loadShaka().then(function (shaka) {
+      /* Another film was opened while the library was downloading. */
+      if (current !== mine) return;
+      if (!shaka.Player.isBrowserSupported()) {
+        setStatus('This browser can\'t play this kind of stream. Cast it — the TV can.', 'bad');
+        return;
+      }
+      teardownDash();
+      var player = new shaka.Player();
+      dash = player;
+      player.configure({ streaming: { bufferingGoal: 60, rebufferingGoal: 4 } });
+      player.addEventListener('error', function (ev) {
+        var err = ev && ev.detail;
+        logCast('Player error', err ? 'shaka ' + err.code : 'unknown');
+        setStatus('Stream error (' + (err ? err.code : '?') + '). Paste the link again if it has been a while.', 'bad');
+      });
+      return player.attach(video).then(function () {
+        return player.load(src, null, 'application/dash+xml');
+      }).then(function () {
+        if (dash !== player) return;
+        setStatus('', '');
+        if (autoplay && castState !== 'CONNECTED') {
+          video.play().catch(function () { /* autoplay policy */ });
+        }
+      });
+    }).catch(function (err) {
+      if (current !== mine) return;
+      var code = err && err.code;
+      logCast('Player error', code ? 'shaka ' + code : String(err && err.message || err));
+      /* 1001 is a refused manifest request — in practice an expired link. */
+      setStatus(code === 1001
+        ? 'That link has expired. Paste the Bilibili TV link again.'
+        : 'This stream wouldn\'t open here (' + (code || 'load failed') + '). Casting may still work.', 'bad');
     });
   }
 
@@ -1814,12 +1885,22 @@
     $('url').value = u;
 
     teardownHls();
+    teardownDash();
     screenEl.classList.remove('is-idle');
     screenEl.classList.add('is-live');
 
+    var isDash = mimeOf(u) === 'application/dash+xml';
     if (mimeOf(u) === 'application/x-mpegURL' && !nativeHls() &&
         window.Hls && window.Hls.isSupported()) {
       playHls(u);
+    } else if (isDash) {
+      /* Never via /api/stream: that relays an .mpd without rewriting it
+         (see castLoad). Ours already carry proxied segment URLs.
+         The old film is cleared first so it does not keep playing while
+         the player library downloads. */
+      video.removeAttribute('src');
+      try { video.load(); } catch (e) {}
+      playDash(u, true);
     } else {
       /* Native HLS included: Safari takes the playlist address directly and
          picks its own rendition, so the quality menu has nothing to offer
@@ -1881,7 +1962,9 @@
       video.pause();
       stallRetried = false;
       castLoad(u, { viaProxy: forceProxy });
-    } else {
+    } else if (!isDash) {
+      /* DASH starts itself once Shaka has the manifest; playing an element
+         with no source yet only rejects. */
       video.play().catch(function () { /* autoplay policy — the controls are right there */ });
     }
     return true;
@@ -1893,6 +1976,9 @@
 
   video.addEventListener('error', function () {
     if (!current) return;
+    /* Shaka reports its own failures; the proxy retry below would hand the
+       manifest to /api/stream, which cannot serve one. */
+    if (dash) return;
     /* A file picked off the phone is not a link, and telling someone to go
        and scan the page it came from is advice about a page that does not
        exist. The cause is different too: an address that fails is usually
@@ -6648,6 +6734,7 @@
     localPick = { file: file, blobUrl: url, remote: null };
 
     teardownHls();
+    teardownDash();
     clearSubs();
     current = url;
     currentTitle = file.name;

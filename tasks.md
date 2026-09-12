@@ -1263,3 +1263,14 @@ things were, and the second one was invisible until the first was fixed.
       not re-fetched from production. It was fetched on the preview build of
       this same commit (206, exact bytes, real `ftyp`), and `api/stream.js`
       has a zero-byte diff in this change.
+
+- [x] Task 11: "finds the video, shows 1080p, 1072 MB, doesn't play". The
+      phone's own player set `<video src>` to the /api/bstar DASH manifest.
+      No phone browser plays DASH that way (`canPlayType` is "", the element
+      errors with code 4), so every Bilibili TV film resolved and then sat
+      there. Now opened with Shaka Player, loaded on demand. Proved in
+      headless Chrome on the local dev server with a public DASH stream:
+      old path error 4, new path playing (5 s in, 1920 px). Production
+      request logs are not reachable from this VPS (bot checkpoint, and the
+      runtime-log API only streams live), so the TV-side leg was not
+      re-observed for this report.
