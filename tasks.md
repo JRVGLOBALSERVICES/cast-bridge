@@ -1302,3 +1302,19 @@ things were, and the second one was invisible until the first was fixed.
       route loss while hidden, not from the lock screen), keeps the position,
       and on return either resumes on the TV or shows "Back to TV" (a tap
       reopens the picker). NOT verified on a real iPhone + Apple TV.
+
+## 2026-09-12 — TV mode (iPhone → TV browser)
+
+- [x] Task 16: TV mode for the Sony Bravia and Samsung Crystal 55 UHD. The TV
+      opens `/tv` in its own browser and shows a six-digit code and a QR code.
+      The phone pairs in the new "TV mode" panel. While paired, a film opened
+      on the phone goes to the TV and the phone becomes the remote (play,
+      pause, ±10s, seek, stop). The TV fetches the film itself, so Instagram
+      on the phone cannot take it. Mailbox: `castbridge.tv_rooms` (005,
+      applied), `api/tv.js`, `lib/tv.js`. `test-tv` (10).
+      Verified locally in headless Chrome against the production DB: pair
+      (wrong code refused, pasted code pairs), phone stays paused, TV plays,
+      pause/skip/seek/play all reach the TV, TV keeps playing with the phone
+      page closed, TV keeps its code across a reload.
+      NOT verified: a real Samsung Tizen browser, a real Bravia browser, and
+      a real Bilibili TV (DASH) or HLS film on either.

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0d0f1a">
+<title>Cast Bridge TV</title>
+<link rel="icon" href="favicon.ico">
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Ten feet away. Everything here is sized in vh so a 1080p browser and a
+     4K one that reports 1080 CSS pixels draw the same picture, and nothing
+     relies on hover, which a TV remote does not have. */
+  :root {
+    --tv-bg: #0d0f1a;
+    --tv-ink: #eef0f7;
+    --tv-ink-soft: #a9b1cc;
+    --tv-accent: #7d93f2;   /* app.css --cb-accent-dark, the accent on dark */
+    --tv-ok: #4fc79b;
+    --tv-bad: #ff7a86;
+    --tv-line: rgba(238, 240, 247, 0.14);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--tv-bg); color: var(--tv-ink); overflow: hidden; }
+  body { font-family: 'Nunito Sans', system-ui, sans-serif; font-size: 2.6vh; }
+
+  video { position: fixed; inset: 0; width: 100%; height: 100%; background: #000; object-fit: contain; }
+  video[hidden] { display: none; }
+
+  .tv-pair {
+    position: fixed; inset: 0; display: grid; place-items: center; padding: 6vh 8vw;
+  }
+  .tv-pair[hidden] { display: none; }
+  .tv-pair-grid { display: grid; grid-template-columns: auto auto; gap: 8vw; align-items: center; }
+  .tv-eyebrow { font-size: 2vh; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--tv-ink-soft); margin: 0 0 2vh; }
+  .tv-code {
+    font-size: 16vh; font-weight: 700; line-height: 1; margin: 0;
+    font-variant-numeric: tabular-nums; letter-spacing: 0.06em;
+  }
+  .tv-code span + span { margin-left: 0.04em; }
+  .tv-code .tv-gap { margin-left: 0.35em; }
+  .tv-steps { margin: 5vh 0 0; padding: 0; list-style: none; counter-reset: s; max-width: 46vw; }
+  .tv-steps li { counter-increment: s; display: flex; gap: 1.6vh; margin: 0 0 1.8vh; color: var(--tv-ink-soft); line-height: 1.35; }
+  .tv-steps li::before {
+    content: counter(s); flex: none; width: 3.6vh; height: 3.6vh; border-radius: 50%;
+    display: grid; place-items: center; font-size: 2vh; font-weight: 700;
+    background: var(--tv-line); color: var(--tv-ink);
+  }
+  .tv-steps b { color: var(--tv-ink); font-weight: 700; }
+  .tv-qr { background: #fff; padding: 2.4vh; border-radius: 1.6vh; }
+  .tv-qr canvas { display: block; width: 30vh; height: 30vh; image-rendering: pixelated; }
+  .tv-qr-note { margin: 1.6vh 0 0; text-align: center; color: var(--tv-ink-soft); font-size: 2vh; }
+
+  .tv-line { margin: 4vh 0 0; font-size: 2.2vh; color: var(--tv-ink-soft); min-height: 3vh; }
+  .tv-line.is-ok { color: var(--tv-ok); }
+  .tv-line.is-bad { color: var(--tv-bad); }
+
+  /* The bar over the film: title and where it is. Shown while paused,
+     loading, or for a few seconds after a command, then out of the way. */
+  .tv-hud {
+    position: fixed; left: 0; right: 0; bottom: 0; padding: 12vh 6vw 6vh;
+    background: linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0));
+    opacity: 0; transition: opacity 240ms ease-out; pointer-events: none;
+  }
+  .tv-hud.is-on { opacity: 1; }
+  .tv-hud-title { font-size: 3.6vh; font-weight: 700; margin: 0 0 1vh; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tv-hud-state { font-size: 2.2vh; color: var(--tv-ink-soft); margin: 0 0 2.4vh; }
+  .tv-hud-row { display: flex; align-items: center; gap: 2vw; font-variant-numeric: tabular-nums; font-size: 2.2vh; }
+  .tv-bar { flex: 1; height: 0.8vh; border-radius: 0.4vh; background: rgba(255,255,255,0.22); overflow: hidden; }
+  .tv-bar i { display: block; height: 100%; width: 0; background: var(--tv-accent); }
+
+  .tv-corner { position: fixed; top: 4vh; right: 4vw; font-size: 2vh; color: var(--tv-ink-soft); font-variant-numeric: tabular-nums; opacity: 0; transition: opacity 240ms ease-out; }
+  .tv-hud.is-on ~ .tv-corner { opacity: 1; }
+
+  .tv-start {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    font: inherit; font-size: 3.4vh; font-weight: 700; color: var(--tv-bg); background: var(--tv-ink);
+    border: 0; border-radius: 1.2vh; padding: 2.4vh 5vh; cursor: pointer;
+  }
+  .tv-start[hidden] { display: none; }
+  .tv-start:focus-visible { outline: 0.6vh solid var(--tv-accent); outline-offset: 0.6vh; }
+
+  video::cue { font-size: 4.2vh; background: rgba(0,0,0,0.65); }
+
+  @media (prefers-reduced-motion: reduce) { .tv-hud, .tv-corner { transition: none; } }
+</style>
+</head>
+<body>
+<video id="video" playsinline hidden></video>
+
+<section class="tv-pair" id="pair" aria-live="polite">
+  <div class="tv-pair-grid">
+    <div>
+      <p class="tv-eyebrow">Cast Bridge · TV mode</p>
+      <p class="tv-code" id="code" aria-label="Pairing code">······</p>
+      <ol class="tv-steps">
+        <li><span>Open <b>Cast Bridge</b> on your phone and tap <b>TV mode</b>.</span></li>
+        <li><span>Type the code above, or scan the square with the phone camera.</span></li>
+        <li><span>Play a film on the phone. It plays here, and the phone becomes the remote.</span></li>
+      </ol>
+      <p class="tv-line" id="line">Getting a code…</p>
+    </div>
+    <div>
+      <div class="tv-qr" id="qrBox" hidden><canvas id="qr" width="330" height="330"></canvas></div>
+      <p class="tv-qr-note" id="qrNote" hidden>Scan to pair</p>
+    </div>
+  </div>
+</section>
+
+<div class="tv-hud" id="hud">
+  <p class="tv-hud-title" id="hudTitle"></p>
+  <p class="tv-hud-state" id="hudState"></p>
+  <div class="tv-hud-row">
+    <span id="hudPos">0:00</span>
+    <div class="tv-bar"><i id="hudBar"></i></div>
+    <span id="hudDur">0:00</span>
+  </div>
+</div>
+<p class="tv-corner" id="cornerCode"></p>
+
+<button type="button" class="tv-start" id="start" hidden>Press OK to play</button>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js" defer></script>
+<script src="assets/js/qr.js" defer></script>
+<script src="assets/js/tv.js" defer></script>
+</body>
+</html>

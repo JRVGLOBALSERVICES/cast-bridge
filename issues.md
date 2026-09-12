@@ -1665,3 +1665,18 @@ film plays in the app on your phone and this refuses it with 10015001 or
 **Question:** can the web app stop Instagram's sound from taking the TV?
 **Assumption made:** no. Safari's AirPlay uses the phone's single system audio route and iOS hands it to the last app to play sound. No web API holds it. Shipped the recovery path instead: resume when you come back, or a "Back to TV" button. Chromecast doesn't have this problem because the TV plays the film itself.
 **Context Rj needs to review:** `assets/js/app.js`, the "Another app took the TV" block. If the film doesn't come back, the cast log should show `AirPlay: another app took the TV` then either `film back on the TV` or `waiting for a tap`.
+
+## Task 16: TV mode — which browser on each TV
+**Question:** which browser will each TV actually run /tv in?
+**Assumption made:** Samsung Crystal UHD uses its built-in **Internet** app (Tizen). Sony Bravia (Google TV) has no browser preinstalled, so install **TV Bro** from the Play Store. The Bravia also has Google Cast built in, so an Android phone or a laptop can still use Cast directly. The TV page is plain ES5 and plays HLS through hls.js and DASH through Shaka, because Samsung's docs say Tizen's HTML5 video can't play HLS/DASH natively.
+**Context Rj needs to review:** `tv.html`, `assets/js/tv.js`. If a film won't start on the TV, the phone panel shows the TV's error line. If it says "Press OK on the TV remote", the TV browser blocked autoplay; one press fixes it for that visit.
+
+## Task 16: Pairing needs a signed-in phone, the TV needs nothing
+**Question:** should the TV page need a login?
+**Assumption made:** no. Typing a password on a TV remote is miserable. The TV gets a random key when it creates the room, and only a **signed-in** phone can pair, only while that TV is showing the code. Media addresses were already unauthenticated for the Chromecast, so the TV needs nothing more.
+**Context Rj needs to review:** `api/tv.js` pair(). Six digits plus sign-in plus "the TV must be on the pairing screen now" is the bar.
+
+## Task 16: Polling, not a live socket
+**Question:** websocket/SSE for instant commands?
+**Assumption made:** the TV polls `/api/tv` once a second and the phone every 2s (only while the app is open). A tap reaches the TV in about a second. That's roughly 3,600 function calls per hour of film on Vercel. If that shows up on the bill, move the mailbox to the VPS stream host with SSE.
+**Context Rj needs to review:** `POLL_MS` in `assets/js/tv.js`, `STATUS_MS` in `assets/js/tvmode.js`.

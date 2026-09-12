@@ -32,7 +32,8 @@ const SUITES = [
   ['resume', 'test-resume.js'],
   ['self-update', 'test-selfupdate.js'],
   ['session-start', 'test-sessionstart.js'],
-  ['watchdog', 'test-watchstream.js']
+  ['watchdog', 'test-watchstream.js'],
+  ['tv', 'test-tv.js']
 ];
 
 const results = [];

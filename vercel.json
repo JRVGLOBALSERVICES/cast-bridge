@@ -56,6 +56,9 @@
       "regions": [
         "hkg1"
       ]
+    },
+    "api/tv.js": {
+      "maxDuration": 10
     }
   },
   "buildCommand": "node scripts/stamp-build.mjs",

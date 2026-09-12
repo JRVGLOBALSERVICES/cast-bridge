@@ -22,6 +22,7 @@ const OUT = join(ROOT, 'public');
    excluding node_modules and hoping. */
 const STATIC = [
   'index.html',
+  'tv.html',
   'sw.js',
   'manifest.json',
   'favicon.ico',

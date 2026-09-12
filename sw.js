@@ -21,6 +21,7 @@ const SHELL = [
   '/assets/js/castaction.js',
   '/assets/js/resume.js',
   '/assets/js/qr.js',
+  '/assets/js/tvmode.js',
   '/assets/js/app.js',
   '/assets/icon.svg',
   '/assets/icon-maskable.svg',

@@ -42,6 +42,7 @@ const crawlApi = require('../api/crawl.js');
 const seriesApi = require('../api/series.js');
 const nowPlayingApi = require('../api/now-playing.js');
 const imgApi = require('../api/img.js');
+const tvApi = require('../api/tv.js');
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
@@ -72,6 +73,16 @@ const server = http.createServer(async (req, res) => {
      list nowhere and remember nothing, which is most of what changed. */
   /* The live session. Without this a local run cannot reproduce the whole
      point of the change — that closing the app no longer loses the film. */
+  /* TV mode's mailbox. Without it a local /tv shows no code at all. */
+  if (pathname === '/api/tv') {
+    try {
+      await tvApi(req, res);
+    } catch (e) {
+      if (!res.headersSent) { res.statusCode = 500; res.end(JSON.stringify({ ok: false, error: e.message })); }
+    }
+    return;
+  }
+
   if (pathname === '/api/now-playing') {
     req.query = Object.fromEntries(url.searchParams.entries());
     try {

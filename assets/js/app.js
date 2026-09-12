@@ -1598,7 +1598,7 @@
       }).then(function () {
         if (dash !== player) return;
         setStatus('', '');
-        if (autoplay && castState !== 'CONNECTED') {
+        if (autoplay && castState !== 'CONNECTED' && !tvPaired()) {
           video.play().catch(function () { /* autoplay policy */ });
         }
       });
@@ -1985,7 +1985,12 @@
        Playing locally as well is two audio tracks a few seconds apart, in
        the same room. The element still loads (metadata, resume seek, the
        scrubber) — it just stays paused. */
-    if (castState === 'CONNECTED') {
+    if (tvPaired()) {
+      /* TV mode: same rule, different television. The TV browser fetches
+         the film itself; the phone stays paused and becomes the remote. */
+      video.pause();
+      window.CBTvMode.sendCurrent(resumeAt || 0);
+    } else if (castState === 'CONNECTED') {
       video.pause();
       stallRetried = false;
       castLoad(u, { viaProxy: forceProxy });
@@ -2874,6 +2879,45 @@
       });
     }, STALL_MS);
   }
+
+  /* ------------------------------------------------------------------ *
+   * TV mode hand-off (assets/js/tvmode.js)
+   *
+   * A browser on the television plays the film instead of a Cast receiver.
+   * It needs the same thing castLoad builds — an address the TV can reach,
+   * the title, the subtitle track — so it is built here, next to castLoad,
+   * by the same rules: HLS through the bridge from the start, everything
+   * else direct with the bridge as the one retry.
+   * ------------------------------------------------------------------ */
+  function tvPaired() {
+    return !!(window.CBTvMode && window.CBTvMode.paired());
+  }
+
+  function tvPayload() {
+    if (!current) return null;
+    if (bstarExpired(current) && currentFrom) return { expired: true };
+    var mime = mimeOf(current);
+    var absolute = new URL(current, location.href).toString();
+    var ours = absolute.indexOf(location.origin + '/api/') === 0;
+    var proxied = ours ? '' : streamUrl(current, true);
+    var url = (!ours && (mime === 'application/x-mpegURL' || forceProxy)) ? proxied : absolute;
+    return {
+      url: url,
+      fallback: url === absolute ? proxied : '',
+      mime: mime,
+      title: currentTitle || nameOf(current),
+      at: video.currentTime || 0,
+      subs: subsProxy ? new URL(subsProxy, location.href).toString() : null,
+      subsName: subsName || null
+    };
+  }
+
+  window.CBApp = {
+    tvPayload: tvPayload,
+    reread: function () { if (currentFrom) resolveThenPlay(currentFrom); },
+    pauseLocal: function () { try { video.pause(); } catch (e) {} },
+    toast: function (text) { toast({ text: text }); }
+  };
 
   function castLoad(u, opts) {
     var s = castSession();
