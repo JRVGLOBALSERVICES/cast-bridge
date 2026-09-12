@@ -303,6 +303,93 @@ check('falls back to the socket rather than assuming https', () => {
     'https://cast.app');
 });
 
+console.log('\nRegion refusals');
+
+/* The codes below are not guesses. On 2026-09-12 the same twenty titles were
+   resolved from a box in Singapore, from this app in Vercel's iad1 and from
+   the same app in sin1. Nine played from either Singapore vantage and seven
+   from Washington; the two that differed were refused with 10004001. That is
+   the whole basis for calling 10004001 the geo-gate and 10004404 something
+   else, so these tests pin the distinction rather than the wording. */
+
+check('names the region only for the code that actually varies by region', () => {
+  const region = bstar.describeRefusal(10004001, null);
+  assert.ok(/region/i.test(region), 'the geo code must say region: ' + region);
+
+  const gone = bstar.describeRefusal(10004404, null);
+  assert.ok(!/region/i.test(gone),
+    '10004404 was identical from every vantage measured, so calling it a ' +
+    'region block sends the reader to change a thing that is not the cause: ' + gone);
+});
+
+check('does not report a bad episode id as a region block', () => {
+  const missing = bstar.describeRefusal(-404, 'SESSDATA=x');
+  assert.ok(!/region/i.test(missing),
+    '-404 was reported as "likely region-locked" before this was measured, ' +
+    'and region has its own code: ' + missing);
+});
+
+check('offers the sign-in only when there is no cookie', () => {
+  assert.ok(/sign in/i.test(bstar.describeRefusal(-404, null)));
+  assert.ok(!/sign in/i.test(bstar.describeRefusal(-404, 'SESSDATA=x')),
+    'telling someone already signed in to sign in is a dead end');
+  assert.ok(!/sign in/i.test(bstar.describeRefusal(10004001, null)),
+    'a sign-in cannot lift a geo-gate, so offering it wastes the reader\'s time');
+});
+
+check('never forwards the upstream message verbatim', () => {
+  /* The real one seen beside 10004404 was Chinese text about activity tags
+     having nothing to do with the request. */
+  for (const code of [10004001, 10004404, -404, 70001, null]) {
+    for (const cookie of [null, 'SESSDATA=x']) {
+      const out = bstar.describeRefusal(code, cookie);
+      assert.ok(typeof out === 'string' && out.length > 20,
+        'every refusal needs a sentence, code ' + code);
+      assert.ok(!/[\u4e00-\u9fff]/.test(out),
+        'Chinese reached the reader for code ' + code + ': ' + out);
+    }
+  }
+});
+
+check('keeps an unknown code where it can be looked up', () => {
+  assert.ok(/70001/.test(bstar.describeRefusal(70001, null)),
+    'dropping a code we cannot explain leaves nothing to diagnose with');
+  assert.ok(!/null|undefined|NaN/.test(bstar.describeRefusal(null, null)),
+    'a missing code must not be printed as the word null');
+});
+
+check('names the resolving region from the environment, not a literal', () => {
+  const prev = process.env.VERCEL_REGION;
+  try {
+    process.env.VERCEL_REGION = 'sin1';
+    assert.ok(/Singapore/.test(bstar.describeRefusal(10004001, null)));
+    process.env.VERCEL_REGION = 'iad1';
+    assert.ok(/Washington/.test(bstar.describeRefusal(10004001, null)),
+      'hardcoding Singapore would keep saying Singapore after a region change');
+    process.env.VERCEL_REGION = 'zzz9';
+    assert.ok(/zzz9/.test(bstar.describeRefusal(10004001, null)),
+      'an unmapped region should still be named');
+    delete process.env.VERCEL_REGION;
+    const bare = bstar.describeRefusal(10004001, null);
+    assert.ok(/region/i.test(bare) && !/\(\)/.test(bare),
+      'off Vercel there is no region to name and the clause must drop: ' + bare);
+  } finally {
+    if (prev === undefined) delete process.env.VERCEL_REGION;
+    else process.env.VERCEL_REGION = prev;
+  }
+});
+
+check('the deploy is pinned to a region inside bstar\'s catalogue', () => {
+  const cfg = require('../vercel.json');
+  assert.ok(Array.isArray(cfg.regions) && cfg.regions.length === 1,
+    'bilibili.tv gates on the region the ADDRESS is requested from, so the ' +
+    'resolve and the segment proxy must agree on one region');
+  assert.ok(Object.prototype.hasOwnProperty.call(bstar.REGION_CITY, cfg.regions[0]),
+    'a region the messages cannot name: ' + cfg.regions[0]);
+  assert.strictEqual(cfg.regions[0], 'sin1',
+    'measured 2026-09-12: iad1 played 7 of 20 sampled titles, sin1 played 9');
+});
+
 console.log('\n' + passed + ' passed, ' + failures.length + ' failed');
 if (failures.length) {
   failures.forEach((f) => console.log('  - ' + f));

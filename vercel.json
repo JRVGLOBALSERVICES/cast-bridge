@@ -1,5 +1,8 @@
 {
   "cleanUrls": true,
+  "regions": [
+    "sin1"
+  ],
   "functions": {
     "api/scan.js": {
       "maxDuration": 60,
