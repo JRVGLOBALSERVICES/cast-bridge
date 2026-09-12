@@ -20,6 +20,7 @@ const SUITES = [
   ['poke', 'test-poke.js'],
   ['cookies', 'test-cookies.js'],
   ['bstar', 'test-bstar.js'],
+  ['bstar-hls', 'test-bstar-hls.js'],
   ['subs', 'test-subs.js'],
   ['crawl', 'test-crawl.js'],
   ['sources', 'test-sources.js'],
@@ -30,6 +31,7 @@ const SUITES = [
   ['push', 'test-push.js'],
   ['resume', 'test-resume.js'],
   ['self-update', 'test-selfupdate.js'],
+  ['session-start', 'test-sessionstart.js'],
   ['watchdog', 'test-watchstream.js']
 ];
 

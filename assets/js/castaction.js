@@ -66,7 +66,37 @@
     };
   }
 
-  var api = { create: create, LIVE: LIVE, REJOIN: REJOIN, STEP: STEP };
+  /* What a new or rejoined Cast session should do with the film on the phone.
+   *
+   * Rj, 2026-09-12: "click play, video loads, then I click cast to TV —
+   * doesn't work. I need to go to the first page, select cast to TV, select
+   * the TV, and only then play from history."
+   *
+   * Only SESSION_STARTED used to send the loaded film. But picking a TV that
+   * still holds this app's receiver from an earlier cast is a JOIN, and the
+   * SDK reports a join as SESSION_RESUMED. So the TV connected and was sent
+   * nothing. The workaround worked because load() casts whenever the state is
+   * already CONNECTED, whichever event got it there.
+   *
+   * The rule is now about intent, not about the event's name:
+   *   - the person tapped Cast with a film loaded   → send it, STARTED or RESUMED
+   *   - an auto-join arrived with a film loaded      → send it on STARTED only
+   *     (the old behaviour, kept), never on RESUMED, which is the app
+   *     reopening over a film already on the TV
+   *   - nothing loaded                               → send nothing
+   * `adopt` is the rejoin path: recognise what is on the TV rather than
+   * overwrite it. Never both. */
+  function onSession(state, ctx) {
+    ctx = ctx || {};
+    var started = state === 'SESSION_STARTED';
+    var resumed = state === 'SESSION_RESUMED';
+    if (!started && !resumed) return { send: false, adopt: false };
+    var send = Boolean(ctx.hadTarget) && (Boolean(ctx.asked) || started);
+    var adopt = !send && (resumed || !ctx.asked);
+    return { send: send, adopt: adopt };
+  }
+
+  var api = { create: create, onSession: onSession, LIVE: LIVE, REJOIN: REJOIN, STEP: STEP };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.CBCastAction = api;
 })(typeof self !== 'undefined' ? self : this);

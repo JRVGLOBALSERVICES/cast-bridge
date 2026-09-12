@@ -196,8 +196,12 @@ check('recognising a running film cannot re-send it', () => {
   const at = APP.indexOf('SESSION_STATE_CHANGED');
   const handler = APP.slice(at, at + 4000);
   assert.ok(/var hadTarget = !!current;/.test(handler), 'no pre-adoption read of the target');
-  assert.ok(/SESSION_STARTED && hadTarget/.test(handler),
+  /* The send/adopt plan (castaction.js onSession) is decided from that read,
+     before adoption can run, and the cast branch acts on the plan. */
+  const planAt = handler.search(/var plan = decide\(e\.sessionState, \{ asked: askedForSession, hadTarget: hadTarget \}\);/);
+  assert.ok(planAt !== -1 && planAt < handler.indexOf('adoptIfRejoined()'),
     'the cast branch still tests `current`, which adoption has already changed');
+  assert.ok(/if \(plan\.send\) \{/.test(handler), 'the cast branch does not act on the plan');
 });
 
 check('a session this page asked for is never mistaken for a rejoin', () => {
@@ -206,7 +210,10 @@ check('a session this page asked for is never mistaken for a rejoin', () => {
   assert.ok(/askedForSession = true;/.test(APP), 'no record of who asked');
   const at = APP.indexOf('SESSION_STATE_CHANGED');
   const handler = APP.slice(at, at + 4000);
-  assert.ok(/!askedForSession/.test(handler), 'the handler does not ask who started it');
+  assert.ok(/asked: askedForSession/.test(handler), 'the handler does not ask who started it');
+  const { onSession } = require('../assets/js/castaction.js');
+  assert.strictEqual(onSession('SESSION_STARTED', { asked: true, hadTarget: false }).adopt, false,
+    'an asked-for session with nothing loaded adopts the stored row');
 });
 
 check('there is one clock in the app, not two', () => {

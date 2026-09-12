@@ -21,6 +21,7 @@
  */
 
 const bstar = require('../lib/bstar');
+const hls = require('../lib/bstar-hls');
 
 function fail(res, code, message) {
   res.statusCode = code;
@@ -48,8 +49,11 @@ module.exports = async function handler(req, res) {
   }
 
   let token = null;
+  let form = '';
   try {
-    token = new URL(req.url, 'http://x').searchParams.get('t');
+    const q = new URL(req.url, 'http://x').searchParams;
+    token = q.get('t');
+    form = q.get('f') || '';
   } catch (e) { token = null; }
 
   const claim = bstar.readToken(token);
@@ -73,6 +77,13 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  /* HLS for Apple — same token, same pick, byte ranges read from the sidx.
+     Why this exists is in lib/bstar-hls.js. */
+  if (form === 'hls' || form === 'hls-v' || form === 'hls-a') {
+    await answerHls(res, req, form, token, play.playurl, claim.qn, origin);
+    return;
+  }
+
   /* The manifest's segment URLs point back at this deploy's /api/stream, so
      it has to know its own address. A manifest built against the wrong origin
      is one whose segments 404 on the television and nowhere else. */
@@ -91,3 +102,54 @@ module.exports = async function handler(req, res) {
   res.setHeader('Content-Length', Buffer.byteLength(built.xml));
   res.end(req.method === 'HEAD' ? undefined : built.xml);
 };
+
+/* The three HLS answers. The master names two media playlists on this same
+   endpoint; each media playlist reads its rendition's sidx from the CDN (a
+   few kilobytes) and lists every subsegment as a byte range through
+   /api/stream, which is what carries the referer the CDN insists on. */
+async function answerHls(res, req, form, token, playurl, qn, origin) {
+  const pick = bstar.pickRenditions(playurl, qn);
+  if (!pick) {
+    fail(res, 502, 'Bilibili TV returned no playable rendition for that one.');
+    return;
+  }
+  const self = String(origin || '').replace(/\/+$/, '') + '/api/bstar?t=' + encodeURIComponent(token);
+  let body;
+  if (form === 'hls') {
+    body = hls.masterPlaylist(pick, self + '&f=hls-v', self + '&f=hls-a');
+  } else {
+    const r = form === 'hls-v' ? pick.video : pick.audio;
+    const sb = r.segment_base || {};
+    const init = hls.parseRange(sb.range);
+    const index = hls.parseRange(sb.index_range);
+    if (!init || !index) {
+      fail(res, 502, 'That rendition carries no byte index, so it cannot be listed for Apple.');
+      return;
+    }
+    let segments;
+    try {
+      const got = await fetch(r.url, {
+        headers: {
+          'user-agent': bstar.UA,
+          referer: bstar.REFERER,
+          range: 'bytes=' + index.start + '-' + (index.start + index.length - 1)
+        },
+        signal: AbortSignal.timeout(15000)
+      });
+      if (got.status !== 206 && got.status !== 200) throw new Error('CDN answered ' + got.status);
+      let buf = Buffer.from(await got.arrayBuffer());
+      /* A CDN that ignores Range sends the whole file from byte 0. */
+      if (got.status === 200) buf = buf.subarray(index.start, index.start + index.length);
+      segments = hls.parseSidx(buf, index.start);
+    } catch (e) {
+      fail(res, 502, 'Could not read the film\'s index for Apple (' + (e && e.message || e) + ').');
+      return;
+    }
+    body = hls.mediaPlaylist(bstar.proxied(origin, r.url), init, segments);
+  }
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Content-Length', Buffer.byteLength(body));
+  res.end(req.method === 'HEAD' ? undefined : body);
+}

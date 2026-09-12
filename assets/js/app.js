@@ -1893,6 +1893,12 @@
     if (mimeOf(u) === 'application/x-mpegURL' && !nativeHls() &&
         window.Hls && window.Hls.isSupported()) {
       playHls(u);
+    } else if (isDash && appleHlsOf(u)) {
+      /* Apple, and one of our Bilibili TV manifests: the same film as HLS,
+         played by Safari itself. Shaka would play it too, through MSE — and
+         an MSE element AirPlays as audio only. See lib/bstar-hls.js. */
+      logCast('Playing as HLS for AirPlay', appleHlsOf(u));
+      video.src = appleHlsOf(u);
     } else if (isDash) {
       /* Never via /api/stream: that relays an .mpd without rewriting it
          (see castLoad). Ours already carry proxied segment URLs.
@@ -1987,6 +1993,19 @@
     if (localPick && !localPick.remote) {
       setStatus('This browser can\'t decode that file. A television may still ' +
         'manage it — send it over and see.', 'bad');
+      return;
+    }
+
+    /* The Apple HLS form of a Bilibili TV film failed. Not a proxy case —
+       /api/stream cannot serve a playlist either. Fall back to the DASH form
+       through Shaka, which at least plays on the phone, and say why AirPlay
+       will be sound only from here. */
+    if (appleHlsOf(current) && video.src.indexOf('f=hls') !== -1) {
+      var mediaErr = video.error ? 'code ' + video.error.code + (video.error.message ? ' \u2014 ' + video.error.message : '') : 'unknown';
+      logCast('HLS form refused on this device', mediaErr + ' \u00b7 falling back to Shaka; AirPlay will carry sound only');
+      video.removeAttribute('src');
+      try { video.load(); } catch (e) {}
+      playDash(current, true);
       return;
     }
 
@@ -2161,6 +2180,15 @@
   /* iPadOS 13+ reports itself as a Mac, so the touch test is what tells an
      iPad from a desktop Safari. Both are Apple and both AirPlay, which is
      all this is deciding. */
+  /* The HLS form of one of our /api/bstar manifests, on a browser that plays
+     HLS itself and can AirPlay it; '' anywhere else, including Android Chrome,
+     which answers canPlayType for HLS nowadays but has no AirPlay to gain. */
+  function appleHlsOf(u) {
+    if (!isApple() || !nativeHls()) return '';
+    if (!/\/api\/bstar$/i.test(String(u).split('?')[0].split('#')[0])) return '';
+    return String(u) + (String(u).indexOf('?') === -1 ? '?' : '&') + 'f=hls';
+  }
+
   function isApple() {
     var ua = navigator.userAgent || '';
     if (/iPhone|iPad|iPod/i.test(ua)) return true;
@@ -2286,6 +2314,14 @@
          act of recognising a film already on the television would re-send
          it, jumping it back to the remembered position. */
       var hadTarget = !!current;
+      /* Send or adopt — the rule and the bug it fixes are in castaction.js.
+         The fallback is the rule inline, for a cached shell one build behind. */
+      var decide = (window.CBCastAction && window.CBCastAction.onSession) || function (st, c) {
+        var started = st === SS.SESSION_STARTED, resumed = st === SS.SESSION_RESUMED;
+        var send = (started || resumed) && c.hadTarget && (c.asked || started);
+        return { send: send, adopt: (started || resumed) && !send && (resumed || !c.asked) };
+      };
+      var plan = decide(e.sessionState, { asked: askedForSession, hadTarget: hadTarget });
 
       if (e.sessionState === SS.SESSION_STARTED || e.sessionState === SS.SESSION_RESUMED) {
         logCast('Connected to ' + deviceName());
@@ -2300,13 +2336,13 @@
            because nothing has been sent yet in this page's life) is a rejoin
            whatever the SDK calls it. Gating on RESUMED alone left the banner
            up over a live film. */
-        var handedBack = e.sessionState === SS.SESSION_RESUMED || !askedForSession;
         askedForSession = false;
-        if (restored && handedBack) adoptIfRejoined();
+        if (restored && plan.adopt) adoptIfRejoined();
         showSending();
         renderResume();
       }
-      if (e.sessionState === SS.SESSION_STARTED && hadTarget) {
+      if (plan.send) {
+        if (e.sessionState === SS.SESSION_RESUMED) logCast('Joined a session the TV already had — sending the film to it.');
         video.pause();
         stallRetried = false;
         /* A cast that began as "pick it back up" carries the position the
@@ -2315,7 +2351,11 @@
            the failure the whole resume exists to prevent. */
         var at = pendingResumeAt;
         pendingResumeAt = null;
-        castLoad(current, at ? { at: at } : undefined);
+        /* viaProxy as load() and the Cast button send it. Dropped here, a
+           referer-locked host (Bilibili's CDN) was first tried direct from
+           the TV and only reached the bridge after a refusal — if the
+           receiver refused at all rather than sitting on a spinner. */
+        castLoad(current, at ? { at: at, viaProxy: forceProxy } : { viaProxy: forceProxy });
         startBeating();
       }
       if (e.sessionState === SS.SESSION_START_FAILED) {
@@ -3835,7 +3875,22 @@
     }).catch(function () { btnRemote.disabled = false; });
     btnRemote.addEventListener('click', function () {
       if (!current) { toast({ text: 'Load something first, then AirPlay it.' }); return; }
-      video.remote.prompt().catch(function () {});
+      logCast('Opening the AirPlay picker', (dash ? 'player: Shaka (MSE)' : hls ? 'player: hls.js (MSE)' : 'player: native') +
+        ' \u00b7 ' + (video.currentSrc || video.src || current));
+      video.remote.prompt().catch(function (err) {
+        var why = (err && (err.name + ': ' + err.message)) || 'refused';
+        logCast('AirPlay picker closed or refused', why);
+        /* NotSupportedError is the browser saying this element cannot be
+           sent — an MSE stream. Silence here was the whole of "nothing
+           happens"; say it where the person is looking. */
+        if (err && err.name === 'NotSupportedError') {
+          toast({ text: 'This stream can\u2019t be sent from this browser. Try Cast to TV instead.' });
+          openCastLog(true);
+        }
+      });
+    });
+    ['connecting', 'connect', 'disconnect'].forEach(function (ev) {
+      video.remote.addEventListener(ev, function () { logCast('AirPlay: ' + ev, video.remote.state); });
     });
   } else if (video.webkitShowPlaybackTargetPicker) {
     btnRemote.hidden = false;
@@ -3851,9 +3906,29 @@
     });
     btnRemote.addEventListener('click', function () {
       if (!current) { toast({ text: 'Load something first, then AirPlay it.' }); return; }
+      logCast('Opening the AirPlay picker', (dash ? 'player: Shaka (MSE)' : hls ? 'player: hls.js (MSE)' : 'player: native') +
+        ' \u00b7 ' + (video.currentSrc || video.src || current));
       video.webkitShowPlaybackTargetPicker();
     });
   }
+
+  /* What AirPlay did, in the same log as a Chromecast load. Before this the
+     log only ever heard from the Cast SDK, so an AirPlay that played sound
+     and no picture left nothing to read. */
+  if ('webkitCurrentPlaybackTargetIsWireless' in video) {
+    video.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', function () {
+      var on = video.webkitCurrentPlaybackTargetIsWireless;
+      logCast(on ? 'AirPlay: sending to the TV' : 'AirPlay: back on this device',
+        on ? (dash || hls ? 'this element is fed by MSE \u2014 the TV will get sound only' : (video.currentSrc || video.src)) : '');
+    });
+  }
+  ['stalled', 'waiting', 'playing'].forEach(function (ev) {
+    video.addEventListener(ev, function () {
+      if (video.webkitCurrentPlaybackTargetIsWireless || (video.remote && video.remote.state === 'connected')) {
+        logCast('AirPlay: ' + ev, clock(video.currentTime || 0));
+      }
+    });
+  });
 
   /* The SDK's verdict can land either side of this block, so whichever runs
      second does the promotion. Idempotent by construction. */
