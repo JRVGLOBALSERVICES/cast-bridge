@@ -72,6 +72,46 @@ check('refuses a bilibili.com link', () => {
   assert.strictEqual(bstar.parseTarget('https://www.bilibili.com/video/BV1xx411c7mD'), null);
 });
 
+check('accepts a user upload', () => {
+  /* The shape every film in a bilibili.tv playlist actually has, and the one
+     a bili.im share expands to. Refusing it is what made a share out of the
+     Bilibili TV app read as an unsupported link. */
+  assert.deepStrictEqual(
+    bstar.parseTarget('https://www.bilibili.tv/en/video/4800905670695424'),
+    { aid: '4800905670695424' });
+});
+
+check('reads a user upload under any locale', () => {
+  assert.deepStrictEqual(bstar.parseTarget('https://www.bilibili.tv/ms/video/668'),
+    { aid: '668' });
+  assert.deepStrictEqual(bstar.parseTarget('https://www.bilibili.tv/video/668'),
+    { aid: '668' });
+});
+
+check('an upload and an episode are told apart, not merged', () => {
+  const up = bstar.parseTarget('https://www.bilibili.tv/en/video/12345');
+  const ep = bstar.parseTarget('https://www.bilibili.tv/en/play/12345');
+  assert.strictEqual(up.seasonId, undefined);
+  assert.strictEqual(ep.aid, undefined);
+});
+
+check('accepts a bili.im share as a link to expand', () => {
+  assert.deepStrictEqual(bstar.parseTarget('https://bili.im/LNkoNvK'),
+    { short: 'https://bili.im/LNkoNvK' });
+});
+
+check('bili.im belongs to this resolver and b23.tv does not', () => {
+  /* They are not interchangeable: b23.tv lands on bilibili.com and a BV id,
+     bili.im lands on bilibili.tv and a numeric one. */
+  assert.strictEqual(bstar.parseTarget('https://b23.tv/abcdefg'), null);
+  assert.strictEqual(bili.parseTarget('https://bili.im/LNkoNvK'), null);
+});
+
+check('refuses a hostname that merely ends in the shortener', () => {
+  assert.strictEqual(bstar.parseTarget('https://bili.im.evil.example/LNkoNvK'), null);
+  assert.strictEqual(bstar.parseTarget('https://notbili.im/LNkoNvK'), null);
+});
+
 check('refuses a lookalike host', () => {
   assert.strictEqual(bstar.parseTarget('https://bilibili.tv.evil.example/en/play/1/2'), null);
 });
@@ -135,7 +175,29 @@ console.log('\nThe manifest token');
 
 check('round-trips an episode and a quality', () => {
   const claim = bstar.readToken(bstar.issueToken('13436346', 64, null));
-  assert.deepStrictEqual(claim, { epId: '13436346', qn: 64, sealed: null });
+  assert.deepStrictEqual(claim, { epId: '13436346', aid: null, qn: 64, sealed: null });
+});
+
+check('round-trips a user upload, and does not confuse it with an episode', () => {
+  const claim = bstar.readToken(bstar.issueToken('4800905670695424', 80, null, null, 'aid'));
+  assert.deepStrictEqual(claim,
+    { epId: null, aid: '4800905670695424', qn: 80, sealed: null });
+});
+
+check('an upload id and an episode id of the same digits are different tokens', () => {
+  /* The whole point of the marker. Without it the manifest endpoint would
+     ask for ep_id=<n> when the token meant aid=<n>, and bilibili answers
+     that with a -404 about an episode nobody asked for. */
+  const ep = bstar.issueToken('12345', 64, null);
+  const ug = bstar.issueToken('12345', 64, null, null, 'aid');
+  assert.notStrictEqual(ep, ug);
+  assert.strictEqual(bstar.readToken(ep).aid, null);
+  assert.strictEqual(bstar.readToken(ug).epId, null);
+});
+
+check('refuses a token whose kind marker was added after signing', () => {
+  const t = bstar.issueToken('12345', 64, null);
+  assert.strictEqual(bstar.readToken(t.replace('.12345.', '.a12345.')), null);
 });
 
 check('refuses a tampered episode id', () => {
@@ -390,8 +452,355 @@ check('the deploy is pinned to a region inside bstar\'s catalogue', () => {
     'measured 2026-09-12: iad1 played 7 of 20 sampled titles, sin1 played 9');
 });
 
-console.log('\n' + passed + ' passed, ' + failures.length + ' failed');
-if (failures.length) {
-  failures.forEach((f) => console.log('  - ' + f));
-  process.exit(1);
+/* ------------------------------------------------------------------ *
+ * The second vantage.
+ *
+ * Everything below drives lib/bstar's address request against a stubbed
+ * fetch, because the thing being proved is not what bilibili answers — that
+ * was measured and is written into the file's header — but what this code
+ * does with each answer. A region refusal must be asked again somewhere
+ * else; anything else must not be, because a second ask that cannot change
+ * the answer only doubles the wait in front of a person holding a phone.
+ * ------------------------------------------------------------------ */
+
+const crypto = require('crypto');
+const auth = require('../lib/auth');
+
+function playurlBody(qualities) {
+  return JSON.stringify({
+    code: 0,
+    data: {
+      playurl: {
+        duration: 1000,
+        video: qualities.map((q) => ({
+          video_resource: {
+            quality: q, url: 'https://cdn.example/v' + q + '.m4s',
+            codecs: 'avc1.640028', bandwidth: 1, width: 4, height: 2,
+            segment_base: { range: '0-1', index_range: '2-3' }
+          }
+        })),
+        audio_resource: [{
+          quality: 30280, url: 'https://cdn.example/a.m4s', codecs: 'mp4a.40.2',
+          bandwidth: 1, segment_base: { range: '0-1', index_range: '2-3' }
+        }]
+      }
+    }
+  });
 }
+
+function refusalBody(code) {
+  return JSON.stringify({ code: code, message: String(code), data: null });
+}
+
+/* A fetch that records every call and answers from a script. */
+function stubFetch(script) {
+  const calls = [];
+  return {
+    calls: calls,
+    fn: async (url, opts) => {
+      calls.push({ url: String(url), opts: opts || {} });
+      const answer = script(String(url), opts || {}, calls.length);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => JSON.parse(answer),
+        text: async () => answer
+      };
+    }
+  };
+}
+
+async function acheck(name, fn) {
+  const real = global.fetch;
+  try {
+    await fn();
+    passed += 1;
+    console.log('  ok   ' + name);
+  } catch (err) {
+    failures.push(name + ' — ' + err.message);
+    console.log('  FAIL ' + name + ' — ' + err.message);
+  } finally {
+    global.fetch = real;
+  }
+}
+
+(async () => {
+  console.log('\nThe address request');
+
+  await acheck('asks for a user upload by aid, never by ep_id', async () => {
+    const stub = stubFetch(() => playurlBody([64]));
+    global.fetch = stub.fn;
+    const got = await bstar.playurlFor({ aid: '4800905670695424' }, 80, null, null);
+    assert.ok(got.playurl, 'a good answer was discarded');
+    assert.strictEqual(stub.calls.length, 1);
+    assert.ok(/[?&]aid=4800905670695424(&|$)/.test(stub.calls[0].url),
+      'an upload was asked for as something else: ' + stub.calls[0].url);
+    assert.ok(!/ep_id=/.test(stub.calls[0].url),
+      'ep_id would make bilibili answer -404 about an episode nobody named');
+  });
+
+  await acheck('asks for an episode by ep_id, never by aid', async () => {
+    const stub = stubFetch(() => playurlBody([64]));
+    global.fetch = stub.fn;
+    await bstar.playurlFor({ epId: '13436346' }, 80, null, null);
+    assert.ok(/[?&]ep_id=13436346(&|$)/.test(stub.calls[0].url), stub.calls[0].url);
+    assert.ok(!/[?&]aid=/.test(stub.calls[0].url), stub.calls[0].url);
+  });
+
+  console.log('\nThe second vantage');
+
+  await acheck('a region refusal is asked again from the other region', async () => {
+    const stub = stubFetch((url) => url.indexOf('/api/bstar-alt') !== -1
+      ? JSON.stringify({ status: 200, region: 'hkg1', body: playurlBody([80]) })
+      : refusalBody(10023013));
+    global.fetch = stub.fn;
+    const got = await bstar.playurlFor({ aid: '4800905670695424' }, 80, null,
+      'https://cast.example');
+    assert.ok(got.playurl, 'the second region answered and the answer was dropped');
+    assert.strictEqual(got.viaAlt, true, 'the answer must say which region gave it');
+    assert.strictEqual(stub.calls.length, 2);
+    assert.strictEqual(stub.calls[1].url, 'https://cast.example/api/bstar-alt');
+  });
+
+  await acheck('every region code measured is worth a second ask', async () => {
+    for (const code of bstar.REGION_CODES) {
+      const stub = stubFetch((url) => url.indexOf('/api/bstar-alt') !== -1
+        ? JSON.stringify({ status: 200, body: playurlBody([80]) })
+        : refusalBody(code));
+      global.fetch = stub.fn;
+      const got = await bstar.playurlFor({ aid: '1' }, 80, null, 'https://cast.example');
+      assert.ok(got.playurl, 'code ' + code + ' was not retried');
+    }
+  });
+
+  await acheck('a refusal that is not about region is not asked twice', async () => {
+    /* 10004404 is a delisted title and -404 is an id that does not exist.
+       Both answered identically from every vantage measured, so a second ask
+       buys nothing and costs a person ten seconds. */
+    for (const code of [10004404, -404]) {
+      const stub = stubFetch(() => refusalBody(code));
+      global.fetch = stub.fn;
+      const got = await bstar.playurlFor({ aid: '1' }, 80, null, 'https://cast.example');
+      assert.ok(!got.playurl);
+      assert.strictEqual(got.code, code, 'the code must survive to the message');
+      assert.strictEqual(stub.calls.length, 1, 'code ' + code + ' was retried pointlessly');
+    }
+  });
+
+  await acheck('a risk-control page is asked again, not reported as an answer', async () => {
+    /* bilibili answers a host it has decided against with 412 and an HTML
+       page, which parses to nothing. That is "not from here" as much as a
+       region code is, and it is why this resolver works from a development
+       machine at all — this one is blocked outright, the deployment is not. */
+    const stub = stubFetch((url) => url.indexOf('/api/bstar-alt') !== -1
+      ? JSON.stringify({ status: 200, body: playurlBody([80]) })
+      : '<!DOCTYPE html><title>\u51fa\u9519\u5566!</title>');
+    global.fetch = stub.fn;
+    const got = await bstar.playurlFor({ aid: '1' }, 80, null, 'https://cast.example');
+    assert.ok(got.playurl, 'a 412 interstitial was taken as a final answer');
+    assert.strictEqual(stub.calls.length, 2);
+  });
+
+  await acheck('there is no second ask without an origin to reach it at', async () => {
+    const stub = stubFetch(() => refusalBody(10023013));
+    global.fetch = stub.fn;
+    const got = await bstar.playurlFor({ aid: '1' }, 80, null, null);
+    assert.ok(!got.playurl);
+    assert.strictEqual(stub.calls.length, 1);
+  });
+
+  await acheck('a relay that also refuses leaves the FIRST code in the message', async () => {
+    /* The second region's answer must not overwrite the first one's code
+       when it is no better — the message a person reads should name the
+       refusal that actually describes their link. */
+    const stub = stubFetch((url) => url.indexOf('/api/bstar-alt') !== -1
+      ? JSON.stringify({ status: 200, body: refusalBody(10015001) })
+      : refusalBody(10023013));
+    global.fetch = stub.fn;
+    const got = await bstar.playurlFor({ aid: '1' }, 80, null, 'https://cast.example');
+    assert.ok(!got.playurl);
+    assert.strictEqual(got.code, 10023013);
+  });
+
+  await acheck('a relay that cannot be reached is not read as a refusal', async () => {
+    global.fetch = async (url) => {
+      if (String(url).indexOf('/api/bstar-alt') !== -1) throw new Error('down');
+      return { ok: true, status: 200, text: async () => refusalBody(10023013),
+        json: async () => JSON.parse(refusalBody(10023013)) };
+    };
+    const got = await bstar.playurlFor({ aid: '1' }, 80, null, 'https://cast.example');
+    assert.strictEqual(got.code, 10023013,
+      'a relay outage must leave the upstream code intact, not invent one');
+  });
+
+  await acheck('the relay request is signed with this deploy and expires', async () => {
+    const stub = stubFetch((url) => url.indexOf('/api/bstar-alt') !== -1
+      ? JSON.stringify({ status: 200, body: playurlBody([80]) })
+      : refusalBody(10023013));
+    global.fetch = stub.fn;
+    await bstar.playurlFor({ aid: '1' }, 80, 'SESSDATA=x', 'https://cast.example');
+
+    const sent = stub.calls[1];
+    assert.strictEqual(sent.opts.method, 'POST',
+      'the session cookie must not travel in a query string');
+    const sig = sent.opts.headers['x-bstar-alt'];
+    const expected = crypto.createHmac('sha256', auth.secret())
+      .update('bstar-alt|' + sent.opts.body).digest('base64url');
+    assert.strictEqual(sig, expected, 'the relay body was not signed');
+    const body = JSON.parse(sent.opts.body);
+    assert.ok(body.exp > Date.now() && body.exp <= Date.now() + bstar.ALT_TTL_MS + 1000,
+      'the relay request has no usable expiry: ' + body.exp);
+    assert.strictEqual(body.c, 'SESSDATA=x',
+      'the sign-in has to reach the other region or it resolves signed out');
+  });
+
+  await acheck('a protected preview calling itself carries the bypass', async () => {
+    /* Vercel's SSO applies to a deployment calling its own URL. Without this
+       the relay answers a login page on every preview, the second opinion is
+       never obtained, and the failure looks exactly like the region refusal
+       it was supposed to lift. */
+    const prev = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    process.env.VERCEL_AUTOMATION_BYPASS_SECRET = 'bypass-token';
+    try {
+      const stub = stubFetch((url) => url.indexOf('/api/bstar-alt') !== -1
+        ? JSON.stringify({ status: 200, body: playurlBody([80]) })
+        : refusalBody(10023013));
+      global.fetch = stub.fn;
+      await bstar.playurlFor({ aid: '1' }, 80, null, 'https://cast.example');
+      assert.strictEqual(stub.calls[1].opts.headers['x-vercel-protection-bypass'],
+        'bypass-token');
+    } finally {
+      if (prev === undefined) delete process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+      else process.env.VERCEL_AUTOMATION_BYPASS_SECRET = prev;
+    }
+  });
+
+  await acheck('production sends no bypass header it was not given', async () => {
+    const prev = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    delete process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    try {
+      const stub = stubFetch((url) => url.indexOf('/api/bstar-alt') !== -1
+        ? JSON.stringify({ status: 200, body: playurlBody([80]) })
+        : refusalBody(10023013));
+      global.fetch = stub.fn;
+      await bstar.playurlFor({ aid: '1' }, 80, null, 'https://cast.example');
+      assert.ok(!('x-vercel-protection-bypass' in stub.calls[1].opts.headers));
+    } finally {
+      if (prev !== undefined) process.env.VERCEL_AUTOMATION_BYPASS_SECRET = prev;
+    }
+  });
+
+  console.log('\nThe relay endpoint');
+
+  const alt = require('../api/bstar-alt.js');
+
+  function fakeReq(body, headers) {
+    const { Readable } = require('stream');
+    const r = Readable.from([body]);
+    r.method = 'POST';
+    r.headers = headers || {};
+    return r;
+  }
+
+  function fakeRes() {
+    const out = { statusCode: 0, body: '', headers: {} };
+    return {
+      out: out,
+      setHeader: (k, v) => { out.headers[k.toLowerCase()] = v; },
+      end: (b) => { out.body = b || ''; },
+      get statusCode() { return out.statusCode; },
+      set statusCode(v) { out.statusCode = v; }
+    };
+  }
+
+  function signed(obj) {
+    const body = JSON.stringify(obj);
+    return {
+      body: body,
+      sig: crypto.createHmac('sha256', auth.secret())
+        .update('bstar-alt|' + body).digest('base64url')
+    };
+  }
+
+  await acheck('the relay refuses an unsigned call', async () => {
+    const res = fakeRes();
+    await alt(fakeReq(JSON.stringify({ u: bstar.API + '/web/playurl', exp: Date.now() + 1000 }), {}), res);
+    assert.strictEqual(res.out.statusCode, 403);
+  });
+
+  await acheck('the relay refuses a body signed with another secret', async () => {
+    const body = JSON.stringify({ u: bstar.API + '/web/playurl', exp: Date.now() + 1000 });
+    const sig = crypto.createHmac('sha256', 'not-this-deploy')
+      .update('bstar-alt|' + body).digest('base64url');
+    const res = fakeRes();
+    await alt(fakeReq(body, { 'x-bstar-alt': sig }), res);
+    assert.strictEqual(res.out.statusCode, 403);
+  });
+
+  await acheck('the relay refuses an expired call', async () => {
+    const { body, sig } = signed({ u: bstar.API + '/web/playurl', exp: Date.now() - 1 });
+    const res = fakeRes();
+    await alt(fakeReq(body, { 'x-bstar-alt': sig }), res);
+    assert.strictEqual(res.out.statusCode, 403);
+  });
+
+  await acheck('the relay will not fetch anything but bilibili.tv\'s gateway', async () => {
+    for (const u of ['https://evil.example/x',
+                     'https://api.bilibili.tv.evil.example/intl/gateway/x',
+                     'http://169.254.169.254/latest/meta-data/',
+                     bstar.API + '@evil.example/x']) {
+      const { body, sig } = signed({ u: u, exp: Date.now() + 1000 });
+      const res = fakeRes();
+      let reached = false;
+      global.fetch = async () => { reached = true; throw new Error('no'); };
+      await alt(fakeReq(body, { 'x-bstar-alt': sig }), res);
+      assert.strictEqual(reached, false, 'the relay fetched ' + u);
+      assert.strictEqual(res.out.statusCode, 400, 'accepted ' + u);
+    }
+  });
+
+  await acheck('a signed gateway call is relayed and its answer returned whole', async () => {
+    const { body, sig } = signed({
+      u: bstar.API + '/web/playurl?aid=1', c: 'SESSDATA=x', exp: Date.now() + 1000
+    });
+    let sawCookie = null;
+    global.fetch = async (url, opts) => {
+      sawCookie = opts.headers.cookie;
+      return { ok: true, status: 200, text: async () => refusalBody(0) };
+    };
+    const res = fakeRes();
+    await alt(fakeReq(body, { 'x-bstar-alt': sig }), res);
+    assert.strictEqual(res.out.statusCode, 200);
+    assert.strictEqual(sawCookie, 'SESSDATA=x');
+    assert.strictEqual(JSON.parse(res.out.body).body, refusalBody(0));
+  });
+
+  console.log('\nRegion configuration');
+
+  await acheck('the relay is pinned to a region the app itself is not in', async () => {
+    const cfg = require('../vercel.json');
+    const relay = cfg.functions['api/bstar-alt.js'];
+    assert.ok(relay && Array.isArray(relay.regions) && relay.regions.length === 1,
+      'the relay exists to ask from somewhere else; unpinned it asks from here');
+    assert.notStrictEqual(relay.regions[0], cfg.regions[0],
+      'a relay in the deployment\'s own region is a second identical answer');
+    assert.strictEqual(relay.regions[0], 'hkg1',
+      'measured 2026-09-12: hkg1 played 16 of 16 sampled uploads, sin1 played 13');
+  });
+
+  await acheck('the segment proxy stays in the deployment region', async () => {
+    /* Measured: an address resolved in hkg1 answers 403 to a fetch from hkg1
+       and 206 from sin1. Pinning api/stream to the relay's region would fix
+       the catalogue and break playback. */
+    const cfg = require('../vercel.json');
+    assert.ok(!cfg.functions['api/stream.js'].regions,
+      'api/stream must inherit sin1, not follow the resolver to hkg1');
+  });
+
+  console.log('\n' + passed + ' passed, ' + failures.length + ' failed');
+  if (failures.length) {
+    failures.forEach((f) => console.log('  - ' + f));
+    process.exit(1);
+  }
+})();
+

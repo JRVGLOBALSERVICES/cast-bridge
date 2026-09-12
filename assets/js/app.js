@@ -8086,8 +8086,8 @@
       $('biliSummary').textContent = 'Bilibili — ' + state.name;
       biliSay(body, 'Signed in as ' + state.name +
         (state.vip ? ' (with a membership).' : '.') +
-        ' Paste a bilibili.com, b23.tv or bilibili.tv link in the box below and it resolves ' +
-        'through Bilibili’s API.');
+        ' Paste a bilibili.com, b23.tv, bilibili.tv or bili.im link in the box below ' +
+        'and it resolves through Bilibili’s API — series and user uploads alike.');
       /* 720p is the bilibili.com ceiling specifically: it is the best that
          site serves as a single progressive file. bilibili.tv is not bound by
          it — it serves DASH, which this app turns into a manifest, so its

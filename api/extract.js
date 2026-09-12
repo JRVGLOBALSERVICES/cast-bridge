@@ -61,7 +61,13 @@ module.exports = async function handler(req, res) {
      Its own module for the same reason — see the header of lib/bstar. */
   if (bstar.parseTarget(target)) {
     const hit = await bstar.resolve(target, bstar.jarFromRequest(req), bstar.originOf(req));
-    if (hit) {
+    /* A bili.im share that expanded onto bilibili.com is not a refusal — the
+       shorteners belong to different sites and a share sheet can cross them.
+       The long form goes to the .com resolver below rather than becoming a
+       message about a link that was perfectly good. */
+    if (hit && hit.handoff) {
+      target = hit.handoff;
+    } else if (hit) {
       res.statusCode = 200;
       res.end(JSON.stringify(hit.ok ? {
         ok: true,
@@ -85,6 +91,31 @@ module.exports = async function handler(req, res) {
 
   if (bili.parseTarget(target)) {
     const hit = await bili.resolve(target, bili.jarFromRequest(req));
+    /* The mirror of the case above: a b23.tv share can expand onto
+       bilibili.tv, which this resolver cannot serve and the one above can. */
+    if (hit && hit.handoff && bstar.parseTarget(hit.handoff)) {
+      const second = await bstar.resolve(hit.handoff, bstar.jarFromRequest(req), bstar.originOf(req));
+      if (second) {
+        res.statusCode = 200;
+        res.end(JSON.stringify(second.ok ? {
+          ok: true,
+          finalUrl: second.finalUrl,
+          title: second.title,
+          poster: null,
+          media: second.media,
+          direct: false,
+          source: 'bstar',
+          qualityCapped: Boolean(second.capped),
+          bstarSignedIn: second.signedIn
+        } : {
+          ok: false,
+          error: second.error,
+          source: 'bstar',
+          bstarSignedIn: Boolean(bstar.jarFromRequest(req))
+        }));
+        return;
+      }
+    }
     if (hit) {
       res.statusCode = 200;
       res.end(JSON.stringify(hit.ok ? {

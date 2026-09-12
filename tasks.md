@@ -1189,3 +1189,65 @@ product with a separate catalogue and separate accounts. It is now supported.
 - [x] Task 5: `scripts/test-bstar.js` +7 checks (42 total), each seen red
       under 9 mutations. 17 suites pass. Verified on production after deploy:
       `sin1::sin1`, both recovered titles play, .com unaffected.
+
+## 2026-09-12 — Rj: "doesnt work https://bili.im/LNkoNvK … how to cast? i need an in app bilibili browser somehow right?"
+
+No, an in-app browser would not have helped and is not what was missing. Two
+things were, and the second one was invisible until the first was fixed.
+
+- [x] Task 1: `bili.im` is bilibili.tv's share shortener and was recognised by
+      nothing. Only `b23.tv` was handled, and that belongs to bilibili.com —
+      so a share straight out of the Bilibili TV app fell through both
+      resolvers to the generic scanner, which cannot read a page that builds
+      its player in JavaScript behind an API. Expanded and routed now, in both
+      directions: a `b23.tv` that lands on bilibili.tv is handed to the .tv
+      resolver instead of being called "not a video", which it never was.
+- [x] Task 2: The link expands to `/en/video/<aid>` — a USER UPLOAD, which is
+      a different catalogue from the series the resolver knew. Every film in a
+      bilibili.tv playlist has that shape. Mapped by watching what the site's
+      own player asks for rather than guessing: the same `/web/playurl`
+      endpoint, `aid=` in place of `ep_id=`, the identical DASH response. No
+      extra parameters — the `tk=` and `spm_id` the player sends make no
+      difference, checked.
+- [x] Task 3: A film needs a name and there is no detail endpoint for one. Two
+      sources, in order: `/web/v2/ugc/playlist`, which names each item exactly
+      and answers `data:null` for an upload in no playlist, and the page's own
+      `<title>` minus the site suffix. Neither available, it keeps its number
+      — a made-up name on a television's now-playing line is worse.
+- [x] Task 4: Second vantage, because one region cannot serve both halves of
+      the site. Measured across five regions, twenty series and sixteen
+      uploads:
+
+          region   series   uploads   Rj's film
+          sin1      8/20     13/16    refused 10023013
+          hkg1      6/20     16/16    plays
+          hnd1      6/20     16/16    plays
+          icn1      6/20     16/16    plays
+          bom1      6/20      0/16    refused 10015001
+
+      Singapore is the best place to ask about a series and a bad place to ask
+      about a film. So the deployment stays in `sin1` and `api/bstar-alt.js`
+      carries a per-function `regions: ["hkg1"]` — one project, two vantages —
+      consulted only when the first answer was a region refusal. Signed with
+      the deploy secret, 60-second expiry, host fixed to bilibili.tv's gateway.
+- [x] Task 5: The segments do NOT move with it, and that is measured. An
+      address resolved in hkg1 answers **403 to a fetch from hkg1** and **206
+      with exact bytes from sin1**, reproduced twice. Moving the app to Hong
+      Kong would have fixed the catalogue and broken playback. `api/stream`
+      stays in the deployment region; a test asserts it.
+- [x] Task 6: Two refusal codes named. `10015001` (its message is the only
+      plain one bilibili writes: 版权地区受限) shuts a whole region out of
+      uploads; `10023013` refuses one upload in one region. Neither is
+      forwarded as raw Chinese, both keep their number.
+- [x] Task 7: A 412 risk-control page — an HTML interstitial, not JSON — now
+      counts as "cannot ask from here" and takes the second vantage too. That
+      is also what makes the resolver work from a development machine, which
+      is 412'd outright while the deployment is not.
+- [x] Task 8: `scripts/test-bstar.js` 45 → 70 assertions. Every new one seen
+      red under a deliberate mutation (14 mutations, 14 detected). 17 suites
+      pass.
+- [x] Task 9: Verified end to end against a real deployment, not a fixture.
+      `https://bili.im/LNkoNvK` → "Spider Man Brand New Day 2026" → a 2948-byte
+      MPD, `PT8673.041S`, avc1.640020 + mp4a.40.2 → both segments 206 with real
+      `ftyp` boxes through `/api/stream` → loaded in **Shaka Player**, the
+      library a Chromecast receiver runs: 1280x533, playing, 20s buffered.

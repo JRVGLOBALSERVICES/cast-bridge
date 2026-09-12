@@ -115,6 +115,23 @@ not by its name.
   Bilibili lets lapse is replaced where it stands rather than being wiped off
   the screen — the panel used to give up after three minutes on a key that is
   good for something over ten.
+- **Bilibili TV** — `bilibili.tv` and its `bili.im` share links are the
+  international site: a separate catalogue, a separate sign-in, and a separate
+  resolver (`lib/bstar.js`). Both a series (`/play/<season>/<ep>`) and a user
+  upload (`/video/<aid>`) resolve; the upload form is what every film in one of
+  its playlists actually is. bstar serves DASH and publishes no manifest, so
+  `/api/bstar` builds one, signed with the deploy secret and good for fifteen
+  minutes, and the segments inside it come back through `/api/stream`.
+
+  **Two regions, on purpose.** Its catalogue is licensed per country and the
+  gate is on the address request, so where the function runs decides what
+  plays. Measured over twenty series and sixteen uploads: `sin1` resolved 8/20
+  series but only 13/16 uploads, `hkg1` 6/20 and 16/16. So the deployment stays
+  in Singapore and `api/bstar-alt.js` alone carries `regions: ["hkg1"]` — asked
+  for a second opinion only when the first answer was a region refusal. The
+  segment proxy does *not* follow it: an address resolved in `hkg1` answers 403
+  to a fetch from `hkg1` and 206 from `sin1`, which is why this is a relay for
+  one call rather than a region change for the app.
 - `?u=<encoded-url>` — deep-link straight into the player.
 
 ## What a browser cannot do, and this is honest about
@@ -139,10 +156,16 @@ not by its name.
 
 ```
 api/     extract · scan · crawl · subs · series · auth · users · history
-         now-playing · img · stream · probe · ticket · bilibili  (functions)
+         now-playing · img · stream · probe · ticket · push · cover
+         bilibili · bstar · bstar-alt                          (functions)
+         bstar-alt is the only one pinned to another region (hkg1) — see
+         Bilibili TV above for why, and why nothing else follows it
 lib/     media.js  — fetch guards, extraction, probing, HLS expansion
          crawl.js  — child pages of a page: words, shape, name kinship
          subs.js   — SRT → WebVTT
+         bilibili.js — bilibili.com: BV ids, b23.tv, progressive files
+         bstar.js  — bilibili.tv: series and user uploads, bili.im shares,
+                      a generated DASH manifest, the second vantage
          nowplaying.js — the live session: shaping, freshness, resume point
          db.js · auth.js · users.js
 assets/  app.js  — nine screens behind a five-entry bottom bar, one job each

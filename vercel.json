@@ -50,6 +50,12 @@
     },
     "api/img.js": {
       "maxDuration": 15
+    },
+    "api/bstar-alt.js": {
+      "maxDuration": 15,
+      "regions": [
+        "hkg1"
+      ]
     }
   },
   "buildCommand": "node scripts/stamp-build.mjs",

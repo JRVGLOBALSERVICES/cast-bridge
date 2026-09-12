@@ -1,15 +1,16 @@
 /* GET /api/bstar?t=<signed-token>
  *
- * The DASH manifest for a bilibili.tv episode, built here because bstar
+ * The DASH manifest for a bilibili.tv episode or user upload, built here
+ * because bstar
  * does not publish one. See the header of lib/bstar for why the manifest
  * has to be generated rather than relayed.
  *
  * UNAUTHENTICATED, for the same reason /api/stream and /api/subs are: the
  * fetcher is a television. It carries no session and there is no way to give
  * it one. What stands in for a session is the token, which is signed with
- * this deploy's secret and names one episode at one quality for fifteen
- * minutes. It is verified before any upstream call, so a forged one costs
- * nothing but a signature check.
+ * this deploy's secret and names one episode — or one user upload — at one
+ * quality for fifteen minutes. It is verified before any upstream call, so a
+ * forged one costs nothing but a signature check.
  *
  * WHY IT RESOLVES AGAIN RATHER THAN CACHING. The CDN addresses inside the
  * manifest are time-limited and signed by Bilibili; the response carries an
@@ -61,18 +62,23 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const play = await bstar.playurl(claim.epId, claim.qn, null);
+  /* The origin is read once and used twice: the second-vantage relay lives
+     on this same deploy (api/bstar-alt, pinned to hkg1), and the manifest's
+     segment URLs point back at this deploy's /api/stream. */
+  const origin = bstar.originOf(req);
+
+  const play = await bstar.playurlFor(claim, claim.qn, null, origin);
   if (!play.playurl) {
-    fail(res, 502, play.error || 'Bilibili TV would not give an address for that episode.');
+    fail(res, 502, bstar.describeRefusal(play.code, null));
     return;
   }
 
   /* The manifest's segment URLs point back at this deploy's /api/stream, so
      it has to know its own address. A manifest built against the wrong origin
      is one whose segments 404 on the television and nowhere else. */
-  const built = bstar.buildManifest(play.playurl, claim.qn, bstar.originOf(req));
+  const built = bstar.buildManifest(play.playurl, claim.qn, origin);
   if (!built) {
-    fail(res, 502, 'Bilibili TV returned no playable rendition for that episode.');
+    fail(res, 502, 'Bilibili TV returned no playable rendition for that one.');
     return;
   }
 
