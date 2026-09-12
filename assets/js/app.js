@@ -1560,6 +1560,16 @@
     return shakaReady;
   }
 
+  /* For a refused request (1001) Shaka carries the address and the status;
+     without them the log says something failed and not what. The token is
+     cut off — the log is copied into chats. */
+  function shakaDetail(err) {
+    var d = err && err.data;
+    if (!d || err.code !== 1001) return '';
+    var where = String(d[0] || '').replace(/([?&]t=)[^&]*/, '$1…').slice(0, 120);
+    return ' — HTTP ' + (d[1] || '?') + ' ' + where;
+  }
+
   function teardownDash() {
     if (dash) { try { dash.destroy(); } catch (e) {} dash = null; }
   }
@@ -1580,7 +1590,7 @@
       player.configure({ streaming: { bufferingGoal: 60, rebufferingGoal: 4 } });
       player.addEventListener('error', function (ev) {
         var err = ev && ev.detail;
-        logCast('Player error', err ? 'shaka ' + err.code : 'unknown');
+        logCast('Player error', err ? 'shaka ' + err.code + shakaDetail(err) : 'unknown');
         setStatus('Stream error (' + (err ? err.code : '?') + '). Paste the link again if it has been a while.', 'bad');
       });
       return player.attach(video).then(function () {
@@ -1595,7 +1605,7 @@
     }).catch(function (err) {
       if (current !== mine) return;
       var code = err && err.code;
-      logCast('Player error', code ? 'shaka ' + code : String(err && err.message || err));
+      logCast('Player error', code ? 'shaka ' + code + shakaDetail(err) : String(err && err.message || err));
       /* 1001 is a refused manifest request — in practice an expired link. */
       setStatus(code === 1001
         ? 'That link has expired. Paste the Bilibili TV link again.'
@@ -1859,6 +1869,17 @@
     fieldError($('url'), $('urlError'), null);
 
     u = resolveShare(u);
+
+    /* A Bilibili TV address of ours is signed for fifteen minutes, so the
+       one History kept is refused a quarter of an hour later — Shaka 1001 on
+       the phone, a black screen on the TV. The page it came from is still
+       good: read that again and play the fresh address it gives. */
+    if (bstarExpired(u) && meta.from) {
+      logCast('Link expired — reading the page again', meta.from);
+      resolveThenPlay(meta.from);
+      return true;
+    }
+
     current = u;
     currentTitle = meta.title || nameOf(u);
     currentFrom = meta.from || '';
@@ -2187,6 +2208,21 @@
     if (!isApple() || !nativeHls()) return '';
     if (!/\/api\/bstar$/i.test(String(u).split('?')[0].split('#')[0])) return '';
     return String(u) + (String(u).indexOf('?') === -1 ? '?' : '&') + 'f=hls';
+  }
+
+  /* True for one of our /api/bstar addresses whose signed token has run
+     out, or will within the minute a television takes to ask for it. The
+     expiry is the token's second field and is readable here; the signature
+     is what the server checks, so reading it costs nothing. */
+  function bstarExpired(u) {
+    var str = String(u || '');
+    if (!/\/api\/bstar$/i.test(str.split('?')[0].split('#')[0])) return false;
+    var m = /[?&]t=([^&#]+)/.exec(str);
+    if (!m) return false;
+    var t;
+    try { t = decodeURIComponent(m[1]); } catch (e) { return false; }
+    var exp = Number(t.split('.')[1]);
+    return isFinite(exp) && exp > 0 && exp - Date.now() < 60000;
   }
 
   function isApple() {
@@ -2843,6 +2879,14 @@
     var s = castSession();
     if (!s) return;
     opts = opts || {};
+    /* Loaded on the phone more than fifteen minutes ago and only now sent
+       to the TV: the TV would be handed a refused address. Re-reading the
+       page reloads the film, and load() casts it since we are connected. */
+    if (bstarExpired(u) && u === current && currentFrom) {
+      logCast('Link expired — reading the page again', currentFrom);
+      resolveThenPlay(currentFrom);
+      return;
+    }
     var M = window.chrome.cast.media;
 
     var mime = mimeOf(u);

@@ -1655,3 +1655,8 @@ film plays in the app on your phone and this refuses it with 10015001 or
 **Question:** should Android Chrome also use the HLS form (it now answers canPlayType for HLS)?
 **Assumption made:** no. Only Apple + native HLS switches (`appleHlsOf`); Android has no AirPlay to gain and Shaka works there. If the HLS form fails on an Apple device the app logs the media error and falls back to Shaka (sound-only AirPlay, but the phone still plays).
 **Context Rj needs to review:** `assets/js/app.js` appleHlsOf, `lib/bstar-hls.js`.
+
+## Task 14: Shaka 1001 — History replays an expired Bilibili TV link
+**Question:** was Rj's 1001 the 15-minute token, or a segment refused mid-stream?
+**Assumption made:** the token. His workflow replays from History, the stored address is `/api/bstar?t=…` signed for 15 minutes, and production answers an expired one 403 (checked: `{"ok":false,"error":"That link is no longer valid…"}`). No request of his reached stream.jrvsystems.app in that minute, and Vercel's runtime log API timed out, so the refused URL itself was not seen.
+**Context Rj needs to review:** `assets/js/app.js` bstarExpired / load / castLoad re-read the page. If a 1001 comes back, the log line now carries `HTTP <status> <url>`; a status other than 403 on `/api/bstar` means a different cause. A page with several films shows the pick list instead of playing straight away.
