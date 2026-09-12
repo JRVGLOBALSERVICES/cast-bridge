@@ -1251,3 +1251,15 @@ things were, and the second one was invisible until the first was fixed.
       MPD, `PT8673.041S`, avc1.640020 + mp4a.40.2 → both segments 206 with real
       `ftyp` boxes through `/api/stream` → loaded in **Shaka Player**, the
       library a Chromecast receiver runs: 1280x533, playing, 20s buffered.
+- [x] Task 10: Verified on production after deploy. `/api/bstar` on
+      cast.jrvsystems.app answers a real MPD for the film — which can only
+      happen by sin1 receiving 10023013 and the hkg1 relay answering, so the
+      self-call is not blocked in production. A series episode still answers
+      an MPD from sin1 with no relay, so the series path did not regress.
+
+      HONEST LIMIT on that check: this VPS is now served Vercel's bot
+      checkpoint on every cast-bridge host, so the two production fetches
+      above were made through an outside renderer and the SEGMENT leg was
+      not re-fetched from production. It was fetched on the preview build of
+      this same commit (206, exact bytes, real `ftyp`), and `api/stream.js`
+      has a zero-byte diff in this change.
