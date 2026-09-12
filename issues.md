@@ -1505,3 +1505,57 @@ answer. Signed in, the caches are dropped alongside the data re-read and the
 page does NOT reload — a reload there throws away whatever is in the paste box
 and loses the player's position. Online only: the cached shell is the only
 reason this app opens with no signal.
+
+## 2026-09-12 — bilibili.tv
+
+### Anonymous casting is capped at 480p, and that is bstar's gate, not ours
+
+**Question:** should a signed-out .tv cast be refused rather than served at 480p?
+**Assumption made:** serve it. Anonymous, bstar returns q=32 and below with real
+URLs and everything above (720p/1080p/4K) present with `url:""`. That is its
+sign-in gate. Refusing would turn a working 480p cast into nothing; the app says
+`capped` instead and the panel explains what signing in buys.
+**Context you need to review:** `lib/bstar.js` `resolve()`, the `capped` flag.
+
+### The manifest token does not carry your session
+
+**Question:** the television fetches the manifest minutes later and carries no
+cookie. Should the signed token embed the sealed .tv jar so the receiver gets
+the HD renditions?
+**Assumption made:** no. The token names an episode, a quality and an expiry,
+and `/api/bstar` re-resolves ANONYMOUSLY. Embedding the jar would put a
+Bilibili account credential into a URL that ends up in receiver logs and
+history — a media capability and an account credential are not the same risk.
+The cost is real and I am not hiding it: **a cast currently goes out at 480p
+even when you are signed in to bilibili.tv**, because the leg that fetches the
+addresses is the anonymous one. In-tab playback is unaffected.
+**Context you need to review:** `api/bstar.js`, and `lib/bstar.js` `issueToken`.
+The fix is a short-lived server-side handoff — the repo has Supabase
+(`lib/db.js`) and an upload-ticket mechanism (`lib/ticket.js`) — and it is a
+schema change, so I did not make it unasked. Say the word and it is a small job.
+
+### 'hd' from verifyJar is unproven against a real account
+
+**Question:** does a signed-in .tv jar actually return 'hd'?
+**Assumption made:** the logic is right but I have no bilibili.tv account to
+test with. Anonymous correctly returns 'basic' (nothing above 480p unlocked);
+the 'hd' branch is reasoned, not observed. bstar publishes no endpoint that
+names an account — /web/user/info, /v2/user/info, /web/myinfo, /account/web/nav
+and /web/space/account are all 404 — so checking what the session UNLOCKS is
+the only check available.
+**Context you need to review:** `lib/bstar.js` `verifyJar()`. Paste a real .tv
+cookie and the toast will say whether HD unlocked.
+
+### The reference title for verifyJar is hardcoded
+
+**Assumption made:** season 2117053, overridable with `BSTAR_REFERENCE_SEASON`.
+If Bilibili delists it, `verifyJar` returns null and a paste is KEPT rather than
+refused — an upstream that did not answer is not proof of a bad paste.
+
+### Client-side mime and proxy rules are verified by hand, not by the suite
+
+**Context you need to review:** `assets/js/app.js` — `mimeOf()` now returns
+`application/dash+xml` for `/api/bstar`, and `castLoad` no longer sends a
+same-origin address through `/api/stream`. Both are right (checked by
+evaluating the rules directly) but the repo's suites are server-side and
+`app.js` is an IIFE that exports nothing, so neither rule has a regression test.

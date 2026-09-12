@@ -26,6 +26,9 @@
     "api/bilibili.js": {
       "maxDuration": 15
     },
+    "api/bstar.js": {
+      "maxDuration": 15
+    },
     "api/ticket.js": {
       "maxDuration": 10
     },

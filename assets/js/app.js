@@ -18,6 +18,13 @@
 
   function mimeOf(u) {
     var p = String(u).split('?')[0].split('#')[0].toLowerCase();
+    /* Our own generated manifest, which has no extension to read. bilibili.tv
+       serves DASH and publishes no manifest, so /api/bstar builds one; the
+       address carries a signed token rather than a filename, and every other
+       branch here is an extension sniff. Told nothing, this would fall
+       through to video/mp4 and the receiver would be handed an XML document
+       labelled as a film. */
+    if (/\/api\/bstar$/.test(p)) return 'application/dash+xml';
     if (/\.m3u8$/.test(p)) return 'application/x-mpegURL';
     if (/\.mpd$/.test(p)) return 'application/dash+xml';
     if (/\.webm$/.test(p)) return 'video/webm';
@@ -2720,6 +2727,15 @@
        DASH takes the direct-then-retry path below with everything else. */
     var adaptive = mime === 'application/x-mpegURL';
 
+    /* An address already on this origin is one of ours, and ours are served
+       cross-origin-open with whatever referer the media needs already
+       forwarded. Sending it through /api/stream would be a second hop to the
+       same box — and for the DASH manifest specifically it would be the one
+       thing the note above warns about, since /api/stream relays an .mpd
+       without rewriting it. The manifest's own segment URLs are absolute and
+       already point back at /api/stream, so they are not affected. */
+    var ours = String(u).indexOf(location.origin + '/api/') === 0;
+
     /* Cast's own media documentation requires HLS and DASH to be served
        cross-origin-open, and a CDN that never expected a television is not.
        So an adaptive stream goes through our origin from the start rather
@@ -2727,7 +2743,7 @@
        spinner on the TV, not a fast path. A progressive mp4 has no such
        requirement, so that one is tried direct and only proxied if the
        receiver comes back unhappy. */
-    var src = adaptive || opts.viaProxy ? streamUrl(u, true) : u;
+    var src = (!ours && (adaptive || opts.viaProxy)) ? streamUrl(u, true) : u;
 
     var info = new M.MediaInfo(src, mime);
     info.streamType = M.StreamType.BUFFERED;
@@ -7852,11 +7868,12 @@
     head.textContent = 'Paste a sign-in instead';
     box.appendChild(head);
 
-    biliSay(box, 'On a computer, sign in at bilibili.com. That is the main site, not ' +
-      'bilibili.tv, which is a separate account. Then open the developer tools ' +
+    biliSay(box, 'On a computer, sign in at bilibili.com or bilibili.tv — they are ' +
+      'separate accounts and this keeps both. Then open the developer tools ' +
       '→ Application → Cookies and copy SESSDATA, or paste a cookies.txt ' +
       'exported from that browser. Only SESSDATA, bili_jct and DedeUserID are ' +
-      'read out of it.', 'cb-bili-small');
+      'read out of it. A cookies.txt names its own site, so it is filed for ' +
+      'you; a bare SESSDATA is taken as bilibili.com.', 'cb-bili-small');
 
     var field = document.createElement('textarea');
     field.className = 'cb-input cb-bili-cookie';
@@ -7892,11 +7909,14 @@
         (t.match(/%2C/gi) || []).length >= 2;
     }
 
-    /* Named before the server sees it, because it is the mistake the file
-       itself makes obvious and waiting for a round trip to say so is a
-       round trip spent on a known answer. */
-    function wrongSite(t) {
-      return /bilibili\.tv/i.test(t) && !/bilibili\.com/i.test(t);
+    /* Which sign-in a paste belongs to, read before the server sees it.
+       This used to be `wrongSite`, which refused a bilibili.tv export — the
+       two sites are separate accounts and only .com was supported. Both are
+       supported now, so the same signal that produced a refusal picks a
+       destination instead. A cookies.txt carries its own domains; anything
+       else is taken as .com, which is what a bare SESSDATA has always been. */
+    function siteOf(t) {
+      return (/bilibili\.tv/i.test(t) && !/bilibili\.com/i.test(t)) ? 'tv' : 'com';
     }
 
     /* Interrupting for a refusal, polite for a confirmation — the same line
@@ -7914,18 +7934,23 @@
       if (!live) return;
       /* Confirm right, not only wrong: silence after a correction reads as
          still-wrong. */
-      if (looksLikeSession(field.value)) say('That looks like a session.', false);
-      else if (wrongSite(field.value)) say('That export is from bilibili.tv, a different site.', true);
-      else say('Still no SESSDATA in that.', true);
+      if (looksLikeSession(field.value)) {
+        say(siteOf(field.value) === 'tv'
+          ? 'That looks like a Bilibili TV session.'
+          : 'That looks like a session.', false);
+      } else if (siteOf(field.value) === 'tv') {
+        say('That is from bilibili.tv but carries no SESSDATA — the export was ' +
+          'made signed out, or it skipped HttpOnly cookies.', true);
+      } else say('Still no SESSDATA in that.', true);
     });
 
     field.addEventListener('blur', function () {
       var t = field.value.trim();
       if (!t || looksLikeSession(t)) return;
       live = true;
-      if (wrongSite(t)) {
-        say('That is an export from bilibili.tv, which is a separate sign-in ' +
-          'from bilibili.com. Sign in at bilibili.com and export again.', true);
+      if (siteOf(t) === 'tv') {
+        say('That is from bilibili.tv but carries no SESSDATA. Sign in there, ' +
+          'check your name shows on the page, then export again.', true);
         return;
       }
       say('No SESSDATA in that. It is the long value that starts with letters ' +
@@ -7937,7 +7962,8 @@
       if (!text) { field.focus(); return; }
       go.disabled = true;
       note.hidden = true;
-      fetch('/api/bilibili?action=paste', {
+      var site = siteOf(text);
+      fetch('/api/bilibili?action=paste' + (site === 'tv' ? '&site=tv' : ''), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cookie: text })
@@ -7955,6 +7981,18 @@
              is a session sitting in the DOM. */
           field.value = '';
           stopBiliPoll();
+          if (site === 'tv') {
+            /* Re-read rather than render from this one answer: the .com half
+               of the panel is unchanged by a .tv paste and still has to be
+               shown. bstar publishes no endpoint that names an account, so
+               the toast reports what the session is worth instead — which is
+               the reason to have signed in at all. */
+            toast({ text: res.b.hd
+              ? 'Signed in to Bilibili TV — HD unlocked.'
+              : 'Signed in to Bilibili TV.' });
+            refreshBili();
+            return;
+          }
           renderBili({ signedIn: true, name: res.b.name, vip: res.b.vip });
           toast({ text: 'Signed in to Bilibili as ' + res.b.name + '.' });
         })
@@ -7991,6 +8029,46 @@
     return p;
   }
 
+  /* One sign-out control, told which session it ends. Two near-identical
+     copies of this drifted the moment .tv arrived — the .com one confirmed
+     in place and the .tv one would not have. */
+  function biliSignOutButton(label, qs, after) {
+    var out = document.createElement('button');
+    out.type = 'button';
+    /* Signing out destroys nothing — the account is untouched and signing
+       back in takes one tap. Red is for destruction. */
+    out.className = 'cb-linkbtn';
+    out.textContent = 'Sign out of ' + label;
+    out.addEventListener('click', function () {
+      if (out.dataset.armed === '1') {
+        fetch('/api/bilibili?action=signout' + qs, { method: 'POST' })
+          .then(function (r) { return r.json(); })
+          .then(function () { toast({ text: 'Signed out of ' + label + '.' }); after(); })
+          .catch(function () { toast({ text: 'No connection.' }); });
+        return;
+      }
+      out.dataset.armed = '1';
+      out.textContent = 'Sign out of ' + label + '?';
+      setTimeout(function () {
+        if (!out.isConnected) return;
+        out.dataset.armed = '';
+        out.textContent = 'Sign out of ' + label;
+      }, 5000);
+    });
+    return out;
+  }
+
+  /* The Bilibili TV half of the panel. Appended whichever way the .com half
+     went, because the two sessions do not depend on each other. */
+  function renderBstarSection(body, tv) {
+    if (!tv || !tv.signedIn) return;
+    biliSay(body, 'Bilibili TV — signed in.' + (tv.hd
+      ? ' HD is unlocked, so a cast goes out at the best rendition the title offers.'
+      : ' Nothing above 480p came back on the reference title, so casts may be capped there.'),
+      'cb-bili-small');
+    body.appendChild(biliSignOutButton('Bilibili TV', '&site=tv', refreshBili));
+  }
+
   function renderBili(state) {
     var body = $('biliBody');
     if (!body) return;
@@ -8008,40 +8086,26 @@
       $('biliSummary').textContent = 'Bilibili — ' + state.name;
       biliSay(body, 'Signed in as ' + state.name +
         (state.vip ? ' (with a membership).' : '.') +
-        ' Paste a bilibili.com or b23.tv link in the box below and it resolves ' +
+        ' Paste a bilibili.com, b23.tv or bilibili.tv link in the box below and it resolves ' +
         'through Bilibili’s API.');
-      biliSay(body, 'Casting is capped at 720p — that is the best quality ' +
-        'Bilibili serves as a single file, and a television can only be handed ' +
-        'one address.', 'cb-bili-small');
+      /* 720p is the bilibili.com ceiling specifically: it is the best that
+         site serves as a single progressive file. bilibili.tv is not bound by
+         it — it serves DASH, which this app turns into a manifest, so its
+         ceiling is whatever the account unlocks. Saying "casting" flatly
+         would now be wrong about half the app. */
+      biliSay(body, 'Casting from bilibili.com is capped at 720p — that is the ' +
+        'best quality it serves as a single file, and a television can only be ' +
+        'handed one address.', 'cb-bili-small');
 
-      var out = document.createElement('button');
-      out.type = 'button';
-      /* Signing out destroys nothing — the account is untouched and signing
-         back in takes one tap. Red is for destruction. */
-      out.className = 'cb-linkbtn';
-      out.textContent = 'Sign out of Bilibili';
-      out.addEventListener('click', function () {
-        if (out.dataset.armed === '1') {
-          fetch('/api/bilibili?action=signout', { method: 'POST' })
-            .then(function (r) { return r.json(); })
-            .then(function () { toast({ text: 'Signed out of Bilibili.' }); renderBili({ signedIn: false }); })
-            .catch(function () { toast({ text: 'No connection.' }); });
-          return;
-        }
-        out.dataset.armed = '1';
-        out.textContent = 'Sign out of Bilibili?';
-        setTimeout(function () {
-          if (!out.isConnected) return;
-          out.dataset.armed = '';
-          out.textContent = 'Sign out of Bilibili';
-        }, 5000);
-      });
-      body.appendChild(out);
+      body.appendChild(biliSignOutButton('Bilibili', '', refreshBili));
+      renderBstarSection(body, state.tvState);
       return;
     }
 
-    setBiliDot('');
-    $('biliSummary').textContent = 'Bilibili';
+    setBiliDot(state.tvState && state.tvState.signedIn ? 'live' : '');
+    $('biliSummary').textContent = (state.tvState && state.tvState.signedIn)
+      ? 'Bilibili TV' : 'Bilibili';
+    renderBstarSection(body, state.tvState);
 
     if (state.lapsed) {
       biliSay(body, 'That Bilibili session has expired — Bilibili ended it, ' +
@@ -8208,13 +8272,23 @@
       });
   }
 
+  /* Two sign-ins, asked for together. bilibili.com and bilibili.tv are
+     separate accounts in separate cookies, and either can be present without
+     the other — so the panel reads both and shows what it finds. Asking only
+     for .com, as this did while .tv was unsupported, would leave a signed-in
+     Bilibili TV session invisible and looking like it had not been kept. */
   function refreshBili() {
     renderBili({ loading: true });
-    fetch('/api/bilibili?action=status')
-      .then(function (r) { return r.json().then(function (b) { return { s: r.status, b: b }; }); })
-      .then(function (res) {
-        if (res.s === 401) { handleAuthLapse(); return; }
-        renderBili(res.b || {});
+    var ask = function (qs) {
+      return fetch('/api/bilibili?action=status' + qs)
+        .then(function (r) { return r.json().then(function (b) { return { s: r.status, b: b }; }); });
+    };
+    Promise.all([ask(''), ask('&site=tv')])
+      .then(function (both) {
+        if (both[0].s === 401 || both[1].s === 401) { handleAuthLapse(); return; }
+        var state = both[0].b || {};
+        state.tvState = both[1].b || {};
+        renderBili(state);
       })
       .catch(function () { renderBili({ error: 'Could not reach the sign-in service.' }); });
   }

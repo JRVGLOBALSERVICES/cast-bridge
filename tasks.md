@@ -1135,3 +1135,31 @@
       rather than `current()`, or a card would end the search on tick one.
 - [x] scripts/test-cover.js — 40 checks, 17 deliberate breaks all seen red.
       Contrast proven at EVERY hue the ring can produce, not a sample.
+
+## 2026-09-12 — Rj: "tv has all movies, .com is shit and in china"
+
+He is right on the facts, and the previous answer — that bilibili.tv could not
+work — was true only of the code, not of the site. bilibili.tv is a separate
+product with a separate catalogue and separate accounts. It is now supported.
+
+- [x] Task 1: Map the real bstar API from live requests rather than guessing.
+      `/intl/gateway/web/v2/ogv/play/episodes`, `/v2/ogv/view/app/season` and
+      `/web/playurl` all answer 200 anonymously. The .tv page itself is
+      readable, where bilibili.com answers 412 to this server.
+- [x] Task 2: `lib/bstar.js` — its own resolver. Not a hostname swap on the
+      .com path: different API host, different response shape, different CDN
+      rules. bstar serves DASH and only DASH (probed on web, android, ios,
+      type=mp4, fnval=0 and fnval=1 — no progressive `durl` on any of them),
+      so there is no single address to hand a television. The response does
+      carry `segment_base.range` / `index_range` / codecs / bandwidth, so the
+      manifest is GENERATED here and served from `/api/bstar`.
+- [x] Task 3: Two sign-ins kept apart. `cb_bstar` alongside `cb_bili`, its own
+      seal namespace, and cookie parsing scoped to bilibili.tv — a mixed
+      whole-browser export gives each resolver its own site's SESSDATA.
+- [x] Task 4: Copy rewritten. The .com refusal used to say .tv "will not work
+      here"; it now routes the paste to the Bilibili TV sign-in instead. The
+      panel reads BOTH sessions and can sign out of either.
+- [x] Task 5: Verified with Shaka Player — the library a Chromecast receiver
+      actually runs — loaded through the real handlers: 853x480, avc1.64001F
+      + mp4a.40.2, 15s buffered, playing. `scripts/test-bstar.js` adds 35
+      assertions, each proven to go red under mutation. All 17 suites pass.

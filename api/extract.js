@@ -19,6 +19,7 @@ const {
 } = require('../lib/media');
 const auth = require('../lib/auth');
 const bili = require('../lib/bilibili');
+const bstar = require('../lib/bstar');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -55,6 +56,33 @@ module.exports = async function handler(req, res) {
      the address is behind an API rather than in the HTML. Handled entirely
      in lib/bilibili, in the same answer shape as a scanned page so nothing
      downstream needs to know it was special. */
+  /* bilibili.tv before bilibili.com, because the two are different products
+     that share a brand and only the .com parser would otherwise be asked.
+     Its own module for the same reason — see the header of lib/bstar. */
+  if (bstar.parseTarget(target)) {
+    const hit = await bstar.resolve(target, bstar.jarFromRequest(req), bstar.originOf(req));
+    if (hit) {
+      res.statusCode = 200;
+      res.end(JSON.stringify(hit.ok ? {
+        ok: true,
+        finalUrl: hit.finalUrl,
+        title: hit.title,
+        poster: null,
+        media: hit.media,
+        direct: false,
+        source: 'bstar',
+        qualityCapped: Boolean(hit.capped),
+        bstarSignedIn: hit.signedIn
+      } : {
+        ok: false,
+        error: hit.error,
+        source: 'bstar',
+        bstarSignedIn: Boolean(bstar.jarFromRequest(req))
+      }));
+      return;
+    }
+  }
+
   if (bili.parseTarget(target)) {
     const hit = await bili.resolve(target, bili.jarFromRequest(req));
     if (hit) {

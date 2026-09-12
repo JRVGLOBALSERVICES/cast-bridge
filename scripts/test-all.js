@@ -19,6 +19,7 @@ const SUITES = [
   ['deep-reissue', 'test-deepreissue.js'],
   ['poke', 'test-poke.js'],
   ['cookies', 'test-cookies.js'],
+  ['bstar', 'test-bstar.js'],
   ['subs', 'test-subs.js'],
   ['crawl', 'test-crawl.js'],
   ['sources', 'test-sources.js'],
