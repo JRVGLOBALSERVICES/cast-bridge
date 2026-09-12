@@ -1163,3 +1163,29 @@ product with a separate catalogue and separate accounts. It is now supported.
       actually runs — loaded through the real handlers: 853x480, avc1.64001F
       + mp4a.40.2, 15s buffered, playing. `scripts/test-bstar.js` adds 35
       assertions, each proven to go red under mutation. All 17 suites pass.
+
+## 2026-09-12 — Rj: "make sure no region issues like not allowed in this region"
+
+- [x] Task 1: Measure the gap instead of assuming it. Twenty titles sampled
+      from bilibili.tv's own sitemap, resolved from three vantages. A box in
+      Singapore played 9/20, production in iad1 (Washington) played 7/20,
+      a preview in sin1 played 9/20. Seasons 1048658 and 2090761 were refused
+      in Washington with code 10004001 and played from both Singapore
+      vantages — the gate is real and production was on the wrong side.
+- [x] Task 2: `vercel.json` pinned to `sin1`. Safe only because the reason to
+      avoid it turned out to be false: bilibili.com 412s the Singapore probe
+      box, which looked like proof .com needs a US region, but a sin1 preview
+      resolved .com normally. The 412 belongs to that box's address.
+- [x] Task 3: Three codes separated. 10004001 is the geo-gate (varies by
+      region, names the region from VERCEL_REGION, no longer offers a sign-in
+      that cannot lift it). 10004404 is identical from every vantage, so a
+      delisted title and NOT a region block. -404 is an unknown episode id,
+      previously mis-reported as "likely region-locked". Neither resolver
+      forwards bilibili's raw message any more — it arrives in Chinese.
+- [x] Task 4: Segment proxy. No change needed, and that is a measurement not
+      an omission: a Singapore-resolved address fetched 206 with exact bytes
+      from Washington and vice versa, so only the resolve leg is geo-gated.
+      One top-level region keeps resolve and proxy on the same side anyway.
+- [x] Task 5: `scripts/test-bstar.js` +7 checks (42 total), each seen red
+      under 9 mutations. 17 suites pass. Verified on production after deploy:
+      `sin1::sin1`, both recovered titles play, .com unaffected.

@@ -1559,3 +1559,39 @@ refused — an upstream that did not answer is not proof of a bad paste.
 same-origin address through `/api/stream`. Both are right (checked by
 evaluating the rules directly) but the repo's suites are server-side and
 `app.js` is an IIFE that exports nothing, so neither rule has a regression test.
+
+### Singapore is the closest region to Malaysia, not the same licensing territory
+
+**Question:** does bilibili.tv serve Malaysia the same catalogue it serves
+Singapore?
+**Assumption made:** close enough, because there is no better option. bstar
+gates on the resolving IP and Vercel has no Malaysian region, so sin1 is the
+nearest obtainable vantage to where Rj actually watches. It is measurably
+better than iad1 (9/20 vs 7/20 on the sample) but it is NOT proof that every
+title playing on his phone will resolve here — MY and SG can be separate
+licensing territories, and I have no Malaysian IP to test from. If a title
+plays in the bilibili.tv app and the site says it is not licensed in
+Singapore, that gap is this, and it is not fixable from the server side.
+**Context Rj needs to review:** `vercel.json` `regions`, and the 10004001
+message in `lib/bstar.js` `describeRefusal` — it names Singapore on purpose
+so the mismatch is legible rather than mysterious.
+
+### A viewer-region resolve is impossible, not merely unbuilt
+
+**Question:** could the browser resolve the address itself, so the catalogue
+matches the viewer's real country instead of the server's?
+**Assumption made:** no, and this was tested rather than assumed. api.bilibili.tv
+answers **403 to any request carrying an `Origin` header** and 412 to a CORS
+preflight, so a browser cannot call it at all. The server-side resolve is the
+only one available, which is why the region it runs in matters so much.
+**Context Rj needs to review:** nothing to change — recorded so it is not
+re-proposed as an easy win later.
+
+### bilibili.com's own region codes were not individually observed
+
+**Assumption made:** the .com resolver no longer forwards upstream Chinese and
+carries the numeric code instead, which is strictly better than before. But
+unlike the .tv codes, I did not find a .com title that reproduced a geo refusal
+on demand, so no .com code is mapped to a named cause. An unrecognised .com
+refusal reads "Bilibili would not give an address for it (code N)".
+**Context Rj needs to review:** `lib/bilibili.js`, the two refusal returns.
