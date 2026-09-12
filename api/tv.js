@@ -7,7 +7,8 @@
  *   pair          phone (signed in) { code }  → { phoneKey }
  *   send          phone { code, phoneKey, command } → { seq }
  *   status        phone { code, phoneKey } → { status, online }
- *   unpair        phone { code, phoneKey }
+ *   unpair        phone { code, phoneKey }          also queues a stop for the TV
+ *   release       TV   { code, tvKey }              the TV disconnects its phone
  *
  * The TV carries no session and cannot be given one, same as /api/stream.
  * What stands in for it is the key it was handed at create, stored hashed.
@@ -152,9 +153,29 @@ async function status(res, body) {
   });
 }
 
+/* Disconnecting stops the TV too. A film left playing on a TV that no phone
+   can reach any more is the "it keeps running" Rj reported, so the stop is
+   queued in the same write that forgets the phone. */
 async function unpair(res, body) {
   if (!tv.validCode(body.code) || !tv.validKey(body.phoneKey)) return send(res, 200, { ok: true });
-  await db.update(phoneFilter(body), { phone_hash: null, user_id: null });
+  const row = first(await db.select(phoneFilter(body) + '&select=commands,seq&limit=1'));
+  if (!row) return send(res, 200, { ok: true });
+  const next = tv.append(row.commands, row.seq, { type: 'stop' });
+  await db.update(phoneFilter(body), {
+    phone_hash: null, user_id: null, commands: next.commands, seq: next.seq
+  });
+  return send(res, 200, { ok: true });
+}
+
+/* The TV's own "Disconnect phone": the remote on the sofa is not the only
+   way out. The phone learns on its next status call (gone). */
+async function release(res, body) {
+  if (!tv.validCode(body.code) || !tv.validKey(body.tvKey)) return send(res, 404, GONE);
+  const row = first(await db.update(
+    'tv_rooms?code=eq.' + enc(body.code) + '&tv_hash=eq.' + tv.hash(body.tvKey) + '&select=code',
+    { phone_hash: null, user_id: null }
+  ));
+  if (!row) return send(res, 404, GONE);
   return send(res, 200, { ok: true });
 }
 
@@ -176,6 +197,7 @@ module.exports = async function handler(req, res) {
       case 'send': return await sendCommand(res, body);
       case 'status': return await status(res, body);
       case 'unpair': return await unpair(res, body);
+      case 'release': return await release(res, body);
       default: return send(res, 400, { ok: false, error: 'Unknown action.' });
     }
   } catch (e) {

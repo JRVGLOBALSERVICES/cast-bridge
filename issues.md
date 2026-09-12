@@ -1680,3 +1680,28 @@ film plays in the app on your phone and this refuses it with 10015001 or
 **Question:** websocket/SSE for instant commands?
 **Assumption made:** the TV polls `/api/tv` once a second and the phone every 2s (only while the app is open). A tap reaches the TV in about a second. That's roughly 3,600 function calls per hour of film on Vercel. If that shows up on the bill, move the mailbox to the VPS stream host with SSE.
 **Context Rj needs to review:** `POLL_MS` in `assets/js/tv.js`, `STATUS_MS` in `assets/js/tvmode.js`.
+
+## Task 17: What "Stop" means
+**Question:** should Stop only stop the film, or also switch TV mode off?
+**Assumption made:** Stop on the TV stops the film AND switches "Watch on" back to This phone, so the next film plays on the phone. The TV stays connected; tap "TV" under Watch on to use it again. "This phone" stops the TV and carries on on the phone from the TV's position. "Disconnect this TV" forgets the TV. A pairing saved by the previous build comes back switched off.
+**Context Rj needs to review:** `assets/js/tvmode.js` stopOnTv(). If you'd rather Stop kept the TV chosen, it is one line.
+
+## Task 18: Full screen on the TV browsers
+**Question:** does full screen work in Samsung's Internet app and TV Bro?
+**Assumption made:** the page asks the browser for full screen (with the older webkit form for Tizen). The button hides where the browser has no full-screen API, and says so if the browser refuses. The phone can't trigger it: browsers only allow full screen from a button press on the TV itself.
+**Context Rj needs to review:** `assets/js/tv.js` toggleFullscreen(). Tested in desktop headless Chrome only, not on either TV.
+
+## Task 18: TV remote keys
+**Question:** which keys does each TV browser pass to the page?
+**Assumption made:** arrows, OK/Enter, Back (Escape, Tizen 10009) and the media keys. TV Bro may use the arrows for its own cursor; the buttons can then be clicked with that cursor.
+**Context Rj needs to review:** keydown handler in `assets/js/tv.js`. If a key does nothing on the Bravia or Samsung, tell me which.
+
+## Task 19: What "page 2 to page 1" meant
+**Question:** which two pages?
+**Assumption made:** Cast was one long page, so I split it into 1 Pick and 2 Now playing, with explicit ways between them (Pick another, the phone's Back, the Now playing bar). The other tabs keep their current look so the app stays one system.
+**Context Rj needs to review:** `index.html` view-cast / view-playing / view-tv. If you meant a different pair of screens, name them.
+
+## Task 20: Old history rows
+**Question:** can rows played before today link to their page?
+**Assumption made:** only if this phone still has the page saved locally. The server only started storing it today (`castbridge.history.page`, applied to production), so older rows that came from the server show "Open link" (the video file) until you play them again.
+**Context Rj needs to review:** `db/006_castbridge_history_page.sql`, `api/history.js`.

@@ -188,6 +188,15 @@
         return null;
       },
 
+      /* The page a row came from, filled in from the server's copy without
+         counting as a play. */
+      setFrom: function (url, from) {
+        var it = this.find(url);
+        if (!it || !from) return;
+        it.from = from;
+        write();
+      },
+
       /* Record a play. Existing entries move to the front and keep position. */
       touch: function (url, meta) {
         meta = meta || {};
@@ -1242,7 +1251,7 @@
    * as losing the page.
    * ------------------------------------------------------------------ */
 
-  var VIEWS = ['cast', 'browse', 'library', 'history', 'more',
+  var VIEWS = ['cast', 'playing', 'tv', 'browse', 'library', 'history', 'more',
     'bilibili', 'host', 'people', 'help'];
 
   var NAV_VIEWS = ['cast', 'browse', 'library', 'history', 'more'];
@@ -1250,7 +1259,8 @@
   /* The four behind More light More up while they are open, so the bar
      never shows nothing selected. */
   var NAV_OF = {
-    bilibili: 'more', host: 'more', people: 'more', help: 'more'
+    bilibili: 'more', host: 'more', people: 'more', help: 'more',
+    playing: 'cast', tv: 'cast'
   };
 
   /* The names the rest of this file already calls, kept working rather than
@@ -1285,6 +1295,12 @@
     name = VIEW_ALIAS[name] || name;
     if (VIEWS.indexOf(name) === -1) return;
     opts = opts || {};
+    /* Cast is two screens. With a film loaded, "Cast" means the film —
+       every caller that plays something and then shows Cast lands on Now
+       playing. Only the explicit way back ("Pick another", or the phone's
+       Back) opens the pick screen over a loaded film. */
+    if (name === 'cast' && current && !opts.pick) name = 'playing';
+    if ((name === 'playing') && !current) name = 'cast';
 
     if (name !== activeView) {
       scrollMemory[activeView] = window.scrollY;
@@ -1314,7 +1330,7 @@
        change is a real history entry. A pop replays it without pushing, or
        Back would need pressing twice for every screen it ever showed. */
     if (opts.push && window.history && window.history.pushState) {
-      window.history.pushState({ view: name }, '', '#' + name);
+      window.history.pushState({ view: name }, '', name === 'cast' ? location.pathname + location.search : '#' + name);
     }
 
     if (opts.focus) {
@@ -1356,13 +1372,18 @@
     if (back) {
       /* Back to the menu, not back through history: arriving at Stream host
          from somewhere else and then tapping Menu should still land on More. */
+      if (back.dataset.back === 'pick') {
+        showView('cast', { focus: true, push: true, pick: true });
+        return;
+      }
       showView(back.dataset.back || 'more', { focus: true, push: true });
     }
   });
 
   window.addEventListener('popstate', function (e) {
     var name = (e.state && e.state.view) || (location.hash || '').replace('#', '') || 'cast';
-    showView(name);
+    /* Back from Now playing lands on the pick screen, not on the film again. */
+    showView(name, { pick: name === 'cast' });
   });
 
   /* A reload, or a link into a screen, opens on that screen. An unknown
@@ -1370,6 +1391,8 @@
   (function initialView() {
     var wanted = (location.hash || '').replace('#', '');
     var start = VIEWS.indexOf(wanted) === -1 ? 'cast' : wanted;
+    /* Nothing is loaded on a fresh start, so there is no film to be on. */
+    if (start === 'playing') start = 'cast';
     if (window.history && window.history.replaceState) {
       window.history.replaceState({ view: start }, '',
         start === 'cast' ? location.pathname : '#' + start);
@@ -1951,7 +1974,7 @@
     });
     /* Local first so the list is instant, then up to the server, which is
        the copy that survives a reinstall or a different phone. */
-    recordPlay(u, { title: currentTitle, kind: record && record.kind });
+    recordPlay(u, { title: currentTitle, kind: record && record.kind, from: currentFrom });
     updateHistCount();
 
     /* Pick up where they left off, and offer the way back. */
@@ -1985,9 +2008,15 @@
        Playing locally as well is two audio tracks a few seconds apart, in
        the same room. The element still loads (metadata, resume seek, the
        scrubber) — it just stays paused. */
+    drawNowPlaying();
+    /* A film was chosen on the pick screen: move on to watching it, as a
+       real step the phone's Back button can undo. */
+    if (activeView === 'cast') showView('playing', { push: true, focus: true });
+
     if (tvPaired()) {
-      /* TV mode: same rule, different television. The TV browser fetches
-         the film itself; the phone stays paused and becomes the remote. */
+      /* TV mode, with the TV chosen under "Watch on": the TV browser
+         fetches the film itself; the phone stays paused and is the remote.
+         Paired but switched to "This phone" plays here like any other film. */
       video.pause();
       window.CBTvMode.sendCurrent(resumeAt || 0);
     } else if (castState === 'CONNECTED') {
@@ -2890,7 +2919,26 @@
    * else direct with the bridge as the one retry.
    * ------------------------------------------------------------------ */
   function tvPaired() {
-    return !!(window.CBTvMode && window.CBTvMode.paired());
+    return !!(window.CBTvMode && window.CBTvMode.onTv());
+  }
+
+  /* The heading of Now playing and the bar on the pick screen that leads
+     back to it. The page a film came from is a real link: it is where the
+     next episode is. */
+  function drawNowPlaying() {
+    var title = currentTitle || (current ? nameOf(current) : '');
+    $('playTitle').textContent = title || 'Now playing';
+    var from = $('playFrom');
+    from.innerHTML = '';
+    if (currentFrom && isHttp(currentFrom)) {
+      from.appendChild(document.createTextNode('from '));
+      from.appendChild(pageLink(currentFrom, hostOf(currentFrom)));
+      from.hidden = false;
+    } else {
+      from.hidden = true;
+    }
+    $('nowBar').hidden = !current;
+    $('nowBarTitle').textContent = title;    if (window.CBTvMode) window.CBTvMode.refresh();
   }
 
   function tvPayload() {
@@ -2914,6 +2962,14 @@
 
   window.CBApp = {
     tvPayload: tvPayload,
+    hasFilm: function () { return !!current; },
+    resumeLocal: function (at) {
+      if (!current) return;
+      try { if (typeof at === 'number' && at > 0) video.currentTime = at; } catch (e) {}
+      if (activeView !== 'playing') showView('playing', { push: true });
+      video.play().catch(function () { /* the controls are right there */ });
+    },
+    showView: function (name) { showView(name, { push: true, focus: true }); },
     reread: function () { if (currentFrom) resolveThenPlay(currentFrom); },
     pauseLocal: function () { try { video.pause(); } catch (e) {} },
     toast: function (text) { toast({ text: text }); }
@@ -6032,7 +6088,10 @@
   }
 
   function visibleItems() {
-    var q = histQuery.trim().toLowerCase();
+    /* A reload on #history draws this list from showView() at boot, before
+       the `var histQuery = ''` below has run — undefined.trim() there took
+       the whole app down, gate and all. */
+    var q = String(histQuery || '').trim().toLowerCase();
     return store.all().filter(function (it) {
       if (starredOnly && !it.fav) return false;
       if (!q) return true;
@@ -6042,9 +6101,92 @@
     });
   }
 
-  function historyRow(it) {
+  /* ------------------------------------------------------------------ *
+   * Links out of History
+   *
+   * Rj: "I can't click on the link and open it in Chrome so I can get the
+   * next episode link." A row used to carry the page only as "from
+   * bilibili.tv" in grey text. The page is the point — it is where the next
+   * episode is — so it is a real link now, plus a Chrome hand-off on an
+   * iPhone (a Home Screen app opens links in its own sheet, not in Chrome),
+   * plus Episodes, which reads that page's episode list here.
+   * ------------------------------------------------------------------ */
+  var IOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  function pageLink(u, label) {
+    var a = document.createElement('a');
+    a.href = u;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.className = 'cb-pagelink';
+    a.textContent = label;
+    return a;
+  }
+
+  /* Chrome on iOS registers googlechromes:// for https and googlechrome://
+     for http; the rest of the address is unchanged. */
+  function chromeHref(u) {
+    return String(u).replace(/^https:\/\//i, 'googlechromes://').replace(/^http:\/\//i, 'googlechrome://');
+  }
+
+  function copyToClipboard(text, done) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        function () { toast({ text: done }); },
+        function () { toast({ text: 'Couldn\'t reach the clipboard. Long-press the link to copy it.' }); }
+      );
+    } else {
+      toast({ text: 'Long-press the link to copy it.' });
+    }
+  }
+
+  function openEpisodesOf(pageUrl) {
+    showTab('browse', { focus: true, push: true });
+    setBrowseMode('episodes');
+    $('pageUrl').value = pageUrl;
+    crawl(pageUrl);
+  }
+
+  function linkBtn(text, onClick) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'cb-itemlink';
+    b.textContent = text;
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  /* The row of ways out: the page, Chrome, its episodes, copy. */
+  function historyLinks(it) {
+    var links = document.createElement('div');
+    links.className = 'cb-item-links';
+    var page = it.from && isHttp(it.from) ? it.from : '';
+    var target = page || it.url;
+    var open = pageLink(target, page ? 'Open ' + hostOf(page) : 'Open link');
+    open.classList.add('cb-itemlink');
+    open.insertAdjacentHTML('beforeend', ' <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9"/></svg>');
+    links.appendChild(open);
+    if (IOS) {
+      var chrome = document.createElement('a');
+      chrome.href = chromeHref(target);
+      chrome.className = 'cb-itemlink';
+      chrome.textContent = 'Open in Chrome';
+      links.appendChild(chrome);
+    }
+    if (page) {
+      links.appendChild(linkBtn('Episodes', function () { openEpisodesOf(page); }));
+    }
+    links.appendChild(linkBtn('Copy', function () {
+      copyToClipboard(target, page ? 'Page link copied.' : 'Link copied.');
+    }));
+    return links;
+  }
+
+  function historyRow(it, opts) {
+    opts = opts || {};
     var row = document.createElement('div');
-    row.className = 'list-group-item';
+    row.className = 'list-group-item cb-histrow' + (opts.compact ? ' is-compact' : '');
 
     var body = document.createElement('div');
     body.className = 'cb-item-body';
@@ -6058,20 +6200,16 @@
     var meta = document.createElement('div');
     meta.className = 'cb-item-meta';
 
-    var badge = document.createElement('span');
-    badge.className = 'badge badge-secondary';
-    badge.textContent = it.kind || kindOf(it.url);
-    meta.appendChild(badge);
+    if (!opts.compact) {
+      var badge = document.createElement('span');
+      badge.className = 'badge badge-secondary';
+      badge.textContent = it.kind || kindOf(it.url);
+      meta.appendChild(badge);
+    }
 
     var when = document.createElement('span');
     when.textContent = ago(it.lastAt || it.addedAt);
     meta.appendChild(when);
-
-    if (it.from) {
-      var src = document.createElement('span');
-      src.textContent = 'from ' + hostOf(it.from);
-      meta.appendChild(src);
-    }
 
     if (it.pos > 30 && (!it.dur || it.pos < it.dur - 20)) {
       var res = document.createElement('span');
@@ -6091,22 +6229,26 @@
       body.appendChild(bar);
     }
 
+    body.appendChild(historyLinks(it));
+
     row.appendChild(body);
 
     var actions = document.createElement('div');
     actions.className = 'cb-item-actions';
 
-    var star = document.createElement('button');
-    star.type = 'button';
-    star.className = 'btn btn-primary btn-sm cb-star' + (it.fav ? ' is-on' : '');
-    star.setAttribute('aria-label', it.fav ? 'Remove star from ' + (it.title || 'this item') : 'Star ' + (it.title || 'this item'));
-    star.setAttribute('aria-pressed', it.fav ? 'true' : 'false');
-    star.textContent = it.fav ? '★' : '☆';
-    star.addEventListener('click', function () {
-      store.star(it.id);
-      renderHistory();
-    });
-    actions.appendChild(star);
+    if (!opts.compact) {
+      var star = document.createElement('button');
+      star.type = 'button';
+      star.className = 'btn btn-primary btn-sm cb-star' + (it.fav ? ' is-on' : '');
+      star.setAttribute('aria-label', it.fav ? 'Remove star from ' + (it.title || 'this item') : 'Star ' + (it.title || 'this item'));
+      star.setAttribute('aria-pressed', it.fav ? 'true' : 'false');
+      star.textContent = it.fav ? '★' : '☆';
+      star.addEventListener('click', function () {
+        store.star(it.id);
+        renderHistory();
+      });
+      actions.appendChild(star);
+    }
 
     var play = document.createElement('button');
     play.type = 'button';
@@ -6125,6 +6267,8 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
     actions.appendChild(play);
+
+    if (opts.compact) { row.appendChild(actions); return row; }
 
     /* Remove runs immediately and hands back ten seconds — a confirm dialog
        here would be friction without recovery. */
@@ -6146,7 +6290,7 @@
         onAction: function () {
           store.insertAt(gone.item, gone.at);
           store.revive(gone.item.url);
-          recordPlay(gone.item.url, { title: gone.item.title, kind: gone.item.kind });
+          recordPlay(gone.item.url, { title: gone.item.title, kind: gone.item.kind, from: gone.item.from });
           renderHistory();
           updateHistCount();
         }
@@ -6158,6 +6302,20 @@
     return row;
   }
 
+  /* Continue watching, on the pick screen: the last three, no filters. */
+  function renderRecent() {
+    var list = $('recentList');
+    if (!list) return;
+    var items = store.count() ? store.all().slice(0, 3) : [];
+    list.innerHTML = '';
+    items.forEach(function (it) { list.appendChild(historyRow(it, { compact: true })); });
+    $('recentBox').hidden = items.length === 0;
+  }
+
+  $('recentAll').addEventListener('click', function () {
+    showTab('history', { focus: true, push: true });
+  });
+
   function renderHistory() {
     var list = $('histList');
     var items = visibleItems();
@@ -6166,6 +6324,7 @@
     list.innerHTML = '';
     items.forEach(function (it) { list.appendChild(historyRow(it)); });
 
+    renderRecent();
     $('histEmpty').hidden = total !== 0;
     $('histDanger').hidden = total === 0;
 
@@ -6229,7 +6388,7 @@
         store.restore(snapshot);
         snapshot.forEach(function (it) {
           store.revive(it.url);
-          recordPlay(it.url, { title: it.title, kind: it.kind });
+          recordPlay(it.url, { title: it.title, kind: it.kind, from: it.from });
         });
         renderHistory();
       }
@@ -6419,7 +6578,10 @@
       body: JSON.stringify({
         url: url,
         title: (meta && meta.title) || null,
-        kind: (meta && meta.kind) || null
+        kind: (meta && meta.kind) || null,
+        /* The page it played from: where the next episode is. Without it a
+           row synced to another install could only offer the video file. */
+        page: (meta && isHttp(meta.from || '')) ? meta.from : null
       })
     })
       .then(function (r) { if (r.status === 401) handleAuthLapse(); })
@@ -6477,8 +6639,11 @@
           /* A row deleted here that the server has not forgotten yet must
              not be added back. Retry the delete instead. */
           if (store.isBuried(row.url)) { forgetOnServer(row.url); return; }
-          if (!store.find(row.url)) {
-            store.touch(row.url, { title: row.title || '', from: 'server' });
+          var mine = store.find(row.url);
+          if (!mine) {
+            store.touch(row.url, { title: row.title || '', from: row.page || 'server' });
+          } else if (row.page && !isHttp(mine.from || '')) {
+            store.setFrom(row.url, row.page);
           }
         });
         everyone = [];

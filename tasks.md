@@ -1318,3 +1318,31 @@ things were, and the second one was invisible until the first was fixed.
       page closed, TV keeps its code across a reload.
       NOT verified: a real Samsung Tizen browser, a real Bravia browser, and
       a real Bilibili TV (DASH) or HLS film on either.
+
+## 2026-09-12 — TV mode off switch, TV controls, Cast flow, History links
+
+- [x] Task 17: "Can't turn off or stop TV mode, keeps running again."
+      Cause: pairing and "films go to the TV" were one state, so after Stop
+      the next film went straight back to the TV; Unpair left the TV playing;
+      and a status the TV wrote before running Stop flashed the controls
+      back. Now "Watch on: This phone / TV" is the switch; Stop and This phone
+      both turn it off; Disconnect queues a stop for the TV (`api/tv.js`
+      unpair); the TV has its own "Disconnect phone" (`release`); stale
+      statuses are ignored by seq. Old saved pairings come back OFF.
+- [x] Task 18: "Need fullscreen, pause, play, etc functionality in browser on TV when video is playing."
+      `/tv` has a real control bar: back 10, play/pause, forward 10, full
+      screen, stop, and a seek bar. D-pad: OK shows it, left/right move or
+      skip, up/down between bar and buttons, Back hides; media keys work;
+      a pointer can click. Hides 5s after the last press while playing.
+- [x] Task 19: "Revamp design and flow, everything on one page looks very complicated, flow doesn't make sense from page 2 to page 1."
+      Cast is two screens: 1 Pick (paste, file, Continue watching) and
+      2 Now playing (title + source page, player, Watch on, remote, other
+      ways, "If it won't play" tools). "Pick another" and the phone's Back
+      go 2 → 1; the Now playing bar goes 1 → 2. TV pairing is its own
+      screen. Also fixed: reopening the app on #history crashed app.js.
+- [x] Task 20: "I still don't see use of history as I can't click on the link and open in Chrome so I can get the next episode link."
+      Rows now carry: Open <site> (the page it played from), Open in Chrome
+      (iPhone, googlechromes://), Episodes (reads that page's episode list in
+      Browse) and Copy. The server never stored the page, so synced rows had
+      none: `castbridge.history.page` added (db/006, applied) and sent on
+      every play. Rows played before today fill in when played again.

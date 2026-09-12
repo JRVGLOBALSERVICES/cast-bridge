@@ -123,25 +123,13 @@
 
   <main id="main">
 
-    <!-- Cast is the screen the app opens on, so it is the one view that is
-         not hidden in the markup: hiding it would mean a blank app for as
-         long as it takes app.js to parse. It carries no title of its own —
-         the player IS the title, and a heading reading "Cast" above a video
-         is a word doing no work. -->
-    <section class="cb-view is-on" id="view-cast" tabindex="-1" aria-label="Cast">
-    <!-- ---------- The session you left running ----------
-         A BANNER, not a toast and not a modal: this is a condition that
-         persists rather than an event that passed, and it must not block
-         the app to say so. Dismissible, quiet until cleared.
-
-         It sits above the player because it is about the thing the player
-         would otherwise be showing. Below it, you would scroll past an idle
-         black rectangle to find out the film is still on.
-
-         The heading is written twice in app.js and never merged, because
-         only one of the two states is a fact this app can support: it says
-         "Still playing on <TV>" when the app was talking to the set seconds
-         ago, and "You were watching this" when it was not. -->
+    <!-- ---------- Cast, screen 1 of 2: pick something ----------
+         This used to be one page carrying the player, the status strip, three
+         help panels, TV mode, four buttons, the paste box, the file picker and
+         screen recording, all at once. It is now two screens with one job
+         each: this one chooses a film, "Now playing" watches it. Nothing that
+         acts on a loaded film lives here, so nothing here is ever disabled. -->
+    <section class="cb-view is-on" id="view-cast" tabindex="-1" aria-labelledby="title-cast">
     <div class="cb-session" id="resume" role="status" hidden>
       <svg class="cb-session-ico" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="m10 8 5 3-5 3z" fill="currentColor" stroke="none"/></svg>
       <span class="cb-session-text">
@@ -153,6 +141,102 @@
       </button>
       <button type="button" class="cb-session-go" id="resumeGo">Pick it back up</button>
     </div>
+
+    <!-- Back to the film you left running. Only there when one is loaded,
+         so screen 2 is always one tap away rather than reachable only by
+         pasting the link again. -->
+    <button type="button" class="cb-nowbar" id="nowBar" hidden>
+      <span class="cb-nowbar-eq" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="cb-nowbar-text">
+        <span class="cb-nowbar-k" id="nowBarK">Now playing</span>
+        <strong id="nowBarTitle"></strong>
+      </span>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+    </button>
+
+    <div class="cb-pickhead">
+      <p class="cb-step" aria-hidden="true"><b>1</b> Pick</p>
+      <h2 class="cb-picktitle" id="title-cast">What are we watching?</h2>
+    </div>
+
+        <form id="linkForm" novalidate>
+          <div class="input-group">
+            <label class="cb-sronly" for="url">Video link</label>
+            <input class="form-control form-control-lg" id="url" type="url" inputmode="url"
+                   placeholder="Paste a video or page link" autocomplete="off" spellcheck="false"
+                   aria-describedby="urlError">
+            <div class="input-group-append">
+              <button type="submit" class="btn btn-secondary" id="btnPlay">
+                <span class="cb-label">Play</span>
+                <span class="cb-spin" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+          <p class="cb-fielderror" id="urlError" role="alert"></p>
+        </form>
+
+        <div id="linkResult"></div>
+
+        <div class="cb-device">
+          <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mp4,.mov,.webm,.m4v"
+                 hidden>
+          <button type="button" class="btn btn-primary btn-block" id="btnPickFile">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.4l-1.7-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"/>
+              <path d="m10 11 5 3-5 3z"/>
+            </svg>
+            <span class="cb-label">Choose a video on this phone</span>
+            <span class="cb-spin" aria-hidden="true"></span>
+          </button>
+          <p class="cb-device-note">Plays here straight away. Sending it to the
+            television copies it to the stream host first, and you choose how long
+            it stays there.</p>
+        </div>
+
+        <div id="deviceResult"></div>
+
+    <!-- The last few things played, with the page each came from. The full
+         list, search and stars stay on History. -->
+    <section class="cb-recent" id="recentBox" hidden aria-labelledby="recentTitle">
+      <div class="cb-recenthead">
+        <h3 class="cb-recenttitle" id="recentTitle">Continue watching</h3>
+        <button type="button" class="cb-linkbtn" id="recentAll">All history</button>
+      </div>
+      <div class="cb-list list-group" id="recentList"></div>
+    </section>
+
+        <div class="cb-empty mt-3" id="linkHint">
+          <h3>Paste anything with a video on it</h3>
+          <p>A video file plays straight away. A page gets read for you: one video plays, several open in Browse to pick from.</p>
+          <button type="button" class="btn btn-primary btn-sm" id="hintBrowse">Open Browse</button>
+        </div>
+
+        <div class="cb-rec" id="recBox" hidden>
+          <button type="button" class="btn btn-primary btn-block" id="btnRecScreen">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
+            <span class="cb-label">Record this screen</span>
+          </button>
+          <p class="cb-device-note" id="recNote">Recorded here, then sent to the
+            stream host and played on the television. Not live — it goes up when
+            you stop.</p>
+        </div>
+    </section>
+
+    <!-- ---------- Cast, screen 2 of 2: now playing ----------
+         Order is the order of the questions: what is it, where is it playing,
+         how do I control it. Everything for when it will not play is folded
+         at the bottom, where it waits instead of shouting. -->
+    <section class="cb-view" id="view-playing" tabindex="-1" hidden aria-labelledby="playTitle">
+      <div class="cb-playhead">
+        <button type="button" class="cb-back" data-back="pick" id="playBack">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+          <span>Pick another</span>
+        </button>
+        <p class="cb-step" aria-hidden="true"><b>2</b> Now playing</p>
+        <h2 class="cb-playtitle" id="playTitle">Now playing</h2>
+        <p class="cb-playfrom" id="playFrom" hidden></p>
+      </div>
 
     <!-- ---------- Player ---------- -->
     <div class="cb-screen is-idle" id="screen">
@@ -219,6 +303,64 @@
       </div>
     </div>
 
+    <!-- Where it plays. One switch, and it is the off switch too: "This
+         phone" stops the TV and brings the film back here. -->
+    <div class="cb-watchon">
+      <span class="cb-scoperow-label" id="watchOnLabel">Watch on</span>
+      <div class="cb-segment cb-watchon-seg" role="group" aria-labelledby="watchOnLabel">
+        <button type="button" class="cb-segment-btn is-on" id="onPhone" aria-pressed="true">This phone</button>
+        <button type="button" class="cb-segment-btn" id="onTv" aria-pressed="false">TV browser</button>
+      </div>
+    </div>
+
+    <!-- The remote for TV mode. assets/js/tvmode.js draws it. -->
+    <div class="cb-tvremote" id="tvRemote" hidden>
+      <div class="cb-tvcard-head">
+        <span class="cb-tv-dot" id="tvDot" aria-hidden="true"></span>
+        <span class="cb-tv-where" id="tvWhere"></span>
+      </div>
+      <p class="cb-tv-state" id="tvState" aria-live="polite"></p>
+
+      <div class="cb-tv-controls" id="tvControls" hidden>
+        <div class="cb-tv-scrub">
+          <span id="tvPos">0:00</span>
+          <label class="cb-sronly" for="tvScrub">Position on the TV</label>
+          <input type="range" id="tvScrub" min="0" max="1" step="1" value="0">
+          <span id="tvDur">--:--</span>
+        </div>
+        <div class="cb-tv-buttons">
+          <button type="button" class="btn btn-primary cb-tv-btn" id="tvBack" aria-label="Back 10 seconds">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+            <span>10</span>
+          </button>
+          <button type="button" class="btn btn-secondary cb-tv-btn cb-tv-toggle" id="tvToggle" aria-label="Pause">
+            <svg class="cb-tv-ico-play" hidden width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z"/></svg>
+            <svg class="cb-tv-ico-pause" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+          </button>
+          <button type="button" class="btn btn-primary cb-tv-btn" id="tvFwd" aria-label="Forward 10 seconds">
+            <span>10</span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <button type="button" class="btn btn-secondary btn-block" id="tvSend" hidden>
+        <span class="cb-label">Play it on the TV</span>
+        <span class="cb-spin" aria-hidden="true"></span>
+      </button>
+
+      <div class="cb-tvcard-foot">
+        <button type="button" class="btn btn-primary" id="tvStop">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+          <span>Stop on the TV</span>
+        </button>
+        <button type="button" class="cb-linkbtn" id="tvManage">TV settings</button>
+      </div>
+    </div>
+
+
+
+    <p class="cb-groupk">Other ways to watch</p>
     <!-- ---------- Status strip ---------- -->
     <div class="alert shadow-inset cb-status" id="status" role="status" aria-live="polite">
       <span class="cb-dot" id="statusDot"></span>
@@ -229,15 +371,25 @@
       </select>
     </div>
 
-    <!-- ---------- The other streams from the same page ----------
-         A scan usually finds more than one address for the same episode,
-         and which of them plays is not something the scan can know: one
-         host refuses this origin, another expired its token an hour ago,
-         a third works. Picking one used to throw the rest away, so a
-         stream that did not play meant scanning the page again.
+    <div class="cb-actions">
+      <button type="button" class="btn btn-primary" id="btnCast" disabled>
+        <google-cast-launcher aria-hidden="true"></google-cast-launcher>
+        <span>Cast to TV</span>
+      </button>
+      <button type="button" class="btn btn-primary" id="btnRemote" hidden>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"/><path d="m12 15 5 6H7z"/></svg>
+        <span>AirPlay</span>
+      </button>
+      <button type="button" class="btn btn-primary" id="btnVlc" disabled>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 3 5 8 5-8"/><path d="M5 14h14l2 7H3z"/></svg>
+        <span>Open in VLC</span>
+      </button>
+      <button type="button" class="btn btn-primary" id="btnCopy" disabled>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <span class="cb-label">Copy link</span>
+      </button>
+    </div>
 
-         Shown only when there is genuinely a choice — a single stream with
-         a picker offering it to you is a control that does nothing. -->
     <div class="cb-sources" id="sources" hidden>
       <label class="cb-sources-label" for="sourcePick">Source</label>
       <select class="form-control custom-select cb-sources-pick" id="sourcePick"></select>
@@ -246,62 +398,7 @@
       </button>
     </div>
 
-    <!-- ---------- Nothing found ----------
-         "No TV found" with a dead button is a wall, not an answer. This page
-         does not discover anything. Chrome does, over the local network, so the
-         only useful thing to say here is where that search goes wrong.
-         Shown only while the sender reports no devices. -->
-    <details class="cb-log cb-help" id="castHelp" hidden>
-      <summary>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 3.1c-.5.2-.8.7-.8 1.2v.4"/><path d="M12 17h.01"/></svg>
-        <span>Can&rsquo;t see your TV?</span>
-      </summary>
-      <div class="cb-help-body">
-        <p>This page never searches for televisions. Chrome does, on the network
-           the phone is joined to, and hands the list over. So a TV that shows
-           its own “ready to cast” screen and still doesn't appear here is
-           almost always a network split, not a fault in the app.</p>
-        <ol>
-          <li><b>Same Wi‑Fi, same name.</b> Not the guest network, and not a
-              separate 5&nbsp;GHz name. Two bands sold as two networks are two
-              networks.</li>
-          <li><b>Client isolation off.</b> Mesh kits and hotel-style routers
-              ship it on; it blocks exactly this. It is sometimes called AP
-              isolation or Guest mode.</li>
-          <li><b>A Samsung TV has no Cast of its own.</b> If that screen is
-              there, something is plugged into it: a Chromecast or a Google
-              TV stick, and <i>that</i> is what holds the Wi‑Fi setting. Check
-              it in the Google Home app, not in the TV's menu.</li>
-          <li><b>Close the setup screen on the TV</b>, then power-cycle the
-              stick and reload this page.</li>
-        </ol>
-        <p>If another television answers from this same phone right now, the
-           phone is fine and the difference is on that device.</p>
-      </div>
-    </details>
-
-    <!-- ---------- Cast log ----------
-         A television that accepts a stream and then sits on "loading" tells
-
-         the phone nothing by itself. Every state the sender library reports
-         is written down here in order, with the exact address handed over,
-         so a stall has an account of itself instead of a spinner. -->
-    <details class="cb-log" id="castLog" hidden>
-      <summary>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h10"/></svg>
-        <span id="castLogSummary">Cast log</span>
-      </summary>
-      <pre class="cb-log-lines" id="castLogLines" tabindex="0" aria-live="off"></pre>
-      <div class="cb-log-actions">
-        <button type="button" class="cb-log-btn" id="btnCopyLog">Copy log</button>
-        <button type="button" class="cb-log-btn" id="btnClearLog">Clear</button>
-      </div>
-    </details>
-
-    <!-- ---------- Subtitles ---------- *
-         A television fetches a text track itself and takes only WebVTT
-         served cross-origin-open, so every file goes through /api/subs
-         rather than straight to the TV. -->
+    <p class="cb-groupk">If it won&rsquo;t play</p>
     <details class="cb-subs" id="subsBox" hidden>
       <summary>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 12h5M6 15h8M15 12h3"/></svg>
@@ -342,159 +439,101 @@
       <button type="button" class="cb-subs-off" id="subsOff" hidden>Turn subtitles off</button>
     </details>
 
-    <!-- ---------- TV mode ----------
+    <details class="cb-log cb-help" id="castHelp" hidden>
+      <summary>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 3.1c-.5.2-.8.7-.8 1.2v.4"/><path d="M12 17h.01"/></svg>
+        <span>Can&rsquo;t see your TV?</span>
+      </summary>
+      <div class="cb-help-body">
+        <p>This page never searches for televisions. Chrome does, on the network
+           the phone is joined to, and hands the list over. So a TV that shows
+           its own “ready to cast” screen and still doesn't appear here is
+           almost always a network split, not a fault in the app.</p>
+        <ol>
+          <li><b>Same Wi‑Fi, same name.</b> Not the guest network, and not a
+              separate 5&nbsp;GHz name. Two bands sold as two networks are two
+              networks.</li>
+          <li><b>Client isolation off.</b> Mesh kits and hotel-style routers
+              ship it on; it blocks exactly this. It is sometimes called AP
+              isolation or Guest mode.</li>
+          <li><b>A Samsung TV has no Cast of its own.</b> If that screen is
+              there, something is plugged into it: a Chromecast or a Google
+              TV stick, and <i>that</i> is what holds the Wi‑Fi setting. Check
+              it in the Google Home app, not in the TV's menu.</li>
+          <li><b>Close the setup screen on the TV</b>, then power-cycle the
+              stick and reload this page.</li>
+        </ol>
+        <p>If another television answers from this same phone right now, the
+           phone is fine and the difference is on that device.</p>
+      </div>
+    </details>
+
+    <details class="cb-log" id="castLog" hidden>
+      <summary>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h10"/></svg>
+        <span id="castLogSummary">Cast log</span>
+      </summary>
+      <pre class="cb-log-lines" id="castLogLines" tabindex="0" aria-live="off"></pre>
+      <div class="cb-log-actions">
+        <button type="button" class="cb-log-btn" id="btnCopyLog">Copy log</button>
+        <button type="button" class="cb-log-btn" id="btnClearLog">Clear</button>
+      </div>
+    </details>
+    </section>
+
+    <!-- ---------- TV mode: pairing ----------
          For a phone that cannot Cast (every iPhone browser). The TV opens
          /tv in its own browser, shows a code, and plays what is sent — the
          film is fetched by the TV, so no app on the phone can take it away.
          assets/js/tvmode.js. -->
-    <details class="cb-log cb-tv" id="tvMode">
-      <summary>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
-        <span id="tvSummary">TV mode</span>
-      </summary>
-
+    <section class="cb-view" id="view-tv" tabindex="-1" hidden aria-labelledby="title-tv">
+      <div class="cb-viewhead">
+        <button type="button" class="cb-back" data-back="cast">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+          <span>Back</span>
+        </button>
+        <h2 class="cb-viewtitle" id="title-tv">Connect a TV</h2>
+        <p class="cb-viewsub">The TV plays the film in its own browser, so Instagram or a call on this phone can&rsquo;t take it away.</p>
+      </div>
       <div class="cb-tv-body" id="tvUnpaired">
-        <p class="cb-tv-lead">Plays on the TV’s own browser, so Instagram or a call on this phone can’t take the film off the TV.</p>
-        <ol class="cb-tv-steps">
-          <li>On the TV, open the web browser and go to <b>cast.jrvsystems.app/tv</b>.</li>
-          <li>Enter the six-digit code it shows, or scan its QR code with the camera.</li>
+        <ol class="cb-tvsteps">
+          <li>
+            <span class="cb-tvsteps-n" aria-hidden="true">1</span>
+            <span>On the TV, open its web browser and go to<br><b class="cb-tvaddr">cast.jrvsystems.app/tv</b></span>
+          </li>
+          <li>
+            <span class="cb-tvsteps-n" aria-hidden="true">2</span>
+            <span>Type the code the TV shows. Or scan its QR code with this phone&rsquo;s camera.</span>
+          </li>
         </ol>
         <form class="cb-tv-pair" id="tvPairForm" novalidate>
-          <label class="cb-sronly" for="tvCode">Code on the TV</label>
+          <label class="cb-gate-label" for="tvCode">Code on the TV</label>
           <input class="form-control cb-tv-code" id="tvCode" type="text" inputmode="numeric" pattern="[0-9]*"
                  maxlength="7" autocomplete="one-time-code" placeholder="000000" spellcheck="false"
                  aria-describedby="tvPairError">
-          <button type="submit" class="btn btn-primary" id="tvPair" disabled>
-            <span class="cb-label">Pair</span>
+          <p class="cb-tv-error" id="tvPairError" role="alert" hidden></p>
+          <button type="submit" class="btn btn-secondary btn-block" id="tvPair" disabled>
+            <span class="cb-label">Connect</span>
             <span class="cb-spin" aria-hidden="true"></span>
           </button>
         </form>
-        <p class="cb-tv-error" id="tvPairError" role="alert" hidden></p>
+        <p class="cb-tvnote"><b>Samsung:</b> use the built-in Internet app. <b>Sony Bravia:</b> install TV Bro from the Play Store on the TV.</p>
       </div>
 
       <div class="cb-tv-body" id="tvPaired" hidden>
-        <p class="cb-tv-where"><span class="cb-tv-dot" id="tvDot" aria-hidden="true"></span><span id="tvWhere"></span></p>
-        <p class="cb-tv-title" id="tvTitle" hidden></p>
-        <p class="cb-tv-state" id="tvState" aria-live="polite"></p>
-
-        <div class="cb-tv-controls" id="tvControls" hidden>
-          <div class="cb-tv-scrub">
-            <span id="tvPos">0:00</span>
-            <label class="cb-sronly" for="tvScrub">Position on the TV</label>
-            <input type="range" id="tvScrub" min="0" max="1" step="1" value="0">
-            <span id="tvDur">--:--</span>
-          </div>
-          <div class="cb-tv-buttons">
-            <button type="button" class="btn btn-primary cb-tv-btn" id="tvBack" aria-label="Back 10 seconds">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
-              <span>10</span>
-            </button>
-            <button type="button" class="btn btn-secondary cb-tv-btn cb-tv-toggle" id="tvToggle" aria-label="Pause">
-              <svg class="cb-tv-ico-play" hidden width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z"/></svg>
-              <svg class="cb-tv-ico-pause" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-            </button>
-            <button type="button" class="btn btn-primary cb-tv-btn" id="tvFwd" aria-label="Forward 10 seconds">
-              <span>10</span>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
-            </button>
-            <button type="button" class="btn btn-primary cb-tv-btn" id="tvStop" aria-label="Stop on the TV">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
-            </button>
-          </div>
+        <div class="cb-tvlinked">
+          <span class="cb-tv-dot" id="tvLinkedDot" aria-hidden="true"></span>
+          <span class="cb-tvlinked-text">
+            <strong id="tvLinkedName">Connected</strong>
+            <span id="tvLinkedSub"></span>
+          </span>
         </div>
-
-        <button type="button" class="btn btn-primary btn-block" id="tvSend" disabled>
-          <span class="cb-label">Send this film to the TV</span>
-          <span class="cb-spin" aria-hidden="true"></span>
-        </button>
-        <button type="button" class="cb-subs-off" id="tvUnpair">Unpair this TV</button>
+        <button type="button" class="btn btn-secondary btn-block" id="tvWatchHere" hidden>Play the film on the TV</button>
+        <!-- Last, and in words that say what happens. Undo is not offered:
+             reconnecting is typing the code again, which the TV still shows. -->
+        <button type="button" class="btn btn-primary btn-block cb-tvdisconnect" id="tvUnpair">Disconnect this TV</button>
+        <p class="cb-tvnote">Disconnecting stops anything playing on the TV. Films then play on this phone until you connect again.</p>
       </div>
-    </details>
-
-    <!-- ---------- Actions ---------- -->
-    <div class="cb-actions">
-      <button type="button" class="btn btn-primary" id="btnCast" disabled>
-        <google-cast-launcher aria-hidden="true"></google-cast-launcher>
-        <span>Cast to TV</span>
-      </button>
-      <button type="button" class="btn btn-primary" id="btnRemote" hidden>
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"/><path d="m12 15 5 6H7z"/></svg>
-        <span>AirPlay</span>
-      </button>
-      <button type="button" class="btn btn-primary" id="btnVlc" disabled>
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 3 5 8 5-8"/><path d="M5 14h14l2 7H3z"/></svg>
-        <span>Open in VLC</span>
-      </button>
-      <button type="button" class="btn btn-primary" id="btnCopy" disabled>
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        <span class="cb-label">Copy link</span>
-      </button>
-    </div>
-
-        <form id="linkForm" novalidate>
-          <div class="input-group">
-            <label class="cb-sronly" for="url">Video link</label>
-            <input class="form-control form-control-lg" id="url" type="url" inputmode="url"
-                   placeholder="Paste a video or page link" autocomplete="off" spellcheck="false"
-                   aria-describedby="urlError">
-            <div class="input-group-append">
-              <button type="submit" class="btn btn-secondary" id="btnPlay">
-                <span class="cb-label">Play</span>
-                <span class="cb-spin" aria-hidden="true"></span>
-              </button>
-            </div>
-          </div>
-          <p class="cb-fielderror" id="urlError" role="alert"></p>
-        </form>
-
-        <div id="linkResult"></div>
-
-        <!-- ---------- A file on this phone ----------
-             A television fetches over the network and a phone is not a
-             server, so this plays here straight away and uploads to the
-             stream host only when it is actually being sent somewhere. -->
-        <div class="cb-device">
-          <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mp4,.mov,.webm,.m4v"
-                 hidden>
-          <button type="button" class="btn btn-primary btn-block" id="btnPickFile">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.4l-1.7-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"/>
-              <path d="m10 11 5 3-5 3z"/>
-            </svg>
-            <span class="cb-label">Choose a video on this phone</span>
-            <span class="cb-spin" aria-hidden="true"></span>
-          </button>
-          <p class="cb-device-note">Plays here straight away. Sending it to the
-            television copies it to the stream host first, and you choose how long
-            it stays there.</p>
-        </div>
-
-        <div id="deviceResult"></div>
-
-        <div class="cb-empty mt-3" id="linkHint">
-          <h3>Paste anything with a video on it</h3>
-          <p>A file address — <b>.mp4</b>, <b>.webm</b>, <b>.m3u8</b> — plays straight away. Paste the page a video sits on and it gets read for you instead: one video plays, several open in Browse to pick from.</p>
-          <button type="button" class="btn btn-primary btn-sm" id="hintBrowse">Open Browse yourself</button>
-        </div>
-
-        <!-- Record this screen ----------
-             What is left of the old "put this screen on the TV" panel. The
-             instructions went: a web page cannot mirror a screen, the Cast
-             API takes an address and never a live picture, and a page of
-             steps for the television’s own menu is not this app’s job. This
-             is the part that was real — capture, then send the recording —
-             and app.js reveals it only where the browser can actually do it,
-             which is Chrome and Edge on a computer. -->
-        <div class="cb-rec" id="recBox" hidden>
-          <button type="button" class="btn btn-primary btn-block" id="btnRecScreen">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
-            <span class="cb-label">Record this screen</span>
-          </button>
-          <p class="cb-device-note" id="recNote">Recorded here, then sent to the
-            stream host and played on the television. Not live — it goes up when
-            you stop.</p>
-        </div>
     </section>
 
     <section class="cb-view" id="view-browse" tabindex="-1" hidden aria-labelledby="title-browse">

@@ -75,16 +75,16 @@ module.exports = async function handler(req, res) {
 
       let path;
       if (isOwner && q.user) {
-        path = 'history?select=id,url,title,kind,created_at,user_id' +
+        path = 'history?select=id,url,title,kind,page,created_at,user_id' +
                '&user_id=eq.' + enc(q.user) +
                '&order=created_at.desc&limit=' + LIMIT;
       } else if (isOwner && wantsAll) {
         /* The embedded users(username) is what makes the owner's view
            readable — a screen of raw uuids explains nothing. */
-        path = 'history?select=id,url,title,kind,created_at,user_id,users(username)' +
+        path = 'history?select=id,url,title,kind,page,created_at,user_id,users(username)' +
                '&order=created_at.desc&limit=' + LIMIT;
       } else {
-        path = 'history?select=id,url,title,kind,created_at' +
+        path = 'history?select=id,url,title,kind,page,created_at' +
                '&user_id=eq.' + enc(me.id) +
                '&order=created_at.desc&limit=' + LIMIT;
       }
@@ -95,6 +95,7 @@ module.exports = async function handler(req, res) {
         url: r.url,
         title: r.title,
         kind: r.kind,
+        page: r.page || null,
         at: r.created_at,
         who: r.users ? r.users.username : undefined
       }));
@@ -120,7 +121,10 @@ module.exports = async function handler(req, res) {
         user_id: me.id, // never body.user_id
         url: url.slice(0, 4000),
         title: body.title ? String(body.title).slice(0, 300) : null,
-        kind: body.kind ? String(body.kind).slice(0, 40) : null
+        kind: body.kind ? String(body.kind).slice(0, 40) : null,
+        /* The page the video was found on (db/006). http(s) only: it is
+           rendered as a link. */
+        page: /^https?:\/\//i.test(String(body.page || '')) ? String(body.page).slice(0, 4000) : null
       };
 
       /* Re-watching something should move it up the list, not add a second
@@ -129,7 +133,7 @@ module.exports = async function handler(req, res) {
         await db.remove('history?user_id=eq.' + enc(me.id) + '&url=eq.' + enc(url));
       } catch (e) { /* a failed de-dupe must not lose the new entry */ }
 
-      const made = await db.insert('history?select=id,url,title,kind,created_at', row);
+      const made = await db.insert('history?select=id,url,title,kind,page,created_at', row);
       res.statusCode = 201;
       res.end(JSON.stringify({ ok: true, item: Array.isArray(made) ? made[0] : made }));
       return;

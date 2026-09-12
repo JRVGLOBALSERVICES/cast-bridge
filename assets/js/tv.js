@@ -99,7 +99,36 @@
   function showPairing(on) {
     $('pair').hidden = !on;
     video.hidden = on;
+    if (on) {
+      hideHud();
+      drawPaired();
+    }
   }
+
+  /* On the idle screen of a TV that already has a phone: the code steps back
+     and the way to disconnect that phone comes forward, focused, so one
+     press of OK does it. */
+  function drawPaired() {
+    var btn = $('release');
+    btn.hidden = !paired;
+    $('pair').className = 'tv-pair' + (paired ? ' is-paired' : '');
+    if (paired && !$('pair').hidden && document.activeElement !== btn) {
+      try { btn.focus(); } catch (e) {}
+    }
+  }
+
+  $('release').addEventListener('click', function () {
+    if (!room) return;
+    var btn = $('release');
+    btn.disabled = true;
+    api({ action: 'release', code: room.code, tvKey: room.tvKey }).then(function () {
+      paired = false;
+      drawPaired();
+      line('Phone disconnected. Enter the code on a phone to connect again.', 'ok');
+    }, function () {
+      line('Couldn’t reach Cast Bridge. Try again.', 'bad');
+    }).then(function () { btn.disabled = false; });
+  });
 
   function newRoom() {
     since = 0;
@@ -185,7 +214,7 @@
           blocked = true;
           $('start').hidden = false;
           $('start').focus();
-          hud(true);
+          showHud(true);
         }
       });
     }
@@ -258,7 +287,7 @@
       return;
     }
     lastError = msg;
-    hud(true);
+    showHud(true);
   }
 
   video.addEventListener('error', function () {
@@ -267,7 +296,10 @@
     fail('The TV could not play it' + (e ? ' (media error ' + e.code + ')' : ''));
   });
   ['playing', 'pause', 'waiting', 'seeked'].forEach(function (ev) {
-    video.addEventListener(ev, function () { hud(video.paused || ev === 'waiting'); });
+    video.addEventListener(ev, function () {
+      drawKeys();
+      if (video.paused || ev === 'waiting') showHud(); else poke();
+    });
   });
   video.addEventListener('timeupdate', drawHud);
 
@@ -286,19 +318,19 @@
         $('hudTitle').textContent = c.title || 'Now playing';
         attach(c.url, c.mime, c.at || 0);
         attachSubs(c.subs, c.subsName);
-        hud(true);
+        showHud();
         break;
       case 'play': if (loaded) play(); break;
       case 'pause': if (loaded) video.pause(); break;
-      case 'seek': if (loaded) { try { video.currentTime = c.to; } catch (e) {} hud(true); } break;
-      case 'skip': if (loaded) { try { video.currentTime = Math.max(0, video.currentTime + c.by); } catch (e) {} hud(true); } break;
+      case 'seek': if (loaded) { try { video.currentTime = c.to; } catch (e) {} showHud(); } break;
+      case 'skip': if (loaded) { skip(c.by); } break;
       case 'stop':
         loaded = null;
         teardown();
-        hud(false);
         $('start').hidden = true;
         showPairing(true);
-        line('Stopped. Play something on your phone.', 'ok');
+        exitFullscreen();
+        line('Stopped. Pick another film on your phone.', 'ok');
         break;
     }
   }
@@ -338,7 +370,8 @@
         failures = 0;
         if (j.paired !== paired) {
           paired = j.paired;
-          if (!loaded) line(paired ? 'Phone paired. Play something on it.' : 'Waiting for your phone…', paired ? 'ok' : '');
+          if (!loaded) line(paired ? 'Phone connected. Pick a film on it.' : 'Waiting for your phone…', paired ? 'ok' : '');
+          drawPaired();
         }
         /* A seq that went backwards means the room was made again elsewhere.
            Start from its beginning rather than ignoring every command. */
@@ -362,7 +395,23 @@
   }
 
   /* ---------------------------------------------------------------- *
-   * HUD and the TV remote
+   * On-screen controls and the TV remote
+   *
+   * Rj: "need fullscreen, pause, play etc in the browser on the TV". The bar
+   * over the film used to be a picture of controls: title, time, a progress
+   * line, pointer-events off. It is real now, and built for a D-pad, which is
+   * all a TV remote is:
+   *
+   *   hidden   OK / up / down  show the bar, focus on play-pause
+   *            left / right    skip 10 seconds (and show the bar)
+   *   shown    left / right    move between buttons; on the bar, seek 10s
+   *            up / down       between the progress bar and the buttons
+   *            OK              press the focused control
+   *            Back            hide the bar
+   *
+   * Media keys (play, pause, fast-forward, rewind, stop) work either way.
+   * A pointer (Samsung's Smart Remote, TV Bro's cursor) can simply click.
+   * The bar hides itself five seconds after the last press while playing.
    * ---------------------------------------------------------------- */
 
   var STATE_TEXT = {
@@ -373,56 +422,205 @@
     ended: 'Finished',
     blocked: 'Press OK on the TV remote to start'
   };
+  var HIDE_MS = 5000;
+  var KEYS = ['kBack', 'kPlay', 'kFwd', 'kFull', 'kStop'];
+  var hudEl = $('hud');
+  var seekEl = $('hudSeek');
 
   function drawHud() {
     var d = video.duration;
     var pos = video.currentTime || 0;
+    var known = isFinite(d) && d > 0;
     $('hudPos').textContent = clock(pos);
-    $('hudDur').textContent = isFinite(d) && d > 0 ? clock(d) : '--:--';
-    $('hudBar').style.width = isFinite(d) && d > 0 ? Math.min(100, pos / d * 100) + '%' : '0';
+    $('hudDur').textContent = known ? clock(d) : '--:--';
+    $('hudBar').style.width = known ? Math.min(100, pos / d * 100) + '%' : '0';
+    seekEl.setAttribute('aria-valuenow', String(Math.floor(pos)));
+    seekEl.setAttribute('aria-valuetext', clock(pos) + (known ? ' of ' + clock(d) : ''));
     var s = state();
     $('hudState').textContent = s === 'error' ? lastError : (STATE_TEXT[s] || '');
   }
 
-  function hud(on) {
+  function drawKeys() {
+    var playing = loaded && !video.paused;
+    var k = $('kPlay');
+    k.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    $('icoPlay').style.display = playing ? 'none' : '';
+    $('icoPause').style.display = playing ? '' : 'none';
+    $('kPlayText').textContent = playing ? 'Pause' : 'Play';
+    var fs = !!fullscreenElement();
+    $('kFullText').textContent = fs ? 'Exit full screen' : 'Full screen';
+    $('kFull').hidden = !canFullscreen();
+  }
+
+  function hudShown() { return /\bis-on\b/.test(hudEl.className); }
+
+  function inHud(el) {
+    while (el) { if (el === hudEl) return true; el = el.parentNode; }
+    return false;
+  }
+
+  /* Show, and keep it up while nothing is playing. */
+  function showHud(focusPlay) {
     drawHud();
-    var el = $('hud');
+    drawKeys();
+    hudEl.className = 'tv-hud is-on';
+    if (focusPlay || !inHud(document.activeElement)) {
+      try { $('kPlay').focus(); } catch (e) {}
+    }
+    poke();
+  }
+
+  function hideHud() {
     clearTimeout(hudTimer);
-    if (on || state() !== 'playing') {
-      el.className = 'tv-hud is-on';
-      if (state() === 'playing') hudTimer = setTimeout(function () { el.className = 'tv-hud'; }, 4000);
-    } else {
-      el.className = 'tv-hud';
+    hudEl.className = 'tv-hud';
+    if (inHud(document.activeElement)) {
+      try { document.activeElement.blur(); } catch (e) {}
     }
   }
+
+  /* Every press restarts the countdown; it only runs while playing. */
+  function poke() {
+    clearTimeout(hudTimer);
+    if (!hudShown()) return;
+    if (state() === 'playing') hudTimer = setTimeout(hideHud, HIDE_MS);
+  }
+
+  function skip(by) {
+    if (!loaded) return;
+    try { video.currentTime = Math.max(0, (video.currentTime || 0) + by); } catch (e) {}
+    showHud();
+  }
+
+  function toggle() {
+    if (!loaded) return;
+    if (video.paused) play(); else video.pause();
+    showHud();
+  }
+
+  function stopHere() {
+    run({ type: 'stop' });
+  }
+
+  /* Full screen. Webkit prefixes for the older Chromium in Tizen, and the
+     button disappears where the browser has no full-screen API at all. */
+  function fullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+  function canFullscreen() {
+    var d = document.documentElement;
+    return !!(d.requestFullscreen || d.webkitRequestFullscreen);
+  }
+  function exitFullscreen() {
+    if (!fullscreenElement()) return;
+    var exit = document.exitFullscreen || document.webkitExitFullscreen;
+    try { var p = exit.call(document); if (p && p['catch']) p['catch'](function () {}); } catch (e) {}
+  }
+  function toggleFullscreen() {
+    if (fullscreenElement()) { exitFullscreen(); return; }
+    var d = document.documentElement;
+    var req = d.requestFullscreen || d.webkitRequestFullscreen;
+    if (!req) return;
+    try {
+      var p = req.call(d);
+      if (p && p['catch']) {
+        p['catch'](function () {
+          $('hudState').textContent = 'This TV browser won’t go full screen. Use its own menu for full screen.';
+        });
+      }
+    } catch (e) { /* no gesture, or refused */ }
+  }
+  document.addEventListener('fullscreenchange', drawKeys);
+  document.addEventListener('webkitfullscreenchange', drawKeys);
 
   $('start').addEventListener('click', function () {
     $('start').hidden = true;
     play();
   });
 
-  /* The TV's own remote works too. Key codes cover a browser that reports
-     `key` and older ones that only report keyCode (Tizen's media keys). */
-  document.addEventListener('keydown', function (e) {
+  $('kBack').addEventListener('click', function () { skip(-10); });
+  $('kFwd').addEventListener('click', function () { skip(10); });
+  $('kPlay').addEventListener('click', toggle);
+  $('kFull').addEventListener('click', function () { toggleFullscreen(); showHud(); });
+  $('kStop').addEventListener('click', stopHere);
+
+  /* A click on the progress bar seeks to that spot. */
+  seekEl.addEventListener('click', function (e) {
+    var d = video.duration;
+    if (!loaded || !isFinite(d) || d <= 0) return;
+    var r = seekEl.getBoundingClientRect();
+    var f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    try { video.currentTime = f * d; } catch (x) {}
+    showHud();
+  });
+
+  /* A pointer moving over the film shows the bar; a click on the film
+     shows or hides it. */
+  document.addEventListener('mousemove', function () { if (loaded) showHud(); });
+  video.addEventListener('click', function () {
     if (!loaded) return;
+    if (hudShown()) hideHud(); else showHud(true);
+  });
+
+  function moveFocus(step) {
+    var visible = [];
+    for (var i = 0; i < KEYS.length; i++) if (!$(KEYS[i]).hidden) visible.push(KEYS[i]);
+    var at = -1;
+    for (var j = 0; j < visible.length; j++) if (document.activeElement === $(visible[j])) at = j;
+    var next = at === -1 ? visible.indexOf('kPlay') : Math.max(0, Math.min(visible.length - 1, at + step));
+    try { $(visible[next]).focus(); } catch (e) {}
+  }
+
+  /* `key` for browsers that report it; keyCode for the older ones and for
+     Tizen's media keys (10252 play-pause, 415 play, 19 pause, 413 stop,
+     417 fast-forward, 412 rewind, 10009 return). */
+  document.addEventListener('keydown', function (e) {
     var k = e.key, c = e.keyCode;
-    if (document.activeElement === $('start') && (k === 'Enter' || c === 13)) return;
-    if (k === 'Enter' || k === ' ' || k === 'MediaPlayPause' || c === 13 || c === 10252) {
-      if (video.paused) play(); else video.pause();
-    } else if (k === 'MediaPlay' || c === 415) {
-      play();
-    } else if (k === 'MediaPause' || c === 19) {
-      video.pause();
-    } else if (k === 'ArrowRight' || k === 'MediaFastForward' || c === 39 || c === 417) {
-      try { video.currentTime = video.currentTime + 10; } catch (x) {}
-    } else if (k === 'ArrowLeft' || k === 'MediaRewind' || c === 37 || c === 412) {
-      try { video.currentTime = Math.max(0, video.currentTime - 10); } catch (x) {}
+    if (!loaded) return;  // the idle screen is plain buttons; the browser moves focus
+    if (!$('start').hidden && document.activeElement === $('start')) return;
+
+    var left = k === 'ArrowLeft' || k === 'Left' || c === 37;
+    var right = k === 'ArrowRight' || k === 'Right' || c === 39;
+    var up = k === 'ArrowUp' || k === 'Up' || c === 38;
+    var down = k === 'ArrowDown' || k === 'Down' || c === 40;
+    var ok = k === 'Enter' || c === 13 || c === 29443;
+    var back = k === 'Escape' || k === 'GoBack' || k === 'BrowserBack' || c === 10009 || c === 461 || c === 27;
+    var handled = true;
+
+    if (k === 'MediaPlayPause' || c === 10252 || c === 179) toggle();
+    else if (k === 'MediaPlay' || c === 415) { play(); showHud(); }
+    else if (k === 'MediaPause' || c === 19) { video.pause(); showHud(); }
+    else if (k === 'MediaStop' || c === 413) stopHere();
+    else if (k === 'MediaFastForward' || c === 417) skip(10);
+    else if (k === 'MediaRewind' || c === 412) skip(-10);
+    else if (!hudShown()) {
+      if (left) skip(-10);
+      else if (right) skip(10);
+      else if (ok || up || down || k === ' ') showHud(true);
+      else if (back && fullscreenElement()) exitFullscreen();
+      else handled = false;
     } else {
-      hud(true);
-      return;
+      var el = document.activeElement;
+      poke();
+      if (back) hideHud();
+      else if (el === seekEl) {
+        if (left) skip(-10);
+        else if (right) skip(10);
+        else if (down) moveFocus(0);
+        else if (ok) toggle();
+        else handled = false;
+      } else if (inHud(el)) {
+        if (left) moveFocus(-1);
+        else if (right) moveFocus(1);
+        else if (up) { try { seekEl.focus(); } catch (x) {} }
+        else if (down) { /* already on the bottom row */ }
+        else handled = false;  // OK presses the focused button itself
+      } else if (left || right || up || down || ok) {
+        showHud(true);
+      } else {
+        handled = false;
+      }
     }
-    e.preventDefault();
-    hud(true);
+    if (handled) e.preventDefault();
   });
 
   /* ---------------------------------------------------------------- */
