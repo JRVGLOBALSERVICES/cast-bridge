@@ -1645,3 +1645,13 @@ is Malaysia and Vercel has none, so a title licensed to MY and to neither HK
 nor SG remains unreachable from a server no matter what this app does. If a
 film plays in the app on your phone and this refuses it with 10015001 or
 10023013 after both tries, that is the gap and it is not fixable here.
+
+## Task 12: Cast after play — the RESUMED diagnosis is inferred, not observed
+**Question:** is the failure really SESSION_RESUMED on join?
+**Assumption made:** yes — it is the only path where a tapped Cast with a film loaded sent nothing, and it matches the workaround exactly (CONNECTED-then-play always sends). No Chromecast here to watch it.
+**Context Rj needs to review:** if it still fails, open the cast log after tapping Cast: a `Session: SESSION_RESUMED` line followed by `Joined a session the TV already had — sending the film` means this fix ran; anything else is a different cause. `assets/js/castaction.js` onSession.
+
+## Task 13: AirPlay via HLS — Android keeps Shaka
+**Question:** should Android Chrome also use the HLS form (it now answers canPlayType for HLS)?
+**Assumption made:** no. Only Apple + native HLS switches (`appleHlsOf`); Android has no AirPlay to gain and Shaka works there. If the HLS form fails on an Apple device the app logs the media error and falls back to Shaka (sound-only AirPlay, but the phone still plays).
+**Context Rj needs to review:** `assets/js/app.js` appleHlsOf, `lib/bstar-hls.js`.

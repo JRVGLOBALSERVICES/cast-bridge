@@ -1274,3 +1274,24 @@ things were, and the second one was invisible until the first was fixed.
       request logs are not reachable from this VPS (bot checkpoint, and the
       runtime-log API only streams live), so the TV-side leg was not
       re-observed for this report.
+
+## 2026-09-12 — Cast after play (Android), AirPlay picture (Apple)
+
+- [x] Task 12: "click play, video loads, then Cast to TV doesn't work — I have
+      to connect first, then play from history." Picking a TV that still held
+      this app's receiver is a join (SESSION_RESUMED) and only SESSION_STARTED
+      sent the film. Now `CBCastAction.onSession` decides send/adopt by who
+      asked; the session-start load also keeps `viaProxy`. `test-sessionstart`
+      (12) — reverting to the STARTED-only rule turns it red.
+- [x] Task 13: AirPlay "no video, only audio, no stream logs". Bilibili TV DASH
+      played on Apple via Shaka (MSE) → AirPlays as sound only. `/api/bstar?f=hls`
+      now serves the same pick as HLS v7 with byte ranges from the sidx; Apple
+      Safari plays it natively. AirPlay picker/target/stall lines in the cast log.
+      `test-bstar-hls --live`: on a real on-demand fMP4 every range starts on a
+      `moof` and they tile the file; hls.js in headless Chrome played the
+      generated playlists from 6:40 onward with picture and sound.
+      Deployed `93d4940`, both hosts serve it.
+
+      NOT verified: a real Bilibili TV episode through `?f=hls` (region-gated
+      from this VPS, and the test account does not exist on production), a
+      real Apple TV, and a real Chromecast join. First real test is Rj's.
