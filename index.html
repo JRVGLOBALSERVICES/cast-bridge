@@ -613,10 +613,21 @@
         <button type="button" class="btn btn-secondary cb-webbtn" id="webFull" aria-label="Full screen">&#x26f6;</button>
       </div>
       <div class="cb-webtools">
+        <button type="button" class="btn btn-secondary btn-sm cb-webtv" id="webMirror" aria-expanded="false" aria-controls="webMirrorHelp" hidden>Mirror to TV</button>
         <button type="button" class="btn btn-primary btn-sm cb-webtv" id="webTv">Send to TV</button>
         <button type="button" class="cb-linkbtn" id="webScan">Scan this page</button>
         <a class="cb-linkbtn" id="webExternal" href="#" target="_blank" rel="noopener noreferrer">Open in Chrome</a>
         <button type="button" class="cb-linkbtn" id="webClose">Close page</button>
+      </div>
+      <div class="cb-mirror" id="webMirrorHelp" hidden>
+        <p class="cb-mirror-title">Mirror your phone to the TV (no pairing)</p>
+        <ol class="cb-mirror-steps">
+          <li>Swipe down from the top of the screen twice to open quick settings.</li>
+          <li>Tap <b>Smart View</b> (Samsung) or <b>Cast / Screen cast</b> and pick your TV.</li>
+          <li>Come back here, start the film, then tap <b>TV view</b>.</li>
+        </ol>
+        <button type="button" class="btn btn-primary btn-sm" id="webMirrorGo">TV view</button>
+        <p class="cb-mirror-note">Keep the phone awake while you watch. To stop, open quick settings and tap Smart View again.</p>
       </div>
       <div class="cb-webframe" id="webFrameBox"></div>
       <div class="cb-webtools cb-webtools-end">

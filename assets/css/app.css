@@ -3073,6 +3073,17 @@ a.cb-itemlink:first-child { text-decoration: underline; text-underline-offset: 2
   border: 0;
   background: #fff;
 }
+.cb-mirror {
+  margin: 0 0 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--cb-surface);
+  box-shadow: var(--cb-shadow-inset);
+}
+.cb-mirror-title { margin: 0 0 6px; font-weight: 600; }
+.cb-mirror-steps { margin: 0 0 10px; padding-left: 1.2rem; font-size: .9rem; }
+.cb-mirror-steps li + li { margin-top: 4px; }
+.cb-mirror-note { margin: 8px 0 0; font-size: .8rem; color: var(--cb-ink-2); }
 .cb-webhint {
   margin: 10px 2px 0;
   font-size: .8rem;

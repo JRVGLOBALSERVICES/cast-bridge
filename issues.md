@@ -1720,3 +1720,13 @@ film plays in the app on your phone and this refuses it with 10015001 or
 **Question:** can pop-ups be blocked on viewverse without breaking its player?
 **Assumption made:** no. The sandbox is the only thing a page can use to stop a framed site's pop-ups, and viewverse's player refuses to run inside one. Close the ad tabs as they open. The app now asks "Leave site?" if a site tries to replace Cast Bridge itself; that prompt also shows if you reload the app while a page is open.
 **Context Rj needs to review:** `setWebPopups` and the `beforeunload` handler in `assets/js/app.js`.
+
+## Task 26: Mirror to TV can't open Smart View for you
+**Question:** can the button launch Smart View directly?
+**Assumption made:** no. Chrome only launches apps that accept web links; Android's cast settings don't, so the panel gives the steps and TV view does full screen + landscape.
+**Context Rj needs to review:** `webMirror` / `webMirrorGo` in `assets/js/app.js`, `webMirrorHelp` in `index.html`. Shown on Android only. Not tried on a real phone or the Samsung.
+
+## Task 28: Restreaming pirate-site media through our server
+**Question:** capture the stream from viewverse/msportsx, pipe it through stream.jrvsystems.app and cast it?
+**Assumption made:** not built. Our server would be re-hosting unlicensed films, and Cast Bridge is sold to other people. "Personal use" doesn't cover pulling streams from unlicensed sites under Malaysia's Copyright Act. The legal options (Smart View mirroring, direct links, pairing) are built.
+**Context Rj needs to review:** nothing to review in code; decision only.

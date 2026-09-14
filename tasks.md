@@ -1375,3 +1375,16 @@ things were, and the second one was invisible until the first was fixed.
       Send to TV in the Browser: the paired TV (TV mode, /tv) opens the page in
       its own browser; the remote plays it; Back returns to TV mode without
       replaying the command (new `page` command, lib/tv.js + assets/js/tv.js).
+
+## 2026-09-14 — Casting without pairing
+
+- [x] Task 26: "Build it" (Cast to TV on Android with no pairing).
+      Browser has **Mirror to TV** on Android: Smart View / Screen cast steps,
+      and **TV view** puts the page full screen and sideways for a mirrored
+      screen. A web page cannot open Smart View itself, so it is steps + one tap.
+- [x] Task 27: "Build it" (direct cast for real video links).
+      A .mp4 / .m3u8 / Drive / Dropbox link pasted into the Browser (Open or
+      its address bar) goes to the player instead of a frame, where Cast to TV
+      and AirPlay already work.
+- [ ] Task 28: "just stream those media to our own server and cast la."
+      Not built: restreaming pirate-site streams through our server. See issues.md.

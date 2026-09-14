@@ -5679,6 +5679,19 @@
     webLoad();
   }
 
+  /* A real video address (.mp4, .m3u8, a Drive/Dropbox share) is not a web
+     page. Framing it gives Chrome's bare file viewer, with no Cast to TV.
+     It goes to the player instead, which casts it straight to a Chromecast
+     TV, or through Chrome's cast picker. Returns true when it did. */
+  function webPlayDirect(u) {
+    if (!looksDirect(u)) return false;
+    $('url').value = u;
+    if (load(u, { from: u }) === false) return false;
+    showView('cast', { focus: true, push: true });
+    toast({ text: 'That\'s a video link, so it opened in the player. Tap Cast to TV.' });
+    return true;
+  }
+
   function openWeb(raw) {
     var u = webAddress(raw);
     if (!u) {
@@ -5686,6 +5699,7 @@
       fieldError($('pageUrl'), $('pageError'), 'Paste a web address, like https://example.com/watch/123');
       return;
     }
+    if (webPlayDirect(u)) return;
     var same = u === webUrlNow && $('webFrameBox').firstChild;
     showTab('web', { push: true });
     if (!same) webGo(u);
@@ -5713,7 +5727,38 @@
   $('webForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var u = webAddress($('webUrl').value);
-    if (u) { $('webUrl').blur(); webGo(u); }
+    if (!u) return;
+    $('webUrl').blur();
+    if (!webPlayDirect(u)) webGo(u);
+  });
+
+  /* Mirror to TV. A web page cannot reach Android's Smart View or cast
+     settings (Chrome only launches apps that accept links), so the panel
+     gives the steps, and TV view gets the page ready for a mirrored screen:
+     full screen, turned sideways. No pairing, and it works on every site. */
+  var ANDROID = /Android/i.test(navigator.userAgent);
+  $('webMirror').hidden = !ANDROID;
+  $('webMirror').addEventListener('click', function () {
+    var box = $('webMirrorHelp');
+    box.hidden = !box.hidden;
+    $('webMirror').setAttribute('aria-expanded', box.hidden ? 'false' : 'true');
+  });
+  $('webMirrorGo').addEventListener('click', function () {
+    var el = $('webFrameBox');
+    var req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!req) { toast({ text: 'Use the player\'s own full-screen button, then turn the phone sideways.' }); return; }
+    Promise.resolve(req.call(el)).then(function () {
+      if (screen.orientation && screen.orientation.lock) {
+        return screen.orientation.lock('landscape').catch(function () {});
+      }
+    }).catch(function () {
+      toast({ text: 'Full screen was refused. Use the player\'s own full-screen button.' });
+    });
+  });
+  document.addEventListener('fullscreenchange', function () {
+    if (!document.fullscreenElement && screen.orientation && screen.orientation.unlock) {
+      try { screen.orientation.unlock(); } catch (e) {}
+    }
   });
   $('webBack').addEventListener('click', function () {
     /* The frame's own page changes are entries in this tab's history, so
