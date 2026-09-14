@@ -1705,3 +1705,8 @@ film plays in the app on your phone and this refuses it with 10015001 or
 **Question:** can rows played before today link to their page?
 **Assumption made:** only if this phone still has the page saved locally. The server only started storing it today (`castbridge.history.page`, applied to production), so older rows that came from the server show "Open link" (the video file) until you play them again.
 **Context Rj needs to review:** `db/006_castbridge_history_page.sql`, `api/history.js`.
+
+## Task 21: Built-in browser limits
+**Question:** what about sites that refuse to open inside another page?
+**Assumption made:** they show blank; the screen says so and Open in Chrome is always there. No proxy that strips their headers. viewverse.name.ng and msportsx.xyz send no frame block, and viewverse rendered inside the frame locally.
+**Context Rj needs to review:** `view-web` in `index.html`, `openWeb()` in `assets/js/app.js`. Pop-ups are blocked by default (sandbox); if a player refuses to start, tap Allow. The in-page cast button of a framed player may not find the TV in every browser; Chrome's Cast tab always works. Not tried on a real phone or TV yet.

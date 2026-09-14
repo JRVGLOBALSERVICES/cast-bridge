@@ -1346,3 +1346,13 @@ things were, and the second one was invisible until the first was fixed.
       Browse) and Copy. The server never stored the page, so synced rows had
       none: `castbridge.history.page` added (db/006, applied) and sent on
       every play. Rows played before today fill in when played again.
+
+## 2026-09-14 — Built-in browser
+
+- [x] Task 21: "Just add a browser where I can paste these links and view the media and play and cast as well."
+      Browse has an **Open** button next to Scan. It opens the Browser screen:
+      address bar, back, reload, full screen, the page in a frame exactly as
+      its site serves it (no proxy, nothing stripped), Block pop-ups / Allow,
+      Scan this page, Open in Chrome. Casting is the site's own cast button
+      or Chrome ⋮ > Cast > Cast tab. Leaving the screen unloads the page so
+      its audio stops.

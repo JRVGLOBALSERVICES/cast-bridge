@@ -1251,7 +1251,7 @@
    * as losing the page.
    * ------------------------------------------------------------------ */
 
-  var VIEWS = ['cast', 'playing', 'tv', 'browse', 'library', 'history', 'more',
+  var VIEWS = ['cast', 'playing', 'tv', 'browse', 'web', 'library', 'history', 'more',
     'bilibili', 'host', 'people', 'help'];
 
   var NAV_VIEWS = ['cast', 'browse', 'library', 'history', 'more'];
@@ -1260,7 +1260,7 @@
      never shows nothing selected. */
   var NAV_OF = {
     bilibili: 'more', host: 'more', people: 'more', help: 'more',
-    playing: 'cast', tv: 'cast'
+    playing: 'cast', tv: 'cast', web: 'browse'
   };
 
   /* The names the rest of this file already calls, kept working rather than
@@ -1277,6 +1277,7 @@
      app feels slow for no reason. */
   function onEnterView(name) {
     if (name === 'browse') refreshSeries();
+    if (name === 'web' && webUrlNow && !$('webFrameBox').firstChild) webLoad();
     if (name === 'history') renderHistory();
     if (name === 'people') renderUsers();
     if (name === 'library') renderLibrary();
@@ -1289,6 +1290,7 @@
      three minutes — left running it is traffic nobody is watching. */
   function onLeaveView(name) {
     if (name === 'bilibili') stopBiliPoll();
+    if (name === 'web') $('webFrameBox').textContent = '';
   }
 
   function showView(name, opts) {
@@ -5576,6 +5578,100 @@
 
     return wrap;
   }
+
+  /* ------------------------------------------------------------------ *
+   * Browser — show the page itself
+   *
+   * Rj: "just add a browser where I can paste these links and view the
+   * media and play and cast as well." The page goes into a frame exactly as
+   * its site serves it. The site's own player plays it; its cast button, or
+   * Chrome's Cast tab, puts it on the TV. A site that refuses to be framed
+   * shows blank, and Open in Chrome is always one tap away for that case.
+   *
+   * Pop-ups are blocked by default (sandbox without allow-popups): free
+   * streaming pages open an ad tab on nearly every tap. Some players refuse
+   * to run sandboxed, so Allow reloads the frame without it.
+   * ------------------------------------------------------------------ */
+
+  var webUrlNow = '';
+  var webBlockPopups = true;
+
+  function webAddress(raw) {
+    var v = String(raw || '').trim();
+    if (!v) return '';
+    if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+    try {
+      var u = new URL(v);
+      return /^https?:$/.test(u.protocol) ? u.href : '';
+    } catch (err) { return ''; }
+  }
+
+  function webLoad() {
+    var box = $('webFrameBox');
+    box.textContent = '';
+    if (!webUrlNow) return;
+    var f = document.createElement('iframe');
+    f.className = 'cb-webiframe';
+    f.title = 'Web page';
+    f.referrerPolicy = 'no-referrer-when-downgrade';
+    f.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture; presentation');
+    f.setAttribute('allowfullscreen', '');
+    if (webBlockPopups) {
+      f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation allow-orientation-lock');
+    }
+    f.src = webUrlNow;
+    box.appendChild(f);
+    $('webUrl').value = webUrlNow;
+    $('webExternal').href = IOS ? chromeHref(webUrlNow) : webUrlNow;
+  }
+
+  function openWeb(raw) {
+    var u = webAddress(raw);
+    if (!u) {
+      showTab('browse', { focus: true });
+      fieldError($('pageUrl'), $('pageError'), 'Paste a web address, like https://example.com/watch/123');
+      return;
+    }
+    webUrlNow = u;
+    showTab('web', { push: true });
+    webLoad();
+  }
+
+  function setWebPopups(block) {
+    webBlockPopups = block;
+    $('webPopOff').classList.toggle('is-on', block);
+    $('webPopOn').classList.toggle('is-on', !block);
+    $('webPopOff').setAttribute('aria-pressed', block ? 'true' : 'false');
+    $('webPopOn').setAttribute('aria-pressed', block ? 'false' : 'true');
+    webLoad();
+  }
+
+  $('btnOpenPage').addEventListener('click', function () { openWeb($('pageUrl').value); });
+  $('webForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var u = webAddress($('webUrl').value);
+    if (u) { webUrlNow = u; webLoad(); }
+  });
+  $('webBack').addEventListener('click', function () {
+    if (window.history.state && window.history.state.view === 'web') window.history.back();
+    else showTab('browse');
+  });
+  $('webReload').addEventListener('click', webLoad);
+  $('webPopOff').addEventListener('click', function () { setWebPopups(true); });
+  $('webPopOn').addEventListener('click', function () { setWebPopups(false); });
+  $('webScan').addEventListener('click', function () {
+    if (!webUrlNow) return;
+    showTab('browse');
+    setBrowseMode('page');
+    $('pageUrl').value = webUrlNow;
+    scan(webUrlNow);
+  });
+  $('webFull').addEventListener('click', function () {
+    var el = $('webFrameBox');
+    var req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) req.call(el);
+    else toast({ text: 'Use the player\'s own full-screen button.' });
+  });
 
   $('browseForm').addEventListener('submit', function (e) {
     e.preventDefault();

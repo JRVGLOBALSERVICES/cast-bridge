@@ -561,6 +561,10 @@
                    placeholder="Open a page address" autocomplete="off" spellcheck="false"
                    aria-describedby="pageError">
             <div class="input-group-append">
+              <!-- Open shows the page itself, its own player and all. Scan
+                   reads streams out of it. Open comes first because it works
+                   on every site that lets itself be shown inside an app. -->
+              <button type="button" class="btn btn-primary" id="btnOpenPage">Open</button>
               <button type="submit" class="btn btn-secondary" id="btnScan">
                 <span class="cb-label">Scan</span>
                 <span class="cb-spin" aria-hidden="true"></span>
@@ -591,6 +595,34 @@
             episode list off the page, remembers it, and every episode is one tap from
             the television. It is still here tomorrow.</p>
         </div>
+    </section>
+
+    <!-- The built-in browser. The page loads exactly as the site serves it:
+         nothing is fetched on its behalf, nothing is stripped. Casting is
+         Chrome's own (the site's cast button, or Chrome menu > Cast). -->
+    <section class="cb-view cb-web" id="view-web" tabindex="-1" hidden aria-labelledby="title-web">
+      <h2 class="cb-sronly" id="title-web">Browser</h2>
+      <div class="cb-webbar">
+        <button type="button" class="btn btn-secondary cb-webbtn" id="webBack" aria-label="Back to Browse">&larr;</button>
+        <form class="cb-webform" id="webForm" novalidate>
+          <label class="cb-sronly" for="webUrl">Page address</label>
+          <input class="form-control" id="webUrl" type="url" inputmode="url"
+                 autocomplete="off" spellcheck="false" placeholder="Paste a link">
+        </form>
+        <button type="button" class="btn btn-secondary cb-webbtn" id="webReload" aria-label="Reload page">&#x21bb;</button>
+        <button type="button" class="btn btn-secondary cb-webbtn" id="webFull" aria-label="Full screen">&#x26f6;</button>
+      </div>
+      <div class="cb-webtools">
+        <div class="cb-segment" role="group" aria-label="Pop-ups">
+          <button type="button" class="cb-segment-btn is-on" id="webPopOff" aria-pressed="true">Block pop-ups</button>
+          <button type="button" class="cb-segment-btn" id="webPopOn" aria-pressed="false">Allow</button>
+        </div>
+        <button type="button" class="cb-linkbtn" id="webScan">Scan this page</button>
+        <a class="cb-linkbtn" id="webExternal" href="#" target="_blank" rel="noopener noreferrer">Open in Chrome</a>
+      </div>
+      <div class="cb-webframe" id="webFrameBox"></div>
+      <p class="cb-webhint" id="webHint">To put it on the TV: tap the player&rsquo;s cast button, or in Chrome open &#8942; &gt; <b>Cast</b> &gt; <b>Cast tab</b>.
+        Page stays blank or says it refused to connect? That site won&rsquo;t open inside apps. Use <b>Open in Chrome</b>.</p>
     </section>
 
     <section class="cb-view" id="view-library" tabindex="-1" hidden aria-labelledby="title-library">
