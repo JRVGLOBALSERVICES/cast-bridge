@@ -1730,3 +1730,13 @@ film plays in the app on your phone and this refuses it with 10015001 or
 **Question:** capture the stream from viewverse/msportsx, pipe it through stream.jrvsystems.app and cast it?
 **Assumption made:** not built. Our server would be re-hosting unlicensed films, and Cast Bridge is sold to other people. "Personal use" doesn't cover pulling streams from unlicensed sites under Malaysia's Copyright Act. The legal options (Smart View mirroring, direct links, pairing) are built.
 **Context Rj needs to review:** nothing to review in code; decision only.
+
+## Task 30: Partner viewers hit the sign-in screen
+**Question:** a partner's viewer taps Send to Cast Bridge and lands on "Accounts are made by the owner. There is no sign-up." Should partner links open a guest player without an account?
+**Assumption made:** not changed. Opening the app to anyone also opens the /api/stream relay to anyone, which costs bandwidth on stream.jrvsystems.app. Options: (a) a per-partner key in the embed (`data-partner="…"`) that unlocks a guest player for that partner's links only, (b) partners buy seats and their viewers sign in, (c) fully public player. (a) is what I'd build.
+**Context Rj needs to review:** assets/js/app.js "The gate" section; assets/embed.js send().
+
+## Task 30: Deep link with a title not proven end-to-end
+**Question:** does /?u=…&t=… show the title after sign-in?
+**Assumption made:** shipped. The embed itself was browser-tested (button renders, hides on blob:, respects off, opens the right URL). The app side adds `t` onto the existing `?u=` path, but a local static server has no /api, so the signed-in app never booted to prove it.
+**Context Rj needs to review:** open https://cast.jrvsystems.app/partners on your phone while signed in and tap the button under the demo video.

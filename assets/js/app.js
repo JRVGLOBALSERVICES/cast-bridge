@@ -6661,7 +6661,9 @@
   }
 
   if (deepLink) {
-    load(deepLink);
+    /* ?t= is the title a partner's embed sends along (assets/embed.js). */
+    var deepTitle = (params.get('t') || '').slice(0, 200);
+    load(deepLink, deepTitle ? { title: deepTitle } : undefined);
     $('linkHint').hidden = true;
   } else if (deepPage) {
     showTab('browse');

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cast Bridge for your videos</title>
+<meta name="description" content="Add one script tag and every video on your site gets a button that sends it to a TV through Cast Bridge.">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Tokens copied from assets/css/app.css :root so this page reads as the
+     same product without loading the app's whole stylesheet. */
+  :root {
+    --cb-surface: #e6e7ee;
+    --cb-accent: #2d4cc8;
+    --cb-ink: #44476a;
+    --cb-ink-2: #525480;
+    --cb-line: #d1d9e6;
+    --cb-ok: #18634b;
+    --cb-shadow-soft: 6px 6px 12px #b8b9be, -6px -6px 12px #ffffff;
+    --cb-shadow-inset: inset 2px 2px 5px #b8b9be, inset -3px -3px 7px #ffffff;
+    --cb-radius: 0.55rem;
+    --cb-radius-xl: 0.95rem;
+    --cb-label-size: 0.6875rem;
+    --cb-label-weight: 700;
+    --cb-label-track: 0.08em;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--cb-surface);
+    color: var(--cb-ink);
+    font: 400 1rem/1.6 "Nunito Sans", system-ui, sans-serif;
+  }
+  .skip { position: absolute; left: -9999px; }
+  .skip:focus { left: 1rem; top: 1rem; background: #fff; padding: .5rem 1rem; border-radius: var(--cb-radius); }
+  main { max-width: 44rem; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+  .eyebrow {
+    font-size: var(--cb-label-size); font-weight: var(--cb-label-weight);
+    letter-spacing: var(--cb-label-track); text-transform: uppercase; color: var(--cb-ink-2);
+    margin: 0 0 .5rem;
+  }
+  h1 { font-size: clamp(1.75rem, 5vw, 2.5rem); line-height: 1.15; margin: 0 0 1rem; font-weight: 700; }
+  h2 { font-size: 1.25rem; margin: 2.75rem 0 .75rem; font-weight: 700; }
+  p { margin: 0 0 1rem; color: var(--cb-ink-2); }
+  a { color: var(--cb-accent); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--cb-accent); outline-offset: 3px; }
+  .panel { background: var(--cb-surface); box-shadow: var(--cb-shadow-soft); border-radius: var(--cb-radius-xl); padding: 1.25rem; }
+  .code {
+    display: flex; gap: .75rem; align-items: stretch;
+    background: var(--cb-surface); box-shadow: var(--cb-shadow-inset);
+    border-radius: var(--cb-radius); padding: .75rem .75rem .75rem 1rem;
+  }
+  .code code { flex: 1; font: .8125rem/1.5 var(--mono); overflow-x: auto; white-space: pre; align-self: center; color: var(--cb-ink); }
+  .copy {
+    flex: none; min-height: 44px; padding: 0 1rem; border: 0; border-radius: var(--cb-radius);
+    background: var(--cb-accent); color: #fff; font: 600 .875rem "Nunito Sans", system-ui, sans-serif; cursor: pointer;
+  }
+  pre.code code { white-space: pre; }
+  ol.steps { padding-left: 1.25rem; margin: 0; }
+  ol.steps li { margin: 0 0 .5rem; padding-left: .25rem; }
+  table { width: 100%; border-collapse: collapse; font-size: .9375rem; }
+  .scroll { overflow-x: auto; }
+  th {
+    text-align: left; font-size: var(--cb-label-size); font-weight: var(--cb-label-weight);
+    letter-spacing: var(--cb-label-track); text-transform: uppercase; color: var(--cb-ink-2);
+    padding: .5rem .75rem .5rem 0; border-bottom: 1px solid var(--cb-line);
+  }
+  td { padding: .75rem .75rem .75rem 0; border-bottom: 1px solid var(--cb-line); vertical-align: top; }
+  td code { font: .8125rem var(--mono); white-space: nowrap; color: var(--cb-ink); }
+  video { display: block; width: 100%; border-radius: var(--cb-radius); background: #0d0f14; aspect-ratio: 16 / 9; }
+  .note { font-size: .875rem; }
+  ul.limits { padding-left: 1.25rem; margin: 0; }
+  ul.limits li { margin: 0 0 .5rem; color: var(--cb-ink-2); }
+  footer { margin-top: 3rem; font-size: .875rem; color: var(--cb-ink-2); }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<main id="main">
+  <p class="eyebrow">Cast Bridge for partners</p>
+  <h1>Let your viewers put your videos on their TV</h1>
+  <p>Add one script tag to your site. Every video on the page gets a <strong>Send to Cast Bridge</strong> button. Viewers tap it, and Cast Bridge sends the video to their TV by Chromecast, AirPlay or the TV's own browser.</p>
+
+  <h2>Add it to your page</h2>
+  <div class="code">
+    <code id="snippet">&lt;script src="https://cast.jrvsystems.app/assets/embed.js" async&gt;&lt;/script&gt;</code>
+    <button class="copy" type="button" data-copy="snippet">Copy</button>
+  </div>
+  <p class="note" style="margin-top:.75rem">Put it anywhere in your HTML. Players that add their video after the page loads are picked up too.</p>
+
+  <h2>Try it</h2>
+  <div class="panel">
+    <video controls playsinline preload="metadata"
+      data-cast-title="Big Buck Bunny (Blender Foundation, CC BY 3.0)"
+      src="https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_5MB.mp4"></video>
+  </div>
+  <p class="note" style="margin-top:.75rem">This page loads the same script. The button below the video is what your viewers see.</p>
+
+  <h2>What your viewers do</h2>
+  <ol class="steps">
+    <li>Tap <strong>Send to Cast Bridge</strong> under the video.</li>
+    <li>Cast Bridge opens with the video ready to play.</li>
+    <li>They tap <strong>Cast to TV</strong>, <strong>AirPlay</strong> or <strong>Play it on the TV</strong>. The video moves to the TV, and the phone works as the remote.</li>
+  </ol>
+
+  <h2>Options</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr><th scope="col">Add this</th><th scope="col">What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>data-cast-src="…"</code> on the video</td><td>The address to send. You need this if your player uses hls.js, Video.js or Shaka, because those play from a <code>blob:</code> address that only works in that tab. Give the real <code>.m3u8</code> or <code>.mp4</code>.</td></tr>
+        <tr><td><code>data-cast-title="…"</code></td><td>The title shown on the TV. Without it, the page title is used.</td></tr>
+        <tr><td><code>data-cast-bridge="off"</code></td><td>No button on this video.</td></tr>
+        <tr><td><code>data-auto="false"</code> on the script</td><td>Only videos you mark with <code>data-cast-bridge</code> get a button.</td></tr>
+        <tr><td><code>data-label="Watch on TV"</code> on the script</td><td>Changes the button text.</td></tr>
+        <tr><td><code>data-cast-bridge-button</code></td><td>Turns your own button or link into the send button. Put the address in <code>data-cast-src</code> or <code>href</code>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>From JavaScript</h2>
+  <pre class="code"><code id="js">CastBridge.send('https://media.example.com/service/master.m3u8', {
+  title: 'Sunday service'
+});</code></pre>
+  <p class="note" style="margin-top:.75rem">Call <code>CastBridge.scan()</code> if you swap videos in a way the page cannot see.</p>
+
+  <h2>What your videos need</h2>
+  <ul class="limits">
+    <li><strong>A link that plays without signing in.</strong> The TV fetches the video itself and has none of your viewer's cookies. For members-only videos, put a signed link in <code>data-cast-src</code> that stays valid for the length of the video.</li>
+    <li><strong>No DRM.</strong> Encrypted video shows a black screen on the TV, so the button hides itself when a video is encrypted.</li>
+    <li><strong>MP4, WebM or HLS work best.</strong> If your server doesn't allow cross-origin requests, Cast Bridge relays the stream so the TV can still play it. It doesn't get past sign-in or hotlink checks. That stays under your control.</li>
+    <li><strong>Only your own or licensed content.</strong> Only add the button to videos you have the right to share.</li>
+  </ul>
+
+  <footer>Cast Bridge by JRV Systems · <a href="/">Open the app</a></footer>
+</main>
+<script src="assets/embed.js" async></script>
+<script>
+  document.querySelectorAll('[data-copy]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var text = document.getElementById(b.getAttribute('data-copy')).textContent;
+      var done = function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1600); };
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, function () {});
+    });
+  });
+</script>
+</body>
+</html>

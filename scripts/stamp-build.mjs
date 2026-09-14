@@ -23,6 +23,7 @@ const OUT = join(ROOT, 'public');
 const STATIC = [
   'index.html',
   'tv.html',
+  'partners.html',
   'sw.js',
   'manifest.json',
   'favicon.ico',

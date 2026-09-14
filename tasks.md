@@ -1388,3 +1388,14 @@ things were, and the second one was invisible until the first was fixed.
       and AirPlay already work.
 - [ ] Task 28: "just stream those media to our own server and cast la."
       Not built: restreaming pirate-site streams through our server. See issues.md.
+- [x] Task 29: "Build it" (server relay for direct links).
+      Already built: /api/stream on stream.jrvsystems.app with this origin as
+      backup. Chromecast sends HLS through it from the start and retries MP4
+      through it; TV mode retries through it via `fallback`. Verified live
+      2026-09-14 with Apple's HLS sample (rewritten playlist, CORS *) and Big
+      Buck Bunny (206 range); a private address is refused (502).
+- [x] Task 30: "Build it" (partner embed).
+      `assets/embed.js`: one script tag puts a Send to Cast Bridge button under
+      every <video> with a real address; opens /?u=<link>&t=<title>. Skips DRM
+      and blob: videos (data-cast-src fixes blob), opt-out and opt-in attributes,
+      own-button hook, CastBridge.send(). Partner docs + live demo at /partners.
