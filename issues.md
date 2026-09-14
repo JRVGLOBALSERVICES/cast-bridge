@@ -1710,3 +1710,13 @@ film plays in the app on your phone and this refuses it with 10015001 or
 **Question:** what about sites that refuse to open inside another page?
 **Assumption made:** they show blank; the screen says so and Open in Chrome is always there. No proxy that strips their headers. viewverse.name.ng and msportsx.xyz send no frame block, and viewverse rendered inside the frame locally.
 **Context Rj needs to review:** `view-web` in `index.html`, `openWeb()` in `assets/js/app.js`. Pop-ups are blocked by default (sandbox); if a player refuses to start, tap Allow. The in-page cast button of a framed player may not find the TV in every browser; Chrome's Cast tab always works. Not tried on a real phone or TV yet.
+
+## Task 25: Send to TV sends the link you opened, not the page you clicked to
+**Question:** can the TV get the exact film page you navigated to inside the Browser?
+**Assumption made:** no. A cross-origin frame never tells the app its address, so Send to TV (and History, and ⌂) use the link you pasted. Paste the film's own link (e.g. msportsx.xyz/player/movie/1698863) for a one-tap film on the TV. The TV opens the site in its own browser; controlling it from the phone (play/pause) is not possible, the TV remote does it.
+**Context Rj needs to review:** `webTv` handler in `assets/js/app.js`, `case 'page'` in `assets/js/tv.js`. Not tried on the Samsung yet.
+
+## Task 22: Pop-ups on sites that refuse a sandbox
+**Question:** can pop-ups be blocked on viewverse without breaking its player?
+**Assumption made:** no. The sandbox is the only thing a page can use to stop a framed site's pop-ups, and viewverse's player refuses to run inside one. Close the ad tabs as they open. The app now asks "Leave site?" if a site tries to replace Cast Bridge itself; that prompt also shows if you reload the app while a page is open.
+**Context Rj needs to review:** `setWebPopups` and the `beforeunload` handler in `assets/js/app.js`.

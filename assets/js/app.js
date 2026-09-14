@@ -230,7 +230,7 @@
             return { url: m.url, label: m.label || '', kind: m.kind || kindOf(m.url) };
           });
         }
-        found.kind = kindOf(url);
+        found.kind = (meta.kind || found.kind) === 'PAGE' ? 'PAGE' : kindOf(url);
         d.items.unshift(found);
         if (d.items.length > CAP) d.items.length = CAP;
         write();
@@ -1278,6 +1278,7 @@
   function onEnterView(name) {
     if (name === 'browse') refreshSeries();
     if (name === 'web' && webUrlNow && !$('webFrameBox').firstChild) webLoad();
+    if (name === 'web') webDrawTools();
     if (name === 'history') renderHistory();
     if (name === 'people') renderUsers();
     if (name === 'library') renderLibrary();
@@ -1290,7 +1291,6 @@
      three minutes — left running it is traffic nobody is watching. */
   function onLeaveView(name) {
     if (name === 'bilibili') stopBiliPoll();
-    if (name === 'web') $('webFrameBox').textContent = '';
   }
 
   function showView(name, opts) {
@@ -5366,8 +5366,9 @@
     var play = document.createElement('button');
     play.type = 'button';
     play.className = 'btn btn-secondary btn-sm';
-    play.textContent = 'Play';
+    play.textContent = it.kind === 'PAGE' ? 'Open' : 'Play';
     play.addEventListener('click', function () {
+      if (it.kind === 'PAGE') { openWeb(it.url); return; }
       load(m.url, {
         title: m.label || page.title || nameOf(m.url),
         label: m.label || '',
@@ -5594,7 +5595,18 @@
    * ------------------------------------------------------------------ */
 
   var webUrlNow = '';
-  var webBlockPopups = true;
+  var WEB_LAST = 'cb:web:last';
+  var WEB_STRICT = 'cb:web:strict';
+
+  /* Pop-ups used to be blocked by default, with a sandbox. viewverse's
+     player refuses to run in a sandboxed frame ("Playback blocked"), and a
+     sandbox is the only way a page can stop a framed site's pop-ups — so
+     blocking is now opt-in, and remembered per site, for sites where it
+     does not break the player. */
+  function webStrictMap() {
+    try { return JSON.parse(localStorage.getItem(WEB_STRICT) || '{}') || {}; } catch (e) { return {}; }
+  }
+  function webStrict() { return !!(webUrlNow && webStrictMap()[hostOf(webUrlNow)]); }
 
   function webAddress(raw) {
     var v = String(raw || '').trim();
@@ -5606,6 +5618,23 @@
     } catch (err) { return ''; }
   }
 
+  function webDrawTools() {
+    var strict = webStrict();
+    $('webPopOff').classList.toggle('is-on', strict);
+    $('webPopOn').classList.toggle('is-on', !strict);
+    $('webPopOff').setAttribute('aria-pressed', strict ? 'true' : 'false');
+    $('webPopOn').setAttribute('aria-pressed', strict ? 'false' : 'true');
+    var tv = !!(window.CBTvMode && window.CBTvMode.paired());
+    $('webTv').textContent = tv ? 'Send to TV' : 'Connect a TV';
+  }
+
+  /* Loads webUrlNow from the start. Only called on a new link, on ⌂, or on
+     a pop-up change — the frame is otherwise left alone, because the page a
+     person has clicked through to lives only inside it: a cross-origin
+     frame will not tell this page its address, so a reload can only ever
+     go back to the link that was opened. That reload, and unloading the
+     frame whenever the screen was left, is why it "kept falling back to
+     the main page". */
   function webLoad() {
     var box = $('webFrameBox');
     box.textContent = '';
@@ -5616,13 +5645,38 @@
     f.referrerPolicy = 'no-referrer-when-downgrade';
     f.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture; presentation');
     f.setAttribute('allowfullscreen', '');
-    if (webBlockPopups) {
+    if (webStrict()) {
       f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation allow-orientation-lock');
     }
     f.src = webUrlNow;
     box.appendChild(f);
     $('webUrl').value = webUrlNow;
     $('webExternal').href = IOS ? chromeHref(webUrlNow) : webUrlNow;
+    webDrawTools();
+  }
+
+  function webClose() {
+    $('webFrameBox').textContent = '';
+    webUrlNow = '';
+    try { sessionStorage.removeItem(WEB_LAST); } catch (e) {}
+  }
+
+  /* Every opened page is a History row, kind PAGE, whose Open comes back
+     here rather than trying to play a web page as a film. */
+  function webRemember(u) {
+    var title = hostOf(u);
+    var path = '';
+    try { path = new URL(u).pathname.replace(/\/+$/, ''); } catch (e) {}
+    if (path) title += ' · ' + nameOf(u);
+    store.touch(u, { title: title, from: u, kind: 'PAGE' });
+    recordPlay(u, { title: title, from: u, kind: 'PAGE' });
+    try { sessionStorage.setItem(WEB_LAST, u); } catch (e) {}
+  }
+
+  function webGo(u) {
+    webUrlNow = u;
+    webRemember(u);
+    webLoad();
   }
 
   function openWeb(raw) {
@@ -5632,31 +5686,56 @@
       fieldError($('pageUrl'), $('pageError'), 'Paste a web address, like https://example.com/watch/123');
       return;
     }
-    webUrlNow = u;
+    var same = u === webUrlNow && $('webFrameBox').firstChild;
     showTab('web', { push: true });
-    webLoad();
+    if (!same) webGo(u);
   }
 
   function setWebPopups(block) {
-    webBlockPopups = block;
-    $('webPopOff').classList.toggle('is-on', block);
-    $('webPopOn').classList.toggle('is-on', !block);
-    $('webPopOff').setAttribute('aria-pressed', block ? 'true' : 'false');
-    $('webPopOn').setAttribute('aria-pressed', block ? 'false' : 'true');
+    if (!webUrlNow || block === webStrict()) return;
+    var m = webStrictMap();
+    if (block) m[hostOf(webUrlNow)] = 1; else delete m[hostOf(webUrlNow)];
+    try { localStorage.setItem(WEB_STRICT, JSON.stringify(m)); } catch (e) {}
     webLoad();
+    if (block) toast({ text: 'Pop-ups blocked on ' + hostOf(webUrlNow) + '. If the player says "Playback blocked", switch back to Pop-ups allowed.' });
   }
+
+  /* Without a sandbox a framed site may send the whole app to itself when
+     tapped. Asking first keeps Cast Bridge from being replaced by it. */
+  window.addEventListener('beforeunload', function (e) {
+    if (activeView === 'web' && $('webFrameBox').firstChild && !webStrict()) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
 
   $('btnOpenPage').addEventListener('click', function () { openWeb($('pageUrl').value); });
   $('webForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var u = webAddress($('webUrl').value);
-    if (u) { webUrlNow = u; webLoad(); }
+    if (u) { $('webUrl').blur(); webGo(u); }
   });
   $('webBack').addEventListener('click', function () {
+    /* The frame's own page changes are entries in this tab's history, so
+       Back steps back through the site first, then out to Browse. */
     if (window.history.state && window.history.state.view === 'web') window.history.back();
     else showTab('browse');
   });
   $('webReload').addEventListener('click', webLoad);
+  $('webClose').addEventListener('click', function () {
+    webClose();
+    showTab('browse');
+  });
+  $('webTv').addEventListener('click', function () {
+    if (!webUrlNow) return;
+    if (!(window.CBTvMode && window.CBTvMode.paired())) {
+      toast({ text: 'Open cast.jrvsystems.app/tv in the TV\'s browser, then enter its code here.' });
+      showTab('tv', { focus: true, push: true });
+      return;
+    }
+    toast({ text: 'The TV opens the link you opened here. If you have clicked through to a film inside the page, paste that film\'s own link in the address bar first.' });
+    window.CBTvMode.sendPage(webUrlNow, hostOf(webUrlNow));
+  });
   $('webPopOff').addEventListener('click', function () { setWebPopups(true); });
   $('webPopOn').addEventListener('click', function () { setWebPopups(false); });
   $('webScan').addEventListener('click', function () {
@@ -5672,6 +5751,9 @@
     if (req) req.call(el);
     else toast({ text: 'Use the player\'s own full-screen button.' });
   });
+
+  /* A reload of the app on the Browser screen comes back to the page. */
+  try { webUrlNow = sessionStorage.getItem(WEB_LAST) || ''; } catch (e) {}
 
   $('browseForm').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -6349,8 +6431,9 @@
     var play = document.createElement('button');
     play.type = 'button';
     play.className = 'btn btn-secondary btn-sm';
-    play.textContent = 'Play';
+    play.textContent = it.kind === 'PAGE' ? 'Open' : 'Play';
     play.addEventListener('click', function () {
+      if (it.kind === 'PAGE') { openWeb(it.url); return; }
       load(it.url, {
         title: it.title, from: it.from, poster: it.poster || '',
         /* Remembered from the scan that first played it, so a film reopened
@@ -6737,7 +6820,7 @@
           if (store.isBuried(row.url)) { forgetOnServer(row.url); return; }
           var mine = store.find(row.url);
           if (!mine) {
-            store.touch(row.url, { title: row.title || '', from: row.page || 'server' });
+            store.touch(row.url, { title: row.title || '', from: row.page || 'server', kind: row.kind || '' });
           } else if (row.page && !isHttp(mine.from || '')) {
             store.setFrom(row.url, row.page);
           }

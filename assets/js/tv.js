@@ -146,7 +146,13 @@
   function restore() {
     try {
       var r = JSON.parse(localStorage.getItem(STORE) || 'null');
-      if (r && /^[0-9]{6}$/.test(r.code) && r.tvKey) return r;
+      if (r && /^[0-9]{6}$/.test(r.code) && r.tvKey) {
+        /* Set when a page command took this tab away from /tv. Without it,
+           coming back with the remote's Back polls from 0 and the page
+           command replays, straight back out to the site. */
+        since = Math.max(0, Math.floor(Number(r.since) || 0));
+        return r;
+      }
     } catch (e) { /* nothing stored */ }
     return null;
   }
@@ -319,6 +325,16 @@
         attach(c.url, c.mime, c.at || 0);
         attachSubs(c.subs, c.subsName);
         showHud();
+        break;
+      case 'page':
+        /* The TV's browser opens the site itself; the remote's Back comes
+           back here. Remember this command as run first, so the return trip
+           does not replay it. */
+        loaded = null;
+        teardown();
+        line('Opening ' + (c.title || 'the page') + '… Press Back on the remote to return.', 'ok');
+        try { room.since = since; localStorage.setItem(STORE, JSON.stringify(room)); } catch (e) {}
+        location.href = c.url;
         break;
       case 'play': if (loaded) play(); break;
       case 'pause': if (loaded) video.pause(); break;

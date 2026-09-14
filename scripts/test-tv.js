@@ -36,6 +36,13 @@ test('hash is stable and not the key', () => {
   assert.notStrictEqual(tv.hash(k), k);
 });
 
+test('a page command carries only a web address and a title', () => {
+  const c = tv.shapeCommand({ type: 'page', url: 'https://viewverse.name.ng/movie/1', title: ' viewverse ', at: 5 });
+  assert.deepStrictEqual(c, { type: 'page', url: 'https://viewverse.name.ng/movie/1', title: 'viewverse' });
+  assert.throws(() => tv.shapeCommand({ type: 'page', url: 'javascript:alert(1)' }), tv.InvalidTv);
+  assert.throws(() => tv.shapeCommand({ type: 'page' }), tv.InvalidTv);
+});
+
 test('a load keeps only what the TV needs, and refuses non-web addresses', () => {
   const c = tv.shapeCommand({
     type: 'load', url: 'https://cdn.example/film.m3u8', mime: 'application/x-mpegURL',

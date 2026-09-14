@@ -1356,3 +1356,22 @@ things were, and the second one was invisible until the first was fixed.
       Scan this page, Open in Chrome. Casting is the site's own cast button
       or Chrome ⋮ > Cast > Cast tab. Leaving the screen unloads the page so
       its audio stops.
+
+## 2026-09-14 — Browser fixes (viewverse "Playback blocked", history, TV)
+
+- [x] Task 22: "Playback blocked … use iframe without sandbox attribute" / "Disable pop ups also stops video."
+      Pages open without a sandbox by default. Block pop-ups is opt-in and
+      remembered per site, with a warning that it breaks some players.
+- [x] Task 23: "no history showing on link."
+      Every page opened in the Browser is a History row (kind PAGE); its
+      button is Open, which comes back to the Browser. Synced to the server.
+- [x] Task 24: "keeps falling back to main page instead of current page."
+      The frame is no longer unloaded when you leave the screen, reopening
+      the same link keeps the page you clicked through to, and an app reload
+      returns to the last page. ↻ became ⌂ (back to the link you opened), and
+      Close page is the explicit unload. The app asks before a framed site
+      tries to replace Cast Bridge with itself.
+- [x] Task 25: "I don't see send video to tv option" (viewverse and msportsx).
+      Send to TV in the Browser: the paired TV (TV mode, /tv) opens the page in
+      its own browser; the remote plays it; Back returns to TV mode without
+      replaying the command (new `page` command, lib/tv.js + assets/js/tv.js).

@@ -609,20 +609,25 @@
           <input class="form-control" id="webUrl" type="url" inputmode="url"
                  autocomplete="off" spellcheck="false" placeholder="Paste a link">
         </form>
-        <button type="button" class="btn btn-secondary cb-webbtn" id="webReload" aria-label="Reload page">&#x21bb;</button>
+        <button type="button" class="btn btn-secondary cb-webbtn" id="webReload" aria-label="Back to the link you opened" title="Back to the link you opened">&#x2302;</button>
         <button type="button" class="btn btn-secondary cb-webbtn" id="webFull" aria-label="Full screen">&#x26f6;</button>
       </div>
       <div class="cb-webtools">
-        <div class="cb-segment" role="group" aria-label="Pop-ups">
-          <button type="button" class="cb-segment-btn is-on" id="webPopOff" aria-pressed="true">Block pop-ups</button>
-          <button type="button" class="cb-segment-btn" id="webPopOn" aria-pressed="false">Allow</button>
-        </div>
+        <button type="button" class="btn btn-primary btn-sm cb-webtv" id="webTv">Send to TV</button>
         <button type="button" class="cb-linkbtn" id="webScan">Scan this page</button>
         <a class="cb-linkbtn" id="webExternal" href="#" target="_blank" rel="noopener noreferrer">Open in Chrome</a>
+        <button type="button" class="cb-linkbtn" id="webClose">Close page</button>
       </div>
       <div class="cb-webframe" id="webFrameBox"></div>
-      <p class="cb-webhint" id="webHint">To put it on the TV: tap the player&rsquo;s cast button, or in Chrome open &#8942; &gt; <b>Cast</b> &gt; <b>Cast tab</b>.
-        Page stays blank or says it refused to connect? That site won&rsquo;t open inside apps. Use <b>Open in Chrome</b>.</p>
+      <div class="cb-webtools cb-webtools-end">
+        <div class="cb-segment" role="group" aria-label="Pop-ups">
+          <button type="button" class="cb-segment-btn is-on" id="webPopOn" aria-pressed="true">Pop-ups allowed</button>
+          <button type="button" class="cb-segment-btn" id="webPopOff" aria-pressed="false">Block pop-ups</button>
+        </div>
+      </div>
+      <p class="cb-webhint" id="webHint"><b>Send to TV</b> opens this page in TV mode on the TV (connect a TV under Cast first). The TV remote plays it there.
+        Or tap the player&rsquo;s own cast button. Blocking pop-ups breaks some players (&ldquo;Playback blocked&rdquo;), so it stays off for those sites.
+        Blank page? That site won&rsquo;t open inside apps. Use <b>Open in Chrome</b>.</p>
     </section>
 
     <section class="cb-view" id="view-library" tabindex="-1" hidden aria-labelledby="title-library">

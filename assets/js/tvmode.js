@@ -429,6 +429,15 @@
     paired: function () { return !!remote; },
     onTv: function () { return !!(remote && remote.onTv); },
     sendCurrent: sendCurrent,
+    /* The in-app Browser's page, opened by the TV's own browser. The site's
+       player plays there; the TV remote drives it. */
+    sendPage: function (url, title) {
+      if (!remote) return Promise.resolve(false);
+      return command({ type: 'page', url: url, title: title || '' }).then(function (sent) {
+        if (sent) toast('Opening it on the TV. Play it with the TV remote. Back on the remote returns to TV mode.');
+        return sent;
+      });
+    },
     refresh: render
   };
 
