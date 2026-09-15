@@ -113,6 +113,30 @@ const SRT = '1\r\n00:00:01,000 --> 00:00:02,000\r\nHello\r\n';
     await assert.rejects(o.search({ title: 'x' }, {}, async () => reply(429, 'slow')), /didn't answer/);
   });
 
+  await check('search tries the keyless door once more when it is busy', async () => {
+    let n = 0;
+    const r = await o.search({ title: 'x', lang: 'eng' }, { retryDelayMs: 1 }, async () => {
+      n++;
+      return n === 1 ? reply(503, 'busy') : reply(200, [{ IDSubtitleFile: '8', SubFormat: 'srt', SubDownloadsCnt: '1' }]);
+    });
+    assert.strictEqual(n, 2);
+    assert.strictEqual(r.results[0].ref, 'os:8');
+  });
+
+  await check('download tries once more after a dropped connection, never on a 404', async () => {
+    let n = 0;
+    const t = await o.download('os:5', 'UTF-8', { retryDelayMs: 1 }, async () => {
+      n++;
+      if (n === 1) throw new TypeError('fetch failed');
+      return reply(200, zlib.gzipSync(Buffer.from(SRT)));
+    });
+    assert.strictEqual(t, SRT);
+    assert.strictEqual(n, 2);
+    let m = 0;
+    await assert.rejects(o.download('os:5', '', { retryDelayMs: 1 }, async () => { m++; return reply(404, 'gone'); }), /refused/);
+    assert.strictEqual(m, 1);
+  });
+
   await check('download gunzips a legacy file', async () => {
     const t = await o.download('os:5', 'UTF-8', {}, async (u) => {
       assert.strictEqual(u, 'https://dl.opensubtitles.org/en/download/filead/5.gz');

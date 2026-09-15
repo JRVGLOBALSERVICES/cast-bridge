@@ -12,7 +12,6 @@ const CACHE = 'cast-bridge-' + BUILD;
 
 const SHELL = [
   '/',
-  '/index.html',
   '/assets/css/neumorphism.css',
   '/assets/css/app.css',
   '/assets/js/cover.js',
@@ -49,6 +48,21 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+/* The offline copy of the page, as something a navigation may be answered with.
+ *
+ * It used to be `caches.match('/index.html')`, and on this host that is a 308
+ * to `/` (cleanUrls). The cache kept the redirected response, and a browser
+ * refuses a redirected response for a navigation — so the one moment the
+ * fallback exists for, a dropped connection, showed the browser's own "can't
+ * connect to the server" page instead of the app. Stored from `/`, and copied
+ * into a fresh Response if an old cache still holds a redirected one. */
+async function offlineShell() {
+  const res = (await caches.match('/')) || (await caches.match('/index.html'));
+  if (!res) return Response.error();
+  if (!res.redirected) return res;
+  return new Response(await res.blob(), { status: res.status, statusText: res.statusText, headers: res.headers });
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
@@ -60,7 +74,7 @@ self.addEventListener('fetch', (e) => {
   /* Navigations: network first, fall back to the cached shell offline. */
   if (req.mode === 'navigate') {
     e.respondWith(
-      fetch(req).catch(() => caches.match('/index.html'))
+      fetch(req).catch(() => offlineShell())
     );
     return;
   }

@@ -7369,7 +7369,35 @@
     });
   }
 
+  /* What a pull-to-refresh reload would otherwise throw away: half-typed
+     links. Session-scoped, read once on boot and then forgotten. */
+  var DRAFTS_KEY = 'cb-ptr-drafts';
+  var DRAFT_FIELDS = ['url', 'pageUrl', 'subsFindQ'];
+
+  function keepDrafts() {
+    var out = {};
+    DRAFT_FIELDS.forEach(function (id) {
+      var el = $(id);
+      if (el && el.value) out[id] = el.value;
+    });
+    try { sessionStorage.setItem(DRAFTS_KEY, JSON.stringify(out)); } catch (e) {}
+  }
+
+  function restoreDrafts() {
+    var saved = null;
+    try {
+      saved = JSON.parse(sessionStorage.getItem(DRAFTS_KEY) || 'null');
+      sessionStorage.removeItem(DRAFTS_KEY);
+    } catch (e) {}
+    if (!saved) return;
+    DRAFT_FIELDS.forEach(function (id) {
+      var el = $(id);
+      if (el && !el.value && saved[id]) el.value = saved[id];
+    });
+  }
+
   function wirePullToRefresh() {
+    restoreDrafts();
     /* Listening on .cb-shell meant the gesture died on the login screen: the
        shell carries `inert` while the gate is up, so no touch inside it ever
        dispatched. The document hears both surfaces; the scroll guards below
@@ -7439,7 +7467,22 @@
          player's position; dropping the stale assets is the part a data
          re-read cannot do, and it is the part that was asked for. The gate,
          where there is nothing to lose, is the one that reloads. */
-      var work = gated
+      /* Rj, 2026-09-15: *"Pull to refresh doesn't really reload app and clear
+         cache and pulls new changes. Have to uninstall and reinstall."* The
+         signed-in branch cleared the caches and re-read data but kept the
+         page, so the build already in memory — old app.js, old index.html —
+         stayed in charge until the app was killed. An installed app is
+         almost never killed, so a pull must reload. What a reload would
+         lose is kept instead: the typed links go to sessionStorage and come
+         back on boot, and a cast survives because the SDK rejoins
+         (ORIGIN_SCOPED) and restoreSession() names it. The one thing that
+         cannot survive is a film playing IN this phone, so that case alone
+         keeps the page. */
+      var playingHere = Array.prototype.some.call(document.querySelectorAll('video, audio'),
+        function (m) { return !m.paused && !m.ended && m.currentTime > 0; });
+      var reloads = gated || !playingHere;
+      if (reloads) keepDrafts();
+      var work = reloads
         ? reloadShell()
         : Promise.all([dropCaches(), refreshHistory(), restoreSession(),
                        isOwner() ? renderUsers() : null]);
@@ -7451,7 +7494,7 @@
       Promise.all([work, floor])
         .catch(function () { return []; })
         .then(function (res) {
-          if (gated) return;          // the page is on its way out
+          if (reloads) return;        // the page is on its way out
           running = false;
           ind.classList.remove('is-running', 'is-armed');
           settle();
@@ -7461,7 +7504,9 @@
              to tell whether the clear this gesture exists for had actually
              run. res[0] is `work`'s array; its first entry is dropCaches(). */
           var cleared = !!(res && res[0] && res[0][0]);
-          toast({ text: cleared ? 'Cache cleared \u2014 up to date.' : 'Up to date.' });
+          toast({ text: cleared
+            ? 'Cache cleared. Something is playing on this phone, so the app did not restart \u2014 pull again after it stops to load the newest version.'
+            : 'Up to date.' });
         });
     }
 

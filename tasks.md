@@ -1425,3 +1425,14 @@ things were, and the second one was invisible until the first was fixed.
       which saw in_flight 0 in the minutes a TV goes quiet between 64 MiB
       windows. Fix: the test injects CAST_RESTART_CMD; the server reports
       idle_s; the updater also waits for 20 min without any stream.
+- [x] Task 34: "Pull to refresh doesn't really reload app and clear cache and pulls new changes. Have to uninstall and reinstall or says server can't connect, subtitles can't be downloaded"
+      Three causes. (1) Signed in, the pull only cleared caches and re-read data; the
+      page never reloaded, so the old app.js in memory stayed until the app was killed.
+      Now it reloads (typed links kept in sessionStorage; a cast is rejoined by the SDK);
+      only a film playing IN the phone keeps the page. (2) sw.js answered offline
+      navigations with a cached /index.html that is a 308 on this host; browsers refuse a
+      redirected response for a navigation, so a network blip showed the browser's
+      "can't connect" page. Now cached from / and un-redirected. (3) /api/subs 502'd once
+      for a search and once for a download at 17:02 UTC and worked on the next tap:
+      OpenSubtitles' keyless door is flaky. lib/opensubs.js retries once on 429/5xx or a
+      dropped connection. Proof: test-opensubs 17/17, headless pull reloads + keeps link.

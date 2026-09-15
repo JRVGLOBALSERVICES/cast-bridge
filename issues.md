@@ -1755,3 +1755,8 @@ film plays in the app on your phone and this refuses it with 10015001 or
 **Question:** restart cast-stream now so /healthz reports idle_s?
 **Assumption made:** no. Rj was mid-film (in_flight 1). /opt/cast-stream was fast-forwarded to 8103483 by hand with no restart, so the cron has nothing to update. Until the process restarts once, /healthz has no idle_s, and the next push would still be allowed to restart in a quiet gap between windows.
 **Context Rj needs to review:** run `pm2 restart cast-stream` once when nothing is playing. server/stream-server.js `lastStreamAt`; scripts/self-update.sh `CAST_IDLE_MIN_S`.
+
+## Task 34: Pull to refresh now restarts the app when signed in
+**Question:** is a full reload OK while casting?
+**Assumption made:** yes. The Cast SDK rejoins the TV session on load (ORIGIN_SCOPED) and restoreSession() relabels it; the TV keeps playing. Only a film playing inside the phone itself blocks the reload (toast says pull again after it stops).
+**Context Rj needs to review:** assets/js/app.js `fire()` in wirePullToRefresh. The signed-in reload was tested by reading the code only; the headless test covered the signed-out path (no login available).
