@@ -1252,14 +1252,14 @@
    * ------------------------------------------------------------------ */
 
   var VIEWS = ['cast', 'playing', 'tv', 'browse', 'web', 'library', 'history', 'more',
-    'bilibili', 'host', 'people', 'help'];
+    'bilibili', 'host', 'people', 'help', 'castlogs'];
 
   var NAV_VIEWS = ['cast', 'browse', 'library', 'history', 'more'];
 
   /* The four behind More light More up while they are open, so the bar
      never shows nothing selected. */
   var NAV_OF = {
-    bilibili: 'more', host: 'more', people: 'more', help: 'more',
+    bilibili: 'more', host: 'more', people: 'more', help: 'more', castlogs: 'more',
     playing: 'cast', tv: 'cast', web: 'browse'
   };
 
@@ -1284,6 +1284,7 @@
     if (name === 'library') renderLibrary();
     if (name === 'bilibili') refreshBili();
     if (name === 'host') renderHost();
+    if (name === 'castlogs') renderCastLogs();
   }
 
   /* Walking away from a screen has to stop what that screen started. The
@@ -1728,15 +1729,132 @@
     castLogLines.scrollTop = castLogLines.scrollHeight;   // newest is the one being read
   }
 
-  function logCast(line, detail) {
-    castLogEntries.push({
+  /* `quiet` lines (the once-a-minute position beat) go to the server's copy
+     only: on the phone they would push the lines worth reading off the top. */
+  function logCast(line, detail, opts) {
+    var e = {
       at: Date.now(),
       line: String(line),
       detail: (detail === undefined || detail === null) ? '' : String(detail)
-    });
+    };
+    castLogKeep(e);
+    if (opts && opts.quiet) return;
+    castLogEntries.push(e);
     if (castLogEntries.length > CAST_LOG_CAP) castLogEntries.shift();
     paintCastLog();
   }
+
+  /* ---------- The server's copy: one log per film, per person ----------
+   *
+   * The lines above lived only on the phone, and died with the page. Every
+   * line now also queues for /api/castlog under a session id minted per
+   * film, so "it stopped at 16:13" can be read afterwards — by the person,
+   * and by the owner for everyone. Lines logged before a film is chosen
+   * (the Cast library loading, connecting to the TV) wait and join the
+   * next film's log, because that is the cast they belong to.
+   */
+  var castLogSession = null;   // { id, key, title, url, page }
+  var castLogPre = [];         // lines with no film yet
+  var castLogQueue = [];       // lines waiting to be sent
+  var castLogTimer = 0;
+  var CAST_LOG_FLUSH_MS = 8000;
+
+  function castLogFilmKey() {
+    if (!current) return '';
+    /* The page, not the address: a renewed Bilibili link is a new address
+       for the same film and must stay in the same log. */
+    return (currentFrom && currentFrom !== 'this phone' ? currentFrom : current) + '|' + (currentTitle || '');
+  }
+
+  function castLogNewId() {
+    var a = new Uint8Array(12);
+    (window.crypto || window.msCrypto).getRandomValues(a);
+    return Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+  }
+
+  function castLogKeep(e) {
+    if (!me) { castLogPre.push(e); castLogPre = castLogPre.slice(-200); return; }
+    var key = castLogFilmKey();
+    if (!key) {
+      castLogPre.push(e);
+      castLogPre = castLogPre.slice(-200);
+      return;
+    }
+    if (!castLogSession || castLogSession.key !== key) {
+      /* A different film: whatever the last one still had queued goes out
+         under its own id before the new log begins. */
+      castLogFlush();
+      castLogSession = { id: castLogNewId(), key: key };
+      castLogQueue = castLogPre.concat([{
+        at: Date.now(), line: 'Film chosen', detail: (currentTitle || '') + ' · ' + current
+      }]);
+      castLogPre = [];
+    }
+    castLogSession.title = currentTitle || '';
+    castLogSession.url = current;
+    castLogSession.page = currentFrom || '';
+    castLogQueue.push(e);
+    if (!castLogTimer) castLogTimer = setTimeout(castLogFlush, CAST_LOG_FLUSH_MS);
+  }
+
+  function castLogFlush(leaving) {
+    clearTimeout(castLogTimer);
+    castLogTimer = 0;
+    if (!castLogSession || !castLogQueue.length || !me) return;
+    var batch = castLogQueue;
+    castLogQueue = [];
+    var s = castLogSession;
+    var stampEl = $('buildStamp');
+    var payload = JSON.stringify({
+      session: s.id,
+      title: s.title,
+      url: s.url,
+      page: s.page,
+      device: castSession() ? deviceName() : (isAirPlaying() ? 'AirPlay' : 'this phone'),
+      build: stampEl ? stampEl.textContent.replace(/^build\s*/, '') : '',
+      lines: batch
+    });
+    if (leaving && navigator.sendBeacon) {
+      if (navigator.sendBeacon('/api/castlog', new Blob([payload], { type: 'text/plain' }))) return;
+    }
+    fetch('/api/castlog', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: payload,
+      keepalive: payload.length < 60000
+    }).then(function (r) {
+      /* A 5xx or a dropped connection puts the lines back for the next
+         flush; a 4xx would only be refused again, so it is let go. */
+      if (r.status >= 500) throw new Error('store ' + r.status);
+    }).catch(function () {
+      if (castLogSession === s) {
+        castLogQueue = batch.concat(castLogQueue).slice(-400);
+        if (!castLogTimer) castLogTimer = setTimeout(castLogFlush, CAST_LOG_FLUSH_MS * 4);
+      }
+    });
+  }
+
+  function isAirPlaying() {
+    try { return !!(video && video.remote && video.remote.state === 'connected'); } catch (e) { return false; }
+  }
+
+  window.addEventListener('pagehide', function () { castLogFlush(true); });
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') castLogFlush(true);
+  });
+
+  /* A beat a minute while anything plays. This is the line that answers
+     "when did it stop": the last beat before the silence is the moment. */
+  setInterval(function () {
+    if (!current) return;
+    if (remotePlayer && remotePlayer.isMediaLoaded) {
+      logCast('Beat', 'TV ' + (remotePlayer.playerState || 'idle') + ' at ' +
+        clock(remotePlayer.currentTime || 0) + ' / ' + clock(remotePlayer.duration || 0), { quiet: true });
+    } else if (video && !video.paused && !video.ended) {
+      logCast('Beat', (isAirPlaying() ? 'AirPlay' : 'Phone') + ' playing at ' +
+        clock(video.currentTime || 0) + ' / ' + clock(video.duration || 0), { quiet: true });
+    }
+  }, 60000);
 
   function openCastLog(bad) {
     if (!castLogEl) return;
@@ -2150,6 +2268,32 @@
      paused for an hour and resumed onto a stale token would find the app
      had already spent its two hops on a different stream last night. */
   video.addEventListener('playing', function () { sources.resetAuto(); });
+
+  /* Playback on the phone (and through AirPlay) belongs in the same log as a
+     cast: "the film stopped" is the same question wherever it played. */
+  (function () {
+    var startedFor = null;
+    var waitTimer = 0;
+    video.addEventListener('playing', function () {
+      clearTimeout(waitTimer);
+      if (startedFor === current) return;
+      startedFor = current;
+      logCast('Playing on ' + (isAirPlaying() ? 'AirPlay' : 'the phone'), 'from ' + clock(video.currentTime || 0));
+    });
+    video.addEventListener('waiting', function () {
+      clearTimeout(waitTimer);
+      var at = video.currentTime || 0;
+      waitTimer = setTimeout(function () {
+        if (!video.paused) logCast('Phone stalled, buffering for 10s', 'at ' + clock(at));
+      }, 10000);
+    });
+    video.addEventListener('ended', function () { logCast('Film ended on the phone', clock(video.currentTime || 0)); });
+    video.addEventListener('error', function () {
+      var me2 = video.error;
+      if (!current) return;
+      logCast('Phone player error', me2 ? 'media error ' + me2.code + (me2.message ? ' · ' + me2.message : '') : 'unknown');
+    });
+  })();
 
   video.addEventListener('play', function () { mediaSession.update({ state: 'playing' }); });
   video.addEventListener('pause', function () { mediaSession.update({ state: 'paused' }); });
@@ -4945,6 +5089,7 @@
     /* Standing on an owner-only screen when the session drops to a
        non-owner would leave it open with no way back to it. */
     if (!isOwner() && (activeView === 'people' || activeView === 'host')) showView('more');
+    if (activeView === 'castlogs' && me) renderCastLogs();   // drawn before sign-in resolved: no Everyone switch
 
     var allToggle = $('histScopeRow');
     if (allToggle) allToggle.hidden = !isOwner();
@@ -8402,6 +8547,7 @@
       if (!b || !b.ok) throw new Error((b && b.error) || 'Could not read the folder.');
 
       renderHostMachine(body, res.sys);
+      renderHostControls(body, run);
 
       var listHead = document.createElement('p');
       listHead.className = 'cb-host-head';
@@ -8545,6 +8691,320 @@
       }, 5000);
     });
     return b;
+  }
+
+  /* ---------- Cast logs: one per film, read back from /api/castlog ----------
+     Everyone sees their own. The owner gets an Everyone switch and a
+     "problems only" filter, because the question is usually "which one broke". */
+  var castLogsRun;
+  var castLogsAll;
+  var castLogsProblems;
+
+  function castLogWhen(iso) {
+    var d = new Date(iso);
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getDate() + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()] +
+      ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function castLogLinesText(lines) {
+    return (lines || []).map(function (e) {
+      return stamp(e.at) + '  ' + e.line + (e.detail ? '\n          ' + e.detail : '');
+    }).join('\n');
+  }
+
+  function renderCastLogs() {
+    var body = $('castLogsBody');
+    /* Not ++castLogsRun: a #castlogs link renders this before the `var`
+       below has run, and ++undefined is NaN, which never equals itself. */
+    castLogsRun = (castLogsRun || 0) + 1;
+    var run = castLogsRun;
+    castLogFlush();   // the film playing now should be in the list it opens
+    body.textContent = '';
+
+    var bar = document.createElement('div');
+    bar.className = 'cb-clog-bar';
+    function toggle(text, on, set) {
+      var l = document.createElement('label');
+      var c = document.createElement('input');
+      c.type = 'checkbox';
+      c.checked = on;
+      c.addEventListener('change', function () { set(c.checked); renderCastLogs(); });
+      l.appendChild(c);
+      l.appendChild(document.createTextNode(text));
+      return l;
+    }
+    if (isOwner()) bar.appendChild(toggle('Everyone', castLogsAll, function (v) { castLogsAll = v; }));
+    bar.appendChild(toggle('Problems only', castLogsProblems, function (v) { castLogsProblems = v; }));
+    body.appendChild(bar);
+
+    var status = document.createElement('p');
+    status.className = 'cb-host-empty';
+    status.textContent = 'Reading the logs…';
+    body.appendChild(status);
+
+    var qs = [];
+    if (castLogsAll && isOwner()) qs.push('scope=all');
+    if (castLogsProblems) qs.push('problems=1');
+    fetch('/api/castlog' + (qs.length ? '?' + qs.join('&') : ''), { headers: { accept: 'application/json' }, cache: 'no-store' })
+      .then(function (r) {
+        if (r.status === 401) { handleAuthLapse(); throw new Error('Sign in to see cast logs.'); }
+        return r.json();
+      })
+      .then(function (b) {
+        if (run !== castLogsRun) return;
+        if (!b || !b.ok) throw new Error((b && b.error) || 'Could not read the logs.');
+        if (!b.items.length) {
+          status.textContent = castLogsProblems
+            ? 'No cast has logged a problem. Untick "Problems only" to see every film.'
+            : 'Nothing logged yet. Play a film and its log appears here.';
+          return;
+        }
+        status.remove();
+        b.items.forEach(function (it) {
+          var d = document.createElement('details');
+          d.className = 'cb-clog-item';
+          var s = document.createElement('summary');
+          var t = document.createElement('span');
+          t.className = 'cb-clog-title';
+          t.textContent = it.title || it.url || 'Untitled film';
+          var w = document.createElement('span');
+          w.className = 'cb-clog-when';
+          w.textContent = castLogWhen(it.started_at);
+          var m = document.createElement('span');
+          m.className = 'cb-clog-meta';
+          var bits = [];
+          if (it.who) bits.push(it.who);
+          if (it.device) bits.push(it.device);
+          bits.push(it.line_count + (it.line_count === 1 ? ' line' : ' lines'));
+          var span = Math.round((Date.parse(it.updated_at) - Date.parse(it.started_at)) / 1000);
+          if (span > 0) bits.push(fmtLength(span));
+          m.textContent = bits.join(' · ');
+          if (it.problems) {
+            var bad = document.createElement('span');
+            bad.className = 'is-bad';
+            bad.textContent = ' · ' + it.problems + (it.problems === 1 ? ' problem' : ' problems');
+            m.appendChild(bad);
+          }
+          s.appendChild(t);
+          s.appendChild(w);
+          s.appendChild(m);
+          d.appendChild(s);
+
+          d.addEventListener('toggle', function () {
+            if (!d.open || d.dataset.loaded) return;
+            d.dataset.loaded = '1';
+            var pre = document.createElement('pre');
+            pre.className = 'cb-log-lines';
+            pre.tabIndex = 0;
+            pre.textContent = 'Loading…';
+            d.appendChild(pre);
+            fetch('/api/castlog?id=' + encodeURIComponent(it.id), { headers: { accept: 'application/json' }, cache: 'no-store' })
+              .then(function (r) { return r.json(); })
+              .then(function (one) {
+                if (!one || !one.ok) throw new Error((one && one.error) || 'Could not read that log.');
+                var L = one.log;
+                var text = 'Film: ' + (L.title || '') + '\nAddress: ' + (L.url || '') +
+                  (L.page ? '\nPage: ' + L.page : '') + '\nDevice: ' + (L.device || '') +
+                  (L.who ? '\nUser: ' + L.who : '') + '\nBuild: ' + (L.build || '') +
+                  '\nPhone: ' + (L.agent || '') + '\n\n' + castLogLinesText(L.lines);
+                pre.textContent = text;
+                var acts = document.createElement('div');
+                acts.className = 'cb-log-actions';
+                var copy = document.createElement('button');
+                copy.type = 'button';
+                copy.className = 'cb-log-btn';
+                copy.textContent = 'Copy log';
+                copy.addEventListener('click', function () {
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(
+                      function () { toast({ text: 'Cast log copied.' }); },
+                      function () { toast({ text: 'Couldn\'t reach the clipboard. Select the log and copy it.' }); });
+                  } else {
+                    toast({ text: 'Select the log above and copy it.' });
+                  }
+                });
+                acts.appendChild(copy);
+                d.appendChild(acts);
+              })
+              .catch(function (e) {
+                pre.textContent = e.message || 'Could not read that log.';
+                d.dataset.loaded = '';
+              });
+          });
+          body.appendChild(d);
+        });
+      })
+      .catch(function (e) {
+        if (run !== castLogsRun) return;
+        status.textContent = e.message || 'Could not read the logs.';
+        var again = document.createElement('button');
+        again.type = 'button';
+        again.className = 'cb-linkbtn';
+        again.textContent = 'Try again';
+        again.addEventListener('click', renderCastLogs);
+        body.appendChild(again);
+      });
+  }
+
+  /* Restart the service and pull GitHub onto the box, from the phone.
+     server/control.js holds the guards; this only has to show what it says.
+     A 409 with needs_force means a film is (or was minutes ago) streaming:
+     the button re-arms naming that, and the second tap sends force. */
+  function renderHostControls(body, run) {
+    var wrap = document.createElement('div');
+    wrap.className = 'cb-host-ctl';
+    var head = document.createElement('p');
+    head.className = 'cb-host-head';
+    head.textContent = 'Restart and update';
+    wrap.appendChild(head);
+
+    var state = document.createElement('p');
+    state.className = 'cb-host-empty';
+    state.textContent = 'Checking GitHub for newer code…';
+    wrap.appendChild(state);
+
+    var list = document.createElement('ul');
+    list.className = 'cb-host-commits';
+    list.hidden = true;
+    wrap.appendChild(list);
+
+    var acts = document.createElement('div');
+    acts.className = 'cb-host-acts';
+    wrap.appendChild(acts);
+    body.appendChild(wrap);
+
+    function ctlPost(path, force) {
+      return streamTicket('storage').then(function (t) {
+        return fetch(t.host + path, {
+          method: 'POST',
+          headers: { authorization: 'Bearer ' + t.token, 'content-type': 'application/json' },
+          body: JSON.stringify({ force: !!force })
+        }).then(function (r) {
+          return r.json().then(function (b) { b = b || {}; b.status = r.status; return b; });
+        });
+      });
+    }
+
+    /* After a restart the box is gone for a few seconds. Poll /healthz until
+       a fresh uptime proves it came back, then redraw the panel. */
+    function waitForBack(what) {
+      var host = STREAM_HOSTS[0] || location.origin;
+      var tries = 0;
+      toast({ text: what + ' Waiting for the box to come back…' });
+      (function poll() {
+        setTimeout(function () {
+          tries++;
+          fetch(host + '/healthz', { cache: 'no-store' }).then(function (r) { return r.json(); })
+            .then(function (h) {
+              if (h && h.ok && h.uptime_s < 60) {
+                toast({ text: 'Stream host is back up.' });
+                renderHost();
+              } else if (tries < 30) { poll(); }
+              else { toast({ text: 'The box answers but has not restarted. Try again.' }); renderHost(); }
+            })
+            .catch(function () {
+              if (tries < 30) poll();
+              else { toast({ text: 'The box has not come back after a minute. Check pm2 on the VPS.' }); renderHost(); }
+            });
+        }, 2000);
+      })();
+    }
+
+    function actionButton(label, path, doneText) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cb-linkbtn';
+      b.textContent = label;
+      var reset;
+      function disarm() {
+        b.dataset.armed = '';
+        b.dataset.force = '';
+        b.textContent = label;
+      }
+      b.addEventListener('click', function () {
+        if (b.dataset.armed !== '1') {
+          b.dataset.armed = '1';
+          b.textContent = label + '?';
+          clearTimeout(reset);
+          reset = setTimeout(function () { if (b.isConnected) disarm(); }, 5000);
+          return;
+        }
+        clearTimeout(reset);
+        var force = b.dataset.force === '1';
+        b.disabled = true;
+        b.textContent = 'Working…';
+        ctlPost(path, force).then(function (res) {
+          b.disabled = false;
+          if (res.needs_force) {
+            /* Named, not "Are you sure": the consequence is the label. */
+            b.dataset.armed = '1';
+            b.dataset.force = '1';
+            b.textContent = 'Cut off the film and ' + label.toLowerCase();
+            b.classList.add('is-danger');
+            toast({ text: res.error });
+            reset = setTimeout(function () { if (b.isConnected) { disarm(); b.classList.remove('is-danger'); } }, 8000);
+            return;
+          }
+          disarm();
+          if (!res.ok) { toast({ text: res.error || 'That did not work.' }); return; }
+          if (res.up_to_date) { toast({ text: 'Already on the newest code (' + res.head + ').' }); renderHost(); return; }
+          waitForBack(typeof doneText === 'function' ? doneText(res) : doneText);
+        }).catch(function (e) {
+          b.disabled = false;
+          disarm();
+          toast({ text: (e && e.message) || 'That did not work.' });
+        });
+      });
+      return b;
+    }
+
+    acts.appendChild(actionButton('Restart cast-stream', '/api/system/restart', 'Restarting.'));
+
+    streamTicket('storage').then(function (t) {
+      return fetch(t.host + '/api/system/git', {
+        headers: { authorization: 'Bearer ' + t.token, accept: 'application/json' }
+      }).then(function (r) { return r.json(); });
+    }).then(function (g) {
+      if (run !== hostRun) return;
+      if (!g || !g.ok) {
+        state.textContent = (g && g.error) || 'This box cannot report its code yet. Restart it once to load the update buttons.';
+        return;
+      }
+      var lines = [];
+      if (g.fetch_error) lines.push('Could not reach GitHub: ' + g.fetch_error);
+      if (g.behind === 0) lines.push('Up to date with GitHub (' + g.head + ').');
+      else if (g.behind > 0) lines.push(g.behind + (g.behind === 1 ? ' commit' : ' commits') + ' behind GitHub (box ' + g.head + ', GitHub ' + g.remote + ').');
+      if (g.ahead || g.dirty) lines.push('The box has local changes, so it will not pull over them.');
+      if (g.running && g.head && g.running.indexOf(g.head) !== 0) {
+        lines.push('Pulled ' + g.head + ' but still running ' + g.running.slice(0, 7) + '. A restart loads it.');
+      }
+      if (g.busy) {
+        lines.push(g.in_flight
+          ? g.in_flight + ' stream(s) playing now.'
+          : 'Last stream ' + fmtLength(g.idle_s || 0) + ' ago, so a TV may still be watching.');
+      }
+      state.textContent = lines.join(' ');
+
+      if (g.commits && g.commits.length) {
+        list.hidden = false;
+        g.commits.forEach(function (c) {
+          var li = document.createElement('li');
+          li.textContent = c.sha + '  ' + c.subject;
+          list.appendChild(li);
+        });
+      }
+      if (g.behind > 0 && !g.ahead && !g.dirty) {
+        acts.insertBefore(actionButton(
+          'Pull ' + g.behind + (g.behind === 1 ? ' update' : ' updates') + ' and restart',
+          '/api/system/update',
+          function (res) { return 'Updated ' + res.from + ' → ' + res.to + (res.deps ? ' with new packages' : '') + '.'; }
+        ), acts.firstChild);
+      }
+    }).catch(function () {
+      if (run !== hostRun) return;
+      state.textContent = 'This box cannot report its code yet. Restart it once to load the update buttons.';
+    });
   }
 
   function hostPost(path, payload) {

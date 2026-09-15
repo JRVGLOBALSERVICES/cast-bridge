@@ -59,6 +59,9 @@
     },
     "api/tv.js": {
       "maxDuration": 10
+    },
+    "api/castlog.js": {
+      "maxDuration": 10
     }
   },
   "buildCommand": "node scripts/stamp-build.mjs",

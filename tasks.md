@@ -1436,3 +1436,21 @@ things were, and the second one was invisible until the first was fixed.
       for a search and once for a download at 17:02 UTC and worked on the next tap:
       OpenSubtitles' keyless door is flaky. lib/opensubs.js retries once on 429/5xx or a
       dropped connection. Proof: test-opensubs 17/17, headless pull reloads + keeps link.
+- [x] Task 35: "Get a phone cast log dude. Each user, each log, each cast, each log, each movie played a log."
+      castbridge.cast_logs (db/007, applied): one row per film per person, lines appended
+      through rpc cast_log_append (atomic, capped 3000, newest kept), problems counted.
+      /api/castlog: POST append (text/plain too, for the pagehide beacon), GET mine /
+      scope=all (owner) / id. Phone: every logCast line queues under a per-film session id
+      (page+title key, so a Bilibili renewal stays one log), flushed every 8s and on hide;
+      a once-a-minute position beat (server copy only); phone/AirPlay playing, stall,
+      ended, error now logged too. More → Cast logs: list, Everyone + Problems only,
+      open one for every line + Copy. Kept 60 days. Proof: scripts/test-castlog.js
+      (seen red with user_id taken from the body), live append/read against the DB.
+- [x] Task 36: "Add a button in vps stream page to pm2 restart cast-stream direct"
+      server/control.js + POST /api/system/restart: detached setsid restart after the
+      reply. A stream in flight or in the last 20 min answers 409; the button re-arms
+      as "Cut off the film and restart cast-stream" and sends force. Proof: test-control.
+- [x] Task 37: "and pull changes to vps if not the same"
+      GET /api/system/git (fetch, behind/ahead/dirty, commits), POST /api/system/update
+      (ff-only, npm ci when the lock moved, then restart). Button shows only when behind
+      and clean. Proof: test-control against throwaway clones; restart cmd injected.

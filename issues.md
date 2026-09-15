@@ -1760,3 +1760,13 @@ film plays in the app on your phone and this refuses it with 10015001 or
 **Question:** is a full reload OK while casting?
 **Assumption made:** yes. The Cast SDK rejoins the TV session on load (ORIGIN_SCOPED) and restoreSession() relabels it; the TV keeps playing. Only a film playing inside the phone itself blocks the reload (toast says pull again after it stops).
 **Context Rj needs to review:** assets/js/app.js `fire()` in wirePullToRefresh. The signed-in reload was tested by reading the code only; the headless test covered the signed-out path (no login available).
+
+## Task 35: cast logs
+**Question:** who should see what, and how long to keep logs?
+**Assumption made:** everyone sees their own logs under More → Cast logs; the owner also gets an "Everyone" switch. Logs are kept 60 days. The once-a-minute position beat is stored on the server but not shown in the phone's live log.
+**Context Rj needs to review:** `api/castlog.js` (KEEP_DAYS), `assets/js/app.js` renderCastLogs.
+
+## Task 36/37: restart and pull buttons
+**Question:** should the buttons refuse while a film is playing?
+**Assumption made:** no. They warn instead. If something streamed in the last 20 minutes, the first press answers with the reason, and a second press on "Cut off the film and …" goes ahead. A box with local changes is never pulled over.
+**Context Rj needs to review:** `server/control.js`, `server/stream-server.js` /api/system/*.

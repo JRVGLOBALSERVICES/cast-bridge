@@ -795,6 +795,10 @@
           </span>
           <span class="cb-menuv">Sign in to reach members-only videos</span>
         </button>
+        <button type="button" class="cb-menurow" data-view="castlogs" id="more-castlogs">
+          <span class="cb-menuk"><span>Cast logs</span></span>
+          <span class="cb-menuv">Every film played, line by line: what the TV said and when it stopped</span>
+        </button>
         <button type="button" class="cb-menurow" data-view="host" id="more-host" hidden>
           <span class="cb-menuk">
             <span class="cb-dot" id="hostDot"></span>
@@ -828,6 +832,17 @@
         <h2 class="cb-viewtitle" id="title-bilibili">Bilibili</h2>
       </div>
       <div class="cb-bili-body" id="biliBody"></div>
+    </section>
+
+    <section class="cb-view" id="view-castlogs" tabindex="-1" hidden aria-labelledby="title-castlogs">
+      <div class="cb-viewhead">
+        <button type="button" class="cb-back" data-back="more">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+          <span>Menu</span>
+        </button>
+        <h2 class="cb-viewtitle" id="title-castlogs">Cast logs</h2>
+      </div>
+      <div class="cb-clog-body" id="castLogsBody"></div>
     </section>
 
     <section class="cb-view" id="view-host" tabindex="-1" hidden aria-labelledby="title-host">

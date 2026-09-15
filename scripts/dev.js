@@ -34,6 +34,7 @@ const probeApi = require('../api/probe.js');
 const authApi = require('../api/auth.js');
 const usersApi = require('../api/users.js');
 const historyApi = require('../api/history.js');
+const castlogApi = require('../api/castlog.js');
 const subsApi = require('../api/subs.js');
 const streamApi = require('../api/stream.js');
 const ticketApi = require('../api/ticket.js');
@@ -58,10 +59,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (pathname === '/api/users' || pathname === '/api/history') {
+  if (pathname === '/api/users' || pathname === '/api/history' || pathname === '/api/castlog') {
     req.query = Object.fromEntries(url.searchParams.entries());
     try {
-      await (pathname === '/api/users' ? usersApi : historyApi)(req, res);
+      await (pathname === '/api/users' ? usersApi : pathname === '/api/castlog' ? castlogApi : historyApi)(req, res);
     } catch (e) {
       res.statusCode = 500;
       res.end(JSON.stringify({ ok: false, error: e.message }));

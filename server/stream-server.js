@@ -70,6 +70,7 @@ const reissue = require('../lib/reissue.js');
 const storage = require('./storage.js');
 const ticket = require('../lib/ticket.js');
 const pushHook = require('./push-hook.js');
+const control = require('./control.js');
 
 const PORT = Number(process.env.PORT || 7801);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -663,6 +664,43 @@ function selfUpdateBeat() {
       storage: disk,
       served: { today: usage[day] || 0, days: days }
     });
+  }
+
+  /* ---------- Restart and update from the phone (server/control.js) ---------- */
+  if (url.pathname === '/api/system/git') {
+    if (!gate(req, res, 'storage')) return;
+    try {
+      const s = await control.status({ fetch: url.searchParams.get('fetch') !== '0' });
+      return json(res, 200, Object.assign({ ok: true, running: commit() },
+        s, control.busy({ inFlight, idleS: lastStreamAt ? Math.round((Date.now() - lastStreamAt) / 1000) : null })));
+    } catch (e) {
+      return json(res, 500, { ok: false, error: e.message || 'Could not read the checkout.' });
+    }
+  }
+
+  if (url.pathname === '/api/system/restart' || url.pathname === '/api/system/update') {
+    if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'Use POST.' });
+    const t = gate(req, res, 'storage');
+    if (!t) return;
+    let body = {};
+    try { body = await readJsonBody(req); } catch (e) { body = {}; }
+    const b = control.busy({ inFlight, idleS: lastStreamAt ? Math.round((Date.now() - lastStreamAt) / 1000) : null });
+    if (b.busy && !body.force) {
+      return json(res, 409, Object.assign({ ok: false, needs_force: true,
+        error: b.in_flight
+          ? b.in_flight + ' stream(s) are playing right now. A restart cuts them off.'
+          : 'Something streamed ' + b.idle_s + 's ago. A TV between reads looks idle but is still watching.' }, b));
+    }
+    if (url.pathname === '/api/system/update') {
+      const r = await control.update();
+      if (!r.body.ok || r.body.up_to_date) return json(res, r.status, r.body);
+      json(res, 200, Object.assign({ restarting: true }, r.body));
+    } else {
+      control.log('BUTTON restart by ' + t.uid + (b.busy ? ' (forced, in_flight ' + b.in_flight + ', idle ' + b.idle_s + 's)' : ''));
+      json(res, 200, { ok: true, restarting: true, running: commit() });
+    }
+    control.scheduleRestart(1);
+    return;
   }
 
   if (url.pathname === '/api/storage') {

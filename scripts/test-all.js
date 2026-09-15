@@ -34,7 +34,9 @@ const SUITES = [
   ['self-update', 'test-selfupdate.js'],
   ['session-start', 'test-sessionstart.js'],
   ['watchdog', 'test-watchstream.js'],
-  ['tv', 'test-tv.js']
+  ['tv', 'test-tv.js'],
+  ['castlog', 'test-castlog.js'],
+  ['control', 'test-control.js']
 ];
 
 const results = [];

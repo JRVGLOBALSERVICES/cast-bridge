@@ -3128,3 +3128,64 @@ a.cb-itemlink:first-child { text-decoration: underline; text-underline-offset: 2
   font-size: .8rem;
   color: var(--cb-ink-2);
 }
+
+/* ---------- Stream host: restart and update ---------- */
+.cb-host-ctl { margin-top: 0.4rem; }
+.cb-host-ctl > .cb-host-acts { margin-top: 0.5rem; }
+.cb-host-commits {
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-family-monospace, monospace);
+  font-size: 0.6875rem;
+  line-height: 1.55;
+  color: var(--cb-ink-2);
+}
+.cb-host-commits li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Cast logs ---------- */
+.cb-clog-body { padding: 0.25rem 0 0.9rem; }
+.cb-clog-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.8125rem;
+}
+.cb-clog-bar label { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--cb-ink-2); }
+.cb-clog-item { border-top: 1px solid var(--cb-line); }
+.cb-clog-item > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.15rem 0.75rem;
+  padding: 0.6rem 0;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.8125rem;
+}
+.cb-clog-item > summary::-webkit-details-marker { display: none; }
+.cb-clog-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  color: var(--cb-ink);
+}
+.cb-clog-when {
+  color: var(--cb-ink-2);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.cb-clog-meta {
+  grid-column: 1 / -1;
+  color: var(--cb-ink-2);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+.cb-clog-meta .is-bad { color: var(--cb-bad); font-weight: 700; }
+.cb-clog-item .cb-log-lines { max-height: 22rem; }
