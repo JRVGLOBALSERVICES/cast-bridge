@@ -1740,3 +1740,13 @@ film plays in the app on your phone and this refuses it with 10015001 or
 **Question:** does /?u=…&t=… show the title after sign-in?
 **Assumption made:** shipped. The embed itself was browser-tested (button renders, hides on blob:, respects off, opens the right URL). The app side adds `t` onto the existing `?u=` path, but a local static server has no /api, so the signed-in app never booted to prove it.
 **Context Rj needs to review:** open https://cast.jrvsystems.app/partners on your phone while signed in and tap the button under the demo video.
+
+## Task 31: Bilibili renew depends on the phone
+**Question:** should the two-hour Bilibili link expiry be fixed on the server instead?
+**Assumption made:** shipped the phone-side renew (reload at 105 min, same position). If the phone is locked and the tab frozen, the timer fires late and the film can still stop at ~2h. The proper fix is /api/stream re-issuing a fresh Bilibili address on a CDN 403 using a long-lived signed claim. Not built yet, because it changes the token lifetime.
+**Context Rj needs to review:** `armBstarRenew` in assets/js/app.js; `proxied()` in lib/bstar.js; `api/stream.js` referer re-read. Also: the root cause of the 16:13Z stop on 2026-09-15 is unknown. The server answered 206 the whole time, and the phone's cast log is not stored server-side.
+
+## Task 32: OpenSubtitles from Vercel
+**Question:** will the keyless legacy API answer Vercel's Singapore IPs as it answers the VPS?
+**Assumption made:** yes, until proven otherwise. Verified from the VPS only. If searches fail in production, create a free API key at opensubtitles.com/consumers and set OPENSUBTITLES_API_KEY on Vercel; the code falls back to it automatically. Uploaded .srt files still keep 30 days; only searched ones keep 3 days.
+**Context Rj needs to review:** lib/opensubs.js `search()`; api/subs.js `PICKED_KEEP_MS`.

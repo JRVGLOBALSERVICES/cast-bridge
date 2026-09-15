@@ -29,6 +29,7 @@
 
 const { safeFetch, readCapped } = require('../lib/media');
 const { toVtt, looksLikeSubtitles } = require('../lib/subs');
+const opensubs = require('../lib/opensubs');
 const auth = require('../lib/auth');
 const db = require('../lib/db');
 
@@ -74,12 +75,18 @@ module.exports = async function handler(req, res) {
     : Object.fromEntries(new URL(req.url, 'http://localhost').searchParams);
 
   if (req.method === 'POST') {
-    await keepUploaded(req, res, query);
+    if (query.pick) await keepPicked(req, res, query);
+    else await keepUploaded(req, res, query);
     return;
   }
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     fail(res, 405, 'Use GET or POST.');
+    return;
+  }
+
+  if (query.q !== undefined) {
+    await searchSubs(req, res, query);
     return;
   }
 
@@ -208,6 +215,125 @@ async function keepUploaded(req, res, query) {
       name,
       vtt: converted.vtt,
       cues: converted.cues
+    });
+  } catch (e) {
+    fail(res, e.status || 502, e.message || 'That subtitle file could not be kept.');
+    return;
+  }
+
+  const row = Array.isArray(made) ? made[0] : made;
+  if (!row || !row.id) {
+    fail(res, 502, 'That subtitle file could not be kept.');
+    return;
+  }
+
+  res.statusCode = 201;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify({
+    ok: true,
+    id: row.id,
+    url: '/api/subs?id=' + encodeURIComponent(row.id),
+    name: row.name,
+    cues: row.cues,
+    expires: row.expires_at
+  }));
+}
+
+/* GET /api/subs?q=<title>&lang=<code>
+ *
+ * Signed-in only: unlike the ?id= read, nothing here is fetched by a
+ * television, and an open search would be a free OpenSubtitles proxy with
+ * this server's name on the rate limit. "S01E02" in the title narrows it to
+ * that episode.
+ */
+async function searchSubs(req, res, query) {
+  const me = await auth.guard(req, res);
+  if (!me) return;
+
+  const parsed = opensubs.parseTitle(query.q);
+  if (!parsed.title) {
+    fail(res, 400, 'Type the name of the film or show.');
+    return;
+  }
+
+  let found;
+  try {
+    found = await opensubs.search({
+      title: parsed.title,
+      lang: query.lang,
+      season: parsed.season,
+      episode: parsed.episode
+    });
+  } catch (e) {
+    fail(res, e.status || 502, (e && e.message) || "OpenSubtitles didn't answer.");
+    return;
+  }
+
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.end(JSON.stringify({
+    ok: true,
+    query: parsed,
+    via: found.via,
+    results: found.results
+  }));
+}
+
+/* How long a subtitle picked from the search is kept. Three days covers
+   finishing the film tomorrow and the History row that points at it; the
+   file can be searched again for free after that. */
+const PICKED_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
+
+/* POST /api/subs?pick=<ref>&enc=<encoding>&name=<label>
+ *
+ * The ref is the one the search handed out (os:<id> or osc:<id>), never an
+ * address, so the only files this can fetch are OpenSubtitles downloads.
+ * Stored exactly like an upload and served back by id. */
+async function keepPicked(req, res, query) {
+  const me = await auth.guard(req, res);
+  if (!me) return;
+
+  if (!opensubs.parseRef(query.pick)) {
+    fail(res, 400, 'That is not a subtitle from the search.');
+    return;
+  }
+
+  let source;
+  try {
+    source = await opensubs.download(String(query.pick), String(query.enc || ''));
+  } catch (e) {
+    fail(res, e.status || 502, (e && e.message) || 'That subtitle could not be downloaded.');
+    return;
+  }
+
+  if (!looksLikeSubtitles(source)) {
+    fail(res, 415, "That download isn't a subtitle file. Try another one from the list.");
+    return;
+  }
+
+  let converted;
+  try {
+    converted = toVtt(source);
+  } catch (e) {
+    fail(res, 422, (e && e.message) || 'That subtitle file could not be read.');
+    return;
+  }
+
+  const name = String(query.name || 'Subtitles').slice(0, 120) || 'Subtitles';
+
+  try {
+    await db.remove('subtitles?user_id=eq.' + enc(me.id) + '&expires_at=lt.' + enc(new Date().toISOString()));
+  } catch (e) { /* housekeeping is never worth failing a pick over */ }
+
+  let made;
+  try {
+    made = await db.insert('subtitles?select=id,name,cues,expires_at', {
+      user_id: me.id,
+      name,
+      vtt: converted.vtt,
+      cues: converted.cues,
+      expires_at: new Date(Date.now() + PICKED_KEEP_MS).toISOString()
     });
   } catch (e) {
     fail(res, e.status || 502, e.message || 'That subtitle file could not be kept.');

@@ -1399,3 +1399,21 @@ things were, and the second one was invisible until the first was fixed.
       every <video> with a real address; opens /?u=<link>&t=<title>. Skips DRM
       and blob: videos (data-cast-src fixes blob), opt-out and opt-in attributes,
       own-button hook, CastBridge.send(). Partner docs + live demo at /partners.
+- [x] Task 31: Casts show "not accepted" / Bilibili stops casting or ends halfway — check logs.
+      Vercel request logs (only ~23h retained) had no 4xx/5xx; the VPS log only
+      client aborts. Causes found in code: (a) Bilibili TV CDN links in the DASH
+      manifest expire 7200s after it is built and the TV never refetches it, so
+      a long film goes IDLE partway — the phone now renews the link at 105 min
+      and resumes at the same spot, keeping subtitles; (b) the 15s stall timer
+      reloaded a TV that was still BUFFERING, and the "bridge"/"backup bridge"
+      retries resent the identical /api/bstar address — a buffering TV now gets
+      45s, and the fake backup hop is skipped for our own addresses; (c) the
+      failure message no longer tells Bilibili users to find an .mp4 link.
+- [x] Task 32: Subtitle search — OpenSubtitles by title or custom title with a
+      language option, loads it and keeps it 3 days.
+      lib/opensubs.js (keyless rest.opensubtitles.org, falls back to
+      api.opensubtitles.com when OPENSUBTITLES_API_KEY is set), GET /api/subs?q=
+      and POST /api/subs?pick= (stored with expires_at = now + 3 days), search
+      form in the Subtitles panel prefilled with the film title, language
+      remembered on the phone. Proof: scripts/test-opensubs.js (15), plus live
+      search + download + convert from the VPS.

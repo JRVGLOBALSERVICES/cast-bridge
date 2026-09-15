@@ -576,6 +576,45 @@ summary:focus-visible {
    warning ink without red, which is reserved for destruction. */
 .cb-subs-warn { color: var(--cb-warn-ink); }
 
+/* Search by name. The title field gets its own full row because a film name
+   is long and a phone is narrow; language and the button share the second. */
+.cb-subs-find > .form-control { margin-bottom: 0.5rem; }
+.cb-subs-find .custom-select { min-width: 0; }
+.cb-subs-results {
+  list-style: none;
+  margin: 0 0 0.6rem;
+  padding: 0;
+  max-height: 18rem;
+  overflow-y: auto;
+  border: 1px solid var(--cb-line);
+  border-radius: var(--cb-radius);
+}
+.cb-subs-results li + li { border-top: 1px solid var(--cb-line); }
+.cb-subs-pick {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.55rem 0.75rem;
+  border: 0;
+  background: transparent;
+  color: var(--cb-ink);
+  text-align: left;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.cb-subs-pick:hover,
+.cb-subs-pick:focus-visible { background: rgba(45, 76, 200, 0.06); }
+.cb-subs-pick:disabled { cursor: progress; opacity: 0.6; }
+.cb-subs-pick-name { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.cb-subs-pick-meta {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--cb-ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
 .cb-subs-off {
   margin-bottom: 0.65rem;
   min-height: 44px; padding: 0 1rem;

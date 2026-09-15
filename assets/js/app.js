@@ -1454,6 +1454,7 @@
 
   var subsProxy = '';
   var subsName = '';
+  var subsCarry = null;
 
   function setStatus(text, kind) {
     statusText.textContent = text;
@@ -2003,6 +2004,15 @@
     /* A different film is a different subtitle file. Carrying the last one
        across would silently caption the wrong thing. */
     clearSubs();
+    /* The same film renewed (Bilibili's two-hour links) keeps its track. */
+    if (subsCarry) {
+      subsProxy = subsCarry.proxy;
+      subsName = subsCarry.name;
+      attachLocalTrack(subsProxy, subsName);
+      subsBox.classList.add('is-on');
+      $('subsOff').hidden = false;
+      subsCarry = null;
+    }
     subsBox.hidden = false;
     updateCastUi();
 
@@ -2852,6 +2862,7 @@
      before giving up. Fifteen seconds is well past a normal start, even on
      a cold CDN. */
   var STALL_MS = 15000;
+  var STALL_EXTRA_MS = 45000;
   var stallTimer = null;
   var stallRetried = false;
 
@@ -2870,6 +2881,35 @@
     return '';
   }
 
+  /* Bilibili TV's CDN signs every segment address for 7200s from the moment
+     /api/bstar builds the manifest, and the television never asks for the
+     manifest again. So a film longer than about two hours — or a shorter
+     one with a long pause — played fine and then went IDLE partway through
+     with every remaining segment answering 403. Before the links run out,
+     read the page again for fresh ones and put the TV back where it was.
+     The phone has to be awake-ish for this: a frozen tab's timer runs late,
+     and a late renew is the old behaviour, not a new failure. */
+  var BSTAR_RENEW_MS = 105 * 60 * 1000;
+  var bstarRenewTimer = null;
+
+  function armBstarRenew(u) {
+    if (bstarRenewTimer) { clearTimeout(bstarRenewTimer); bstarRenewTimer = null; }
+    if (!/\/api\/bstar$/i.test(String(u).split('?')[0].split('#')[0])) return;
+    bstarRenewTimer = setTimeout(function () {
+      bstarRenewTimer = null;
+      if (u !== current || castState !== 'CONNECTED' || !remotePlayer || !remotePlayer.isMediaLoaded) return;
+      var at = remotePlayer.currentTime || 0;
+      logCast('Renewing the Bilibili link', 'its video addresses expire two hours after the TV got them · at ' + clock(at));
+      toast({ text: 'Refreshing the Bilibili link so the film keeps playing — back at ' + clock(at) + '.' });
+      if (currentFrom) {
+        subsCarry = subsProxy ? { proxy: subsProxy, name: subsName } : null;
+        resolveThenPlay(currentFrom);
+      } else {
+        castLoad(u, { at: at });
+      }
+    }, BSTAR_RENEW_MS);
+  }
+
   function armStallWatch(u, at, opts) {
     disarmStallWatch();
     stallTimer = setTimeout(function () {
@@ -2878,6 +2918,19 @@
       if (remotePlayer && remotePlayer.playerState === PS.PLAYING) return;
 
       var name = deviceName();
+      var oursStall = String(u).indexOf(location.origin + '/api/') === 0;
+
+      /* BUFFERING is the TV working, not the TV stuck. A Bilibili DASH film
+         starts through two relays and routinely takes longer than fifteen
+         seconds; reloading it then restarted the start-up from zero, twice,
+         and ended in "couldn't play it" for a film that was about to play.
+         Give a buffering TV one more window before treating it as stalled. */
+      if (remotePlayer && remotePlayer.playerState === PS.BUFFERING && !opts.stallExtended) {
+        logCast('Still buffering after ' + Math.round(STALL_MS / 1000) + 's', 'giving it another ' + Math.round(STALL_EXTRA_MS / 1000) + 's before retrying');
+        opts.stallExtended = true;
+        stallTimer = setTimeout(function () { armStallWatch(u, at, opts); }, STALL_EXTRA_MS - STALL_MS);
+        return;
+      }
       logCast('Still not playing after ' + Math.round(STALL_MS / 1000) + 's',
               'TV reports: ' + ((remotePlayer && remotePlayer.playerState) || 'no state at all') + idleTail());
 
@@ -2893,7 +2946,10 @@
          likely to be the bridge as the film, so try the other one before
          calling it dead — the two are different machines in different
          places, and the log records which was in use. */
-      if (opts.viaProxy && nextStreamHost()) {
+      /* One of our own addresses (/api/bstar) is the same URL on every
+         bridge — castLoad never re-points it — so "the backup" was the same
+         request again, and one more restart of a film that was loading. */
+      if (opts.viaProxy && !oursStall && nextStreamHost()) {
         setStatus(name + ' still isn\'t starting — trying the backup bridge.', '');
         logCast('Switching bridge', 'now serving from ' + (STREAM_HOSTS[streamHostIndex] || location.origin));
         castLoad(u, { at: at, viaProxy: true });
@@ -3083,6 +3139,7 @@
          was still showing a spinner. The claim now waits for the receiver to
          report PLAYING, which is where it is upgraded. */
       logCast('The TV accepted it. Waiting for it to start playing\u2026');
+      armBstarRenew(u);
       setStatus('Sent to ' + name + ' — waiting for it to start.', 'ready');
       reportCast('Sent to ' + name, 'Waiting for it to start\u2026');
       $('onairTitle').textContent = 'Sent to ' + name;
@@ -3102,14 +3159,16 @@
       }
 
       /* Refused while already proxied. The bridge itself is a suspect. */
-      if (opts.viaProxy && nextStreamHost()) {
+      if (opts.viaProxy && !ours && nextStreamHost()) {
         setStatus('That bridge didn\'t work — trying the backup.', '');
         logCast('Switching bridge', 'now serving from ' + (STREAM_HOSTS[streamHostIndex] || location.origin));
         castLoad(u, { at: at, viaProxy: true });
         return;
       }
       screenEl.classList.remove('is-onair');
-      setStatus(name + ' couldn\'t play it (' + ((err && err.code) || 'error') + '). It needs a public https .mp4 or .m3u8 link.', 'bad');
+      setStatus(ours
+        ? name + ' couldn\'t play it (' + ((err && err.code) || 'error') + '). Bilibili may have refused this film just now — try again in a minute or pick another quality.'
+        : name + ' couldn\'t play it (' + ((err && err.code) || 'error') + '). It needs a public https .mp4 or .m3u8 link.', 'bad');
       reportIssue('cast', name + " couldn't play it",
         (currentTitle || nameOf(u)) + ' — open Cast Bridge for the log.');
       openCastLog(true);
@@ -3996,6 +4055,179 @@
       }
     }).catch(function () {
       fieldError($('subsUrl'), $('subsError'), 'That subtitle file could not be sent.');
+    }).then(function () {
+      busy(btn, false);
+      btn.disabled = false;
+    });
+  });
+
+  /* Search OpenSubtitles by name.
+   *
+   * The title field is filled from the film when the panel opens, and stays
+   * editable, because a page title or file name is rarely the name a
+   * subtitle is filed under. "S01E02" in it narrows to that episode (parsed
+   * server-side). A pick is downloaded, converted and kept for 3 days, then
+   * attached exactly like an upload.
+   */
+  var subsFindPrefill = '';
+  var LANG_KEY = 'cb.subs.lang';
+
+  try {
+    var savedLang = localStorage.getItem(LANG_KEY);
+    if (savedLang && $('subsFindLang').querySelector('option[value="' + savedLang + '"]')) {
+      $('subsFindLang').value = savedLang;
+    }
+  } catch (e) { /* storage blocked — English stays the default */ }
+
+  $('subsFindLang').addEventListener('change', function () {
+    try { localStorage.setItem(LANG_KEY, this.value); } catch (e) { /* storage blocked */ }
+  });
+
+  subsBox.addEventListener('toggle', function () {
+    if (!subsBox.open) return;
+    var q = $('subsFindQ');
+    var want = currentTitle || (current ? nameOf(current) : '');
+    /* Only overwrite what we put there ourselves; a name the person typed
+       is theirs. */
+    if (want && (!q.value || q.value === subsFindPrefill)) {
+      q.value = want;
+      subsFindPrefill = want;
+    }
+  });
+
+  function subsFindSay(text) {
+    var st = $('subsFindStatus');
+    st.textContent = text || '';
+    st.hidden = !text;
+  }
+
+  function subsResultMeta(r) {
+    var bits = [];
+    if (r.movie) bits.push(r.movie + (r.year ? ' (' + r.year + ')' : ''));
+    if (r.season && r.episode) bits.push('S' + r.season + ' E' + r.episode);
+    bits.push((r.downloads || 0).toLocaleString() + ' downloads');
+    if (r.hearingImpaired) bits.push('SDH');
+    return bits.join(' · ');
+  }
+
+  function applyKeptSubs(body, fallbackName, keepText) {
+    subsProxy = new URL(body.url, location.origin).toString();
+    subsName = body.name || fallbackName;
+    attachLocalTrack(subsProxy, subsName);
+
+    subsBox.classList.add('is-on');
+    $('subsSummary').textContent = 'Subtitles on' + (body.cues ? ' · ' + body.cues + ' lines' : '');
+    $('subsOff').hidden = false;
+
+    var keep = $('subsKeepNote');
+    keep.textContent = keepText;
+    keep.hidden = false;
+
+    if (castState === 'CONNECTED' && remotePlayer && remotePlayer.isMediaLoaded) {
+      var at = remotePlayer.currentTime || 0;
+      castLoad(current, { at: at });
+      toast({ text: 'Subtitles on — picking the TV back up at ' + clock(at) + '.' });
+    } else {
+      toast({ text: 'Subtitles on' + (body.cues ? ' — ' + body.cues + ' lines.' : '.') });
+    }
+  }
+
+  function pickFoundSubs(r, btn) {
+    if (!current) {
+      fieldError($('subsFindQ'), $('subsFindError'), 'Load a video first — subtitles attach to what is playing.');
+      return;
+    }
+    var all = $('subsFindResults').querySelectorAll('button');
+    Array.prototype.forEach.call(all, function (b) { b.disabled = true; });
+    subsFindSay('Downloading ' + (r.name || 'subtitles') + '…');
+    fieldError($('subsFindQ'), $('subsFindError'), null);
+
+    var label = (r.movie || r.name || 'Subtitles') + (r.lang ? ' [' + r.lang + ']' : '');
+    fetch('/api/subs?pick=' + encodeURIComponent(r.ref) +
+          '&enc=' + encodeURIComponent(r.encoding || '') +
+          '&name=' + encodeURIComponent(label), {
+      method: 'POST',
+      headers: { accept: 'application/json' }
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (body) { return { status: res.status, body: body }; });
+    }).then(function (x) {
+      if (x.status === 401) { handleAuthLapse(); return; }
+      if (x.status !== 201 || !x.body || x.body.ok !== true) {
+        subsFindSay('');
+        fieldError($('subsFindQ'), $('subsFindError'),
+          (x.body && x.body.error) || 'That subtitle could not be used. Try another one.');
+        return;
+      }
+      subsFindSay('');
+      applyKeptSubs(x.body, label,
+        'Kept for 3 days at a link of its own, so it comes back with this film from History. ' +
+        'Anyone with that exact link can read it — that is how the television gets it.');
+    }).catch(function () {
+      subsFindSay('');
+      fieldError($('subsFindQ'), $('subsFindError'), 'That subtitle could not be downloaded.');
+    }).then(function () {
+      Array.prototype.forEach.call(all, function (b) { b.disabled = false; });
+    });
+  }
+
+  $('subsFindForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var q = $('subsFindQ').value.trim();
+    var list = $('subsFindResults');
+    if (!q) {
+      fieldError($('subsFindQ'), $('subsFindError'), 'Type the name of the film or show.');
+      return;
+    }
+    fieldError($('subsFindQ'), $('subsFindError'), null);
+
+    var btn = $('btnSubsFind');
+    if (btn.disabled) return;
+    busy(btn, true, 'Searching…');
+    btn.disabled = true;
+    list.hidden = true;
+    list.textContent = '';
+    subsFindSay('');
+
+    fetch('/api/subs?q=' + encodeURIComponent(q) + '&lang=' + encodeURIComponent($('subsFindLang').value), {
+      headers: { accept: 'application/json' }
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (body) { return { status: res.status, body: body }; });
+    }).then(function (x) {
+      if (x.status === 401) { handleAuthLapse(); return; }
+      if (x.status !== 200 || !x.body || x.body.ok !== true) {
+        fieldError($('subsFindQ'), $('subsFindError'), (x.body && x.body.error) || 'The search failed. Try again.');
+        return;
+      }
+      var results = x.body.results || [];
+      var lang = $('subsFindLang').selectedOptions[0].textContent;
+      if (!results.length) {
+        subsFindSay('No ' + lang + ' subtitles found for "' + x.body.query.title + '"' +
+          (x.body.query.season ? ' S' + x.body.query.season + 'E' + x.body.query.episode : '') +
+          '. Try a shorter name, the original title, or another language.');
+        return;
+      }
+      subsFindSay(results.length + ' ' + lang + ' result' + (results.length === 1 ? '' : 's') +
+        ' for "' + x.body.query.title + '". Most downloaded first; tap one to use it.');
+      results.forEach(function (r) {
+        var li = document.createElement('li');
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cb-subs-pick';
+        var n = document.createElement('span');
+        n.className = 'cb-subs-pick-name';
+        n.textContent = r.name || r.movie || 'Subtitles';
+        var m = document.createElement('span');
+        m.className = 'cb-subs-pick-meta';
+        m.textContent = subsResultMeta(r);
+        b.appendChild(n);
+        b.appendChild(m);
+        b.addEventListener('click', function () { pickFoundSubs(r, b); });
+        li.appendChild(b);
+        list.appendChild(li);
+      });
+      list.hidden = false;
+    }).catch(function () {
+      fieldError($('subsFindQ'), $('subsFindError'), "OpenSubtitles couldn't be reached. Try again.");
     }).then(function () {
       busy(btn, false);
       btn.disabled = false;

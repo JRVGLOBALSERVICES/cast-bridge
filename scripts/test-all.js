@@ -22,6 +22,7 @@ const SUITES = [
   ['bstar', 'test-bstar.js'],
   ['bstar-hls', 'test-bstar-hls.js'],
   ['subs', 'test-subs.js'],
+  ['opensubs', 'test-opensubs.js'],
   ['crawl', 'test-crawl.js'],
   ['sources', 'test-sources.js'],
   ['nowplaying', 'test-nowplaying.js'],

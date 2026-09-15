@@ -404,6 +404,45 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 12h5M6 15h8M15 12h3"/></svg>
         <span id="subsSummary">Subtitles</span>
       </summary>
+      <!-- Find one by name. Most people have no subtitle file and no link;
+           they have a film title. Search OpenSubtitles, tap a result, and it
+           is converted and kept for 3 days like an upload. -->
+      <form id="subsFindForm" class="cb-subs-find" novalidate>
+        <label class="cb-sronly" for="subsFindQ">Film or show name</label>
+        <input class="form-control" id="subsFindQ" type="search" enterkeyhint="search"
+               placeholder="Film or show, e.g. Breaking Bad S01E02" autocomplete="off"
+               aria-describedby="subsFindError">
+        <div class="input-group">
+          <label class="cb-sronly" for="subsFindLang">Subtitle language</label>
+          <select class="form-control custom-select" id="subsFindLang">
+            <option value="eng">English</option>
+            <option value="may">Malay</option>
+            <option value="ind">Indonesian</option>
+            <option value="chi">Chinese (simplified)</option>
+            <option value="zht">Chinese (traditional)</option>
+            <option value="tam">Tamil</option>
+            <option value="hin">Hindi</option>
+            <option value="ara">Arabic</option>
+            <option value="jpn">Japanese</option>
+            <option value="kor">Korean</option>
+            <option value="tha">Thai</option>
+            <option value="vie">Vietnamese</option>
+            <option value="spa">Spanish</option>
+            <option value="fre">French</option>
+          </select>
+          <div class="input-group-append">
+            <button type="submit" class="btn btn-secondary" id="btnSubsFind">
+              <span class="cb-label">Search</span>
+              <span class="cb-spin" aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
+        <p class="cb-fielderror" id="subsFindError" role="alert"></p>
+        <p class="cb-subs-note" id="subsFindStatus" aria-live="polite" hidden></p>
+        <ul class="cb-subs-results" id="subsFindResults" hidden></ul>
+      </form>
+
+      <p class="cb-subs-or">or</p>
       <form id="subsForm" novalidate>
         <div class="input-group">
           <label class="cb-sronly" for="subsUrl">Subtitle file link</label>
