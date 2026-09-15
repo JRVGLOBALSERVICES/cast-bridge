@@ -127,9 +127,22 @@ if [ "$AHEAD" -ne 0 ] || [ -n "$(git status --porcelain --untracked-files=no)" ]
 fi
 
 # A restart mid-cast stalls the TV. Wait for the next tick instead.
-INFLIGHT=$(curl -s -m 10 "$HEALTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("in_flight",0))' 2>/dev/null || echo 0)
+#
+# in_flight == 0 is NOT "nobody is watching". A TV reads an MP4 one 64 MiB
+# window at a time and, once its buffer is full, opens no connection for
+# minutes (7.5 min measured). On 2026-09-15 this script restarted the box in
+# one of those gaps and the film stopped. So also require the box to have
+# been quiet for CAST_IDLE_MIN_S (default 20 min) since its last stream.
+IDLE_MIN=${CAST_IDLE_MIN_S:-1200}
+read -r INFLIGHT IDLE < <(curl -s -m 10 "$HEALTH" | python3 -c 'import json,sys; d=json.load(sys.stdin); i=d.get("idle_s"); print(d.get("in_flight",0), -1 if i is None else i)' 2>/dev/null || echo "0 -1")
 if [ "${INFLIGHT:-0}" -gt 0 ]; then
   log "deferred: $BEHIND behind, $INFLIGHT stream(s) in flight"
+  beat deferred "$BEHIND" "$AHEAD"
+  exit 0
+fi
+# -1 = never streamed since boot (or no answer): nothing to interrupt.
+if [ "${IDLE:--1}" -ge 0 ] && [ "$IDLE" -lt "$IDLE_MIN" ]; then
+  log "deferred: $BEHIND behind, last stream ${IDLE}s ago (waiting for ${IDLE_MIN}s quiet)"
   beat deferred "$BEHIND" "$AHEAD"
   exit 0
 fi
@@ -143,7 +156,10 @@ NEW=$(git rev-parse --short HEAD)
 LOCK_AFTER=$(git rev-parse HEAD:package-lock.json 2>/dev/null || echo none)
 [ "$LOCK_BEFORE" != "$LOCK_AFTER" ] && { log "deps changed — npm ci"; npm ci --omit=dev >>"$LOG" 2>&1 || { notify "⚠️ cast-stream auto-update: npm ci failed on the VPS ($NEW)."; exit 1; }; }
 
-pm2 restart cast-stream --update-env >/dev/null 2>&1
+# Overridable because the test suite drives this script end to end: with the
+# literal command, every `npm test` restarted the LIVE stream server twice and
+# cut off a film being watched (2026-09-15, 16:39 and 16:52 UTC).
+${CAST_RESTART_CMD:-pm2 restart cast-stream --update-env} >/dev/null 2>&1
 
 # Prove it came back, rather than assume it. /healthz is the public probe;
 # the commit lives behind an owner ticket, so the restart itself is evidenced

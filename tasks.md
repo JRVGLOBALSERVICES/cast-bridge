@@ -1417,3 +1417,11 @@ things were, and the second one was invisible until the first was fixed.
       form in the Subtitles panel prefilled with the film title, language
       remembered on the phone. Proof: scripts/test-opensubs.js (15), plus live
       search + download + convert from the VPS.
+- [x] Task 33: "Video randomly stops. Played 10 minutes disconnected. Then doesn't even load."
+      Not the source site: the cgjnf.com MP4 (1.29 GB) serves at ~1 MB/s with its
+      referer. The VPS stream server was restarted under the TV five times on
+      2026-09-15: 16:39 and 16:52 UTC by the self-update TEST (it ran the real
+      `pm2 restart cast-stream`, twice per run), and 17:00 by the auto-updater,
+      which saw in_flight 0 in the minutes a TV goes quiet between 64 MiB
+      windows. Fix: the test injects CAST_RESTART_CMD; the server reports
+      idle_s; the updater also waits for 20 min without any stream.

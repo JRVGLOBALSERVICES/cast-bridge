@@ -158,6 +158,11 @@ function gb(bytes) {
 
 const started = Date.now();
 let inFlight = 0;
+/* When a stream last opened or closed. in_flight alone is not "nobody is
+   watching": a TV reads an MP4 a 64 MiB window at a time and goes quiet for
+   minutes between windows once its buffer is full. The updater restarted this
+   box in one of those gaps on 2026-09-15 and cut a film off mid-play. */
+let lastStreamAt = 0;
 
 /* Which commit is actually running. Read from .git rather than baked in at
    build time because there is no build: the deploy is `git pull && pm2
@@ -473,6 +478,7 @@ function selfUpdateBeat() {
       ok: true,
       uptime_s: Math.round((Date.now() - started) / 1000),
       in_flight: inFlight,
+      idle_s: lastStreamAt ? Math.round((Date.now() - lastStreamAt) / 1000) : null,
       window_mb: Number(process.env.STREAM_RANGE_WINDOW_MB) || 8,
       served_today_gb: gb(usage[day] || 0),
       served_this_month_gb: gb(monthBytes),
@@ -589,8 +595,10 @@ function selfUpdateBeat() {
     const meta = await storage.metaOf(fileMatch[1]);
     if (!meta) return json(res, 404, { ok: false, error: 'That file is not here any more.' });
     inFlight++;
+    lastStreamAt = Date.now();
     res.on('close', () => {
       inFlight--;
+    lastStreamAt = Date.now();
       const bytes = sentSoFar();
       record(bytes);
       console.log([new Date().toISOString(), res.statusCode, (req.headers.range || '-'),
@@ -629,6 +637,7 @@ function selfUpdateBeat() {
         commit: commit(),
         port: PORT,
         in_flight: inFlight,
+        idle_s: lastStreamAt ? Math.round((Date.now() - lastStreamAt) / 1000) : null,
         window_mb: Number(process.env.STREAM_RANGE_WINDOW_MB) || 8,
         uploads_enabled: ticket.configured(),
         state_dir: STATE_DIR
@@ -762,8 +771,10 @@ function selfUpdateBeat() {
   req.query = Object.fromEntries(url.searchParams.entries());
 
   inFlight++;
+    lastStreamAt = Date.now();
   res.on('close', () => {
     inFlight--;
+    lastStreamAt = Date.now();
     const bytes = sentSoFar();
     record(bytes);
     const target = String(req.query.u || '').slice(0, 120);

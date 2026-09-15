@@ -62,8 +62,12 @@ function stage() {
 function run(clone, env = {}) {
   return spawnSync('bash', [SCRIPT], {
     encoding: 'utf8',
+    /* CAST_RESTART_CMD=true: the script's real restart is `pm2 restart
+       cast-stream`, and running this suite used to bounce the live server
+       mid-film. A test must never be able to reach production pm2. */
     env: { ...process.env, CAST_REPO: clone, CAST_UPDATE_NOTIFY: 'off',
-           CAST_HEALTH_URL: 'http://127.0.0.1:9/healthz', ...env }
+           CAST_HEALTH_URL: 'http://127.0.0.1:9/healthz', ...env,
+           CAST_RESTART_CMD: 'true' }
   });
 }
 
@@ -212,6 +216,48 @@ console.log('self-update heartbeat');
   check('a rejected send is visible in the log', /alert_sent.*(ok":false|text required)/.test(logOf(c2)),
     'log said: ' + logOf(c2).split('\n').filter((l) => /alert_/.test(l)).join(' | '));
   try { process.kill(-wa400.child.pid); } catch (e) { void e; }
+}
+
+/* 6. A TV between range windows. in_flight reads 0 for minutes while the TV
+      sits on a full buffer; restarting then stopped a film on 2026-09-15.
+      And the restart itself must be the injected command, never real pm2. */
+{
+  const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'health-stub-'));
+  const portFile = path.join(stub, 'port');
+  const health = (body) => {
+    fs.rmSync(portFile, { force: true });
+    const c = spawn(process.execPath, ['-e', `
+      require('http').createServer((q,res)=>{res.writeHead(200,{'content-type':'application/json'});
+        res.end(${JSON.stringify(JSON.stringify(body))});
+      }).listen(0,'127.0.0.1',function(){require('fs').writeFileSync(${JSON.stringify(portFile)},String(this.address().port));});
+    `], { stdio: 'ignore', detached: true });
+    for (let i = 0; i < 200 && !fs.existsSync(portFile); i++) spawnSync('sleep', ['0.02']);
+    return { child: c, url: 'http://127.0.0.1:' + fs.readFileSync(portFile, 'utf8').trim() + '/healthz' };
+  };
+  const marker = path.join(stub, 'restarted');
+  const cases = [
+    ['quiet gap after a stream (idle 450s) defers', { ok: true, in_flight: 0, idle_s: 450 }, 'deferred'],
+    ['20 min quiet updates', { ok: true, in_flight: 0, idle_s: 1300 }, 'updated'],
+    ['never streamed since boot updates', { ok: true, in_flight: 0, idle_s: null }, 'updated']
+  ];
+  for (const [label, body, want] of cases) {
+    fs.rmSync(marker, { force: true });
+    const { clone } = stage();
+    const h = health(body);
+    run(clone, { CAST_HEALTH_URL: h.url });
+    try { process.kill(-h.child.pid); } catch (e) { void e; }
+    const beat = beatOf(clone);
+    check(label, beat && beat.state === want, 'state=' + (beat && beat.state) + ' log=' + logOf(clone).trim());
+  }
+  /* The override is forced by run(), so prove the script really uses it: a
+     direct invocation with a marker command must touch the marker. */
+  {
+    const { clone } = stage();
+    spawnSync('bash', [SCRIPT], { encoding: 'utf8', env: { ...process.env, CAST_REPO: clone,
+      CAST_UPDATE_NOTIFY: 'off', CAST_HEALTH_URL: 'http://127.0.0.1:9/healthz',
+      CAST_RESTART_CMD: 'touch ' + marker } });
+    check('the restart is the injected command', fs.existsSync(marker), 'marker missing');
+  }
 }
 
 console.log('');
