@@ -65,7 +65,10 @@ function run(clone, env = {}) {
     /* CAST_RESTART_CMD=true: the script's real restart is `pm2 restart
        cast-stream`, and running this suite used to bounce the live server
        mid-film. A test must never be able to reach production pm2. */
+    /* CAST_UPDATE_LOCK per clone: the default lock is the live updater's, and
+       a hold on production made every case here exit before doing anything. */
     env: { ...process.env, CAST_REPO: clone, CAST_UPDATE_NOTIFY: 'off',
+           CAST_UPDATE_LOCK: path.join(clone, '..', 'update.lock'),
            CAST_HEALTH_URL: 'http://127.0.0.1:9/healthz', ...env,
            CAST_RESTART_CMD: 'true' }
   });
@@ -102,6 +105,22 @@ console.log('self-update heartbeat');
     'log got: ' + JSON.stringify(logOf(clone)));
   check('exit 0', r.status === 0, 'status=' + r.status);
   void origin;
+}
+
+/* 1b. A held lock is not a dead cron. Someone parking the updater while a film
+       plays must still stamp, or the watchdog pages for a healthy updater. */
+{
+  const { clone, first } = stage();
+  const lock = path.join(clone, '..', 'update.lock');
+  const holder = spawn('flock', [lock, 'sleep', '30'], { stdio: 'ignore' });
+  spawnSync('sleep', ['0.5']);
+  const r = run(clone);
+  holder.kill();
+  const beat = beatOf(clone);
+  check('a tick that finds the lock held still stamps', beat && beat.state === 'held',
+    'state=' + (beat && beat.state));
+  check('a held tick changes nothing', git(clone, 'rev-parse', 'HEAD') === first);
+  check('a held tick exits 0', r.status === 0, 'status=' + r.status);
 }
 
 /* 2. A real update stamps too, and says so. */
@@ -254,6 +273,7 @@ console.log('self-update heartbeat');
   {
     const { clone } = stage();
     spawnSync('bash', [SCRIPT], { encoding: 'utf8', env: { ...process.env, CAST_REPO: clone,
+      CAST_UPDATE_LOCK: path.join(clone, '..', 'update.lock'),
       CAST_UPDATE_NOTIFY: 'off', CAST_HEALTH_URL: 'http://127.0.0.1:9/healthz',
       CAST_RESTART_CMD: 'touch ' + marker } });
     check('the restart is the injected command', fs.existsSync(marker), 'marker missing');

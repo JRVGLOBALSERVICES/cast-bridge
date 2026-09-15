@@ -24,7 +24,7 @@ set -uo pipefail
 REPO=${CAST_REPO:-/opt/cast-stream}
 LOG=$REPO/data/self-update.log
 BEAT=$REPO/data/self-update-heartbeat.json
-LOCK=/tmp/cast-stream-self-update.lock
+LOCK=${CAST_UPDATE_LOCK:-/tmp/cast-stream-self-update.lock}
 # Overridable so the guards below can be exercised against a stub rather than
 # only in production, where "a cast is in flight" is not a state you can stage.
 HEALTH=${CAST_HEALTH_URL:-http://127.0.0.1:7801/healthz}
@@ -105,7 +105,13 @@ notify() {
 clear_markers() { rm -f "$REPO"/data/.notified-* 2>/dev/null || true; }
 
 exec 9>"$LOCK"
-flock -n 9 || exit 0
+# A busy lock is either a tick still running or a deliberate hold (a film is
+# playing and someone parked the updater). Both are alive. Exiting without a
+# stamp made them read as a dead cron: a 5-hour hold on 2026-09-15 paged Rj at
+# 2am for an updater that was doing exactly what it was told. The watchers
+# treat a long run of `held` like a long run of `deferred`, so a lock that is
+# never released still surfaces.
+flock -n 9 || { (cd "$REPO" 2>/dev/null && beat held); exit 0; }
 
 cd "$REPO" || exit 1
 
