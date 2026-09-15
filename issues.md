@@ -1750,3 +1750,8 @@ film plays in the app on your phone and this refuses it with 10015001 or
 **Question:** will the keyless legacy API answer Vercel's Singapore IPs as it answers the VPS?
 **Assumption made:** yes, until proven otherwise. Verified from the VPS only. If searches fail in production, create a free API key at opensubtitles.com/consumers and set OPENSUBTITLES_API_KEY on Vercel; the code falls back to it automatically. Uploaded .srt files still keep 30 days; only searched ones keep 3 days.
 **Context Rj needs to review:** lib/opensubs.js `search()`; api/subs.js `PICKED_KEEP_MS`.
+
+## Task 33: The idle guard is on disk, not yet running
+**Question:** restart cast-stream now so /healthz reports idle_s?
+**Assumption made:** no. Rj was mid-film (in_flight 1). /opt/cast-stream was fast-forwarded to 8103483 by hand with no restart, so the cron has nothing to update. Until the process restarts once, /healthz has no idle_s, and the next push would still be allowed to restart in a quiet gap between windows.
+**Context Rj needs to review:** run `pm2 restart cast-stream` once when nothing is playing. server/stream-server.js `lastStreamAt`; scripts/self-update.sh `CAST_IDLE_MIN_S`.
