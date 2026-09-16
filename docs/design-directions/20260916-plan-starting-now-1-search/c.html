@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cast Bridge — Direction C · The remote</title>
+<!-- Hallmark · pre-emit critique: P5 H4 E4 S5 R3 V5 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Doto:wght@700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --body:#2a2723; --body-hi:#3a3631; --body-lo:#1c1a17; --edge:#4a453e;
+  --key:#d9d3c7; --key-hi:#f3efe7; --key-lo:#a9a295; --key-ink:#23201c;
+  --lcd:#b9c78a; --lcd-lo:#8d9a62; --lcd-ink:#1e2413;
+  --orange:#ff6a1a; --orange-lo:#c24a08;
+  --paper:#fbf8f1; --paper-ink:#2b2824; --stamp:#c8321e;
+  --ink:#efe9de; --ink-2:#b3aa9b; --focus:#7fb2ff;
+  --font-ui:"Bricolage Grotesque", system-ui, sans-serif;
+  --font-lcd:"Doto", "Space Mono", monospace;
+  --font-mono:"Space Mono", ui-monospace, monospace;
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:40px;
+}
+*{box-sizing:border-box}
+html,body{overflow-x:clip;margin:0}
+body{background:radial-gradient(120% 80% at 50% 0%,#39342e 0%,#1a1815 70%);color:var(--ink);font:400 15px/1.45 var(--font-ui);min-height:100vh}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+.intro{max-width:1240px;margin:0 auto;padding:var(--s6) var(--s4) var(--s5);display:grid;gap:var(--s2)}
+.intro .tag{font:700 12px/1 var(--font-mono);color:var(--orange);letter-spacing:.1em;text-transform:uppercase}
+.intro h1{font:800 clamp(30px,5vw,56px)/1 var(--font-ui);margin:0;letter-spacing:-.02em;overflow-wrap:anywhere}
+.intro p{margin:0;color:var(--ink-2);max-width:62ch}
+.screens{max-width:1240px;margin:0 auto;padding:0 var(--s4) var(--s6);display:grid;gap:var(--s5);grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));align-items:start}
+.cap{font:700 11px/1 var(--font-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);margin:0 0 var(--s2) var(--s1)}
+
+/* brushed body */
+.shell{min-width:0;border-radius:28px;padding:var(--s4);background:
+  repeating-linear-gradient(90deg,rgba(255,255,255,.018) 0 1px,transparent 1px 3px),
+  linear-gradient(180deg,var(--body-hi),var(--body) 30%,var(--body-lo));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),inset 0 -2px 0 rgba(0,0,0,.4),0 18px 40px rgba(0,0,0,.45);border:1px solid var(--edge);display:grid;gap:var(--s4)}
+
+/* recessed LCD */
+.lcd{border-radius:14px;padding:var(--s3) var(--s4);background:
+  repeating-linear-gradient(0deg,rgba(0,0,0,.05) 0 1px,transparent 1px 3px),linear-gradient(180deg,var(--lcd-lo),var(--lcd) 25%);
+  color:var(--lcd-ink);box-shadow:inset 0 3px 8px rgba(0,0,0,.45),0 1px 0 rgba(255,255,255,.08);display:grid;gap:2px;min-width:0}
+.lcd .l1{font:900 22px/1.05 var(--font-lcd);letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lcd .l2{font:700 13px/1.3 var(--font-mono);display:flex;justify-content:space-between;gap:var(--s2);font-variant-numeric:tabular-nums;min-width:0}
+.lcd .l2 span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lcd .blink{animation:b 1.2s steps(1) infinite}
+@keyframes b{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.lcd .blink{animation:none}}
+
+/* slot input */
+.slot{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--s2);padding:6px;border-radius:16px;background:var(--body-lo);box-shadow:inset 0 3px 6px rgba(0,0,0,.6),0 1px 0 rgba(255,255,255,.07)}
+.slot:focus-within{box-shadow:inset 0 3px 6px rgba(0,0,0,.6),0 0 0 2px var(--focus)}
+.slot input{border:0;outline:none;background:transparent;padding:0 var(--s3);height:48px;min-width:0;font:400 14px/1 var(--font-mono);color:var(--ink)}
+.slot input::placeholder{color:#8e8577}
+.slotlabel{font:700 11px/1 var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);margin:0 0 -6px var(--s2)}
+
+/* physical keys */
+.key{height:48px;padding:0 var(--s4);border:0;border-radius:12px;cursor:pointer;white-space:nowrap;font-weight:600;color:var(--key-ink);
+  background:linear-gradient(180deg,var(--key-hi),var(--key));box-shadow:0 3px 0 var(--key-lo),0 5px 8px rgba(0,0,0,.35),inset 0 1px 0 #fff;transition:transform .08s,box-shadow .08s}
+.key:active{transform:translateY(3px);box-shadow:0 0 0 var(--key-lo),0 1px 2px rgba(0,0,0,.35),inset 0 1px 0 #fff}
+.key.go{height:64px;font-size:19px;font-weight:800;color:#fff;background:linear-gradient(180deg,#ff8a45,var(--orange));box-shadow:0 4px 0 var(--orange-lo),0 8px 14px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.5)}
+.key.dark{color:var(--ink);background:linear-gradient(180deg,#4a453e,#35312b);box-shadow:0 3px 0 #15130f,0 5px 8px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.15)}
+.pad{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s3)}
+.pad .wide{grid-column:1/-1}
+.nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;padding:6px;border-radius:18px;background:var(--body-lo);box-shadow:inset 0 2px 5px rgba(0,0,0,.55)}
+.nav button{height:52px;border:0;border-radius:12px;background:transparent;color:var(--ink-2);font:700 11px/1 var(--font-mono);letter-spacing:.04em;text-transform:uppercase;cursor:pointer;min-width:0}
+.nav button[aria-current=page]{color:var(--key-ink);background:linear-gradient(180deg,var(--key-hi),var(--key));box-shadow:0 2px 0 var(--key-lo)}
+
+/* history as tape labels */
+.tape{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:var(--s3);align-items:center;padding:var(--s3);border-radius:12px;background:linear-gradient(180deg,#f4efe4,#e6dfd1);color:var(--paper-ink);box-shadow:0 2px 0 #b8b0a1,0 4px 8px rgba(0,0,0,.3)}
+.tape .spine{align-self:stretch;border-radius:4px;background:var(--orange)}
+.tape .spine.grey{background:#9c9486}
+.tape b{display:block;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tape small{display:block;font:400 12px/1.35 var(--font-mono);color:#6b6358;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meter{height:6px;border-radius:3px;background:#cfc7b8;margin-top:6px;box-shadow:inset 0 1px 2px rgba(0,0,0,.25);overflow:hidden}
+.meter i{display:block;height:100%;background:var(--orange)}
+.tape .key{height:44px;min-width:44px;padding:0 var(--s3)}
+.stack{display:grid;gap:var(--s3)}
+.daylbl{font:700 11px/1 var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);margin:var(--s2) 0 0 var(--s1)}
+
+/* receipt */
+.receipt{position:relative;background:var(--paper);color:var(--paper-ink);padding:var(--s4) var(--s4) var(--s5);font:400 12.5px/1.5 var(--font-mono);box-shadow:0 8px 20px rgba(0,0,0,.4);
+  -webkit-mask:conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) bottom/14px 51% repeat-x,linear-gradient(#000 0 0) top/100% 50% no-repeat;
+          mask:conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) bottom/14px 51% repeat-x,linear-gradient(#000 0 0) top/100% 50% no-repeat}
+.receipt h3{margin:0;text-align:center;font:700 14px/1.2 var(--font-mono);letter-spacing:.1em}
+.receipt .c{text-align:center;color:#6b6358;margin:2px 0 var(--s2)}
+.receipt hr{border:0;border-top:1px dashed #a79f90;margin:var(--s2) 0}
+.ln{display:grid;grid-template-columns:62px minmax(0,1fr);gap:var(--s2)}
+.ln time{color:#8a8275;font-variant-numeric:tabular-nums}
+.ln span{overflow-wrap:anywhere}
+.ln.bad span{color:var(--stamp);font-weight:700}
+.stampbox{margin:var(--s3) auto 0;width:max-content;max-width:100%;border:2px solid var(--stamp);color:var(--stamp);padding:4px 10px;transform:rotate(-3deg);font:700 13px/1.2 var(--font-mono);letter-spacing:.06em;text-transform:uppercase;text-align:center}
+.tear{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s3)}
+</style>
+</head>
+<body>
+<header class="intro">
+  <span class="tag">Direction C · The remote</span>
+  <h1>A remote you can feel in your hand.</h1>
+  <p>The phone becomes a hardware remote: a brushed body, a small backlit screen that always shows what the TV is doing, a slot to paste the link into, and keys that press down. History sits like labelled tapes with a progress meter. A cast log prints out like a till receipt, with problems stamped in red.</p>
+</header>
+
+<main class="screens">
+  <section aria-label="Cast">
+    <p class="cap">01 · Cast</p>
+    <div class="shell">
+      <div class="lcd" role="status">
+        <div class="l1">▶ 55" CRYSTAL UHD</div>
+        <div class="l2"><span>HD · tvarticles.co</span><span>0:45 / 1:08:40</span></div>
+      </div>
+      <p class="slotlabel">Link slot</p>
+      <div class="slot">
+        <input type="url" inputmode="url" placeholder="Paste a video or page link" aria-label="Video or page link">
+        <button class="key" type="button">Paste</button>
+      </div>
+      <button class="key go" type="button">Play on TV</button>
+      <div class="pad">
+        <button class="key dark" type="button">On this phone</button>
+        <button class="key dark" type="button">Pick TV</button>
+        <button class="key dark wide" type="button">A file from this phone</button>
+      </div>
+      <nav class="nav" aria-label="Main"><button aria-current="page">Cast</button><button>Web</button><button>Files</button><button>Tapes</button><button>More</button></nav>
+    </div>
+  </section>
+
+  <section aria-label="History">
+    <p class="cap">02 · History</p>
+    <div class="shell">
+      <div class="lcd" role="status">
+        <div class="l1">NO TV<span class="blink">_</span></div>
+        <div class="l2"><span>Can't see it? Same Wi-Fi</span><span>SCAN</span></div>
+      </div>
+      <div class="slot"><input type="search" placeholder="Find a tape" aria-label="Search history"><button class="key" type="button">Starred</button></div>
+      <p class="daylbl">Today</p>
+      <div class="stack">
+        <div class="tape"><span class="spine"></span><div><b>HD · tvarticles.co</b><small>19:42 · 55" Crystal UHD</small><div class="meter"><i style="width:2%"></i></div></div><button class="key" type="button" aria-label="Resume HD">▶</button></div>
+        <div class="tape"><span class="spine grey"></span><div><b>720p · tvarticles.co</b><small>19:38 · didn't start · log</small></div><button class="key" type="button" aria-label="Retry 720p">↻</button></div>
+        <div class="tape"><span class="spine grey"></span><div><b>tvtest.mp4</b><small>17:20 · localhost · ×2</small></div><button class="key" type="button" aria-label="Play tvtest">▶</button></div>
+      </div>
+      <p class="daylbl">Yesterday</p>
+      <div class="stack">
+        <div class="tape"><span class="spine"></span><div><b>flower.webm</b><small>22:04 · mdn.mozilla.net</small><div class="meter"><i style="width:60%"></i></div></div><button class="key" type="button" aria-label="Resume flower">▶</button></div>
+      </div>
+      <nav class="nav" aria-label="Main"><button>Cast</button><button>Web</button><button>Files</button><button aria-current="page">Tapes</button><button>More</button></nav>
+    </div>
+  </section>
+
+  <section aria-label="Cast log">
+    <p class="cap">03 · Cast log</p>
+    <div class="shell">
+      <div class="lcd" role="status">
+        <div class="l1">LOG · 2 FAULTS</div>
+        <div class="l2"><span>rjnflix1 · 16 SEP</span><span>21 LINES</span></div>
+      </div>
+      <div class="receipt">
+        <h3>CAST BRIDGE</h3>
+        <p class="c">HD → 55" Crystal UHD · build 080eb65</p>
+        <hr>
+        <div class="ln"><time>19:42:26</time><span>Sender ready</span></div>
+        <div class="ln"><time>19:42:28</time><span>Film: HD · tvlogy.to/…m3u8</span></div>
+        <div class="ln bad"><time>19:42:28</time><span>✕ Phone can't parse stream (err 4, direct)</span></div>
+        <div class="ln"><time>19:42:28</time><span>↻ Retry through bridge</span></div>
+        <div class="ln bad"><time>19:42:28</time><span>✕ TV refused connection</span></div>
+        <div class="ln"><time>19:42:36</time><span>Connected · HLS via bridge</span></div>
+        <div class="ln"><time>19:42:41</time><span>TV playing</span></div>
+        <div class="ln"><time>19:43:30</time><span>0:45 / 1:08:40</span></div>
+        <hr>
+        <div class="stampbox">Played · 2 faults</div>
+      </div>
+      <div class="tear">
+        <button class="key" type="button">Copy log</button>
+        <button class="key dark" type="button">First fault</button>
+      </div>
+    </div>
+  </section>
+</main>
+</body>
+</html>

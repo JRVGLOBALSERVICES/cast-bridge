@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cast Bridge — Direction A · Control room</title>
+<!-- Hallmark · pre-emit critique: P4 H5 E4 S5 R5 V4 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#0f1011; --panel:#16181a; --well:#0b0c0d; --rule:#26292c; --rule-2:#34383c;
+  --ink:#e9eae6; --ink-2:#9a9e9a; --ink-3:#6b6f6c;
+  --signal:#43d17a; --warn:#f2a93b; --bad:#ff6b57; --focus:#8fb8ff;
+  --font-ui:"IBM Plex Sans Condensed", system-ui, sans-serif;
+  --font-mono:"JetBrains Mono", ui-monospace, monospace;
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:40px;
+  --r:6px;
+}
+*{box-sizing:border-box}
+html,body{overflow-x:clip;margin:0}
+body{background:var(--paper);color:var(--ink);font:400 15px/1.45 var(--font-ui);-webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.intro{max-width:1240px;margin:0 auto;padding:var(--s6) var(--s4) var(--s5);display:grid;gap:var(--s2)}
+.intro .tag{font:500 12px/1 var(--font-mono);color:var(--signal);letter-spacing:.08em;text-transform:uppercase}
+.intro h1{font-weight:600;font-size:clamp(28px,4vw,44px);line-height:1.05;margin:0;letter-spacing:-.01em;overflow-wrap:anywhere}
+.intro p{margin:0;color:var(--ink-2);max-width:62ch}
+.screens{max-width:1240px;margin:0 auto;padding:0 var(--s4) var(--s6);display:grid;gap:var(--s5);grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))}
+.screen{border:1px solid var(--rule);border-radius:var(--r);background:var(--paper);display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.cap{font:500 11px/1 var(--font-mono);color:var(--ink-3);letter-spacing:.08em;text-transform:uppercase;padding:var(--s3) var(--s4);border-bottom:1px solid var(--rule)}
+
+/* dock: the one lit thing */
+.dock{display:grid;grid-template-columns:auto 1fr auto;gap:var(--s3);align-items:center;padding:var(--s3) var(--s4);background:var(--panel);border-bottom:1px solid var(--rule)}
+.lamp{width:10px;height:10px;border-radius:50%;background:var(--signal);box-shadow:0 0 0 3px color-mix(in oklab,var(--signal) 25%,transparent)}
+.lamp.warn{background:var(--warn);box-shadow:0 0 0 3px color-mix(in oklab,var(--warn) 25%,transparent)}
+.lamp.off{background:var(--ink-3);box-shadow:none}
+.dock b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dock small{display:block;font:400 12px/1.3 var(--font-mono);color:var(--ink-2);font-variant-numeric:tabular-nums}
+.dock .ctl{border:1px solid var(--rule-2);background:transparent;border-radius:var(--r);min-width:44px;height:44px;padding:0 var(--s3);cursor:pointer;white-space:nowrap}
+.body{padding:var(--s4);display:grid;gap:var(--s4);align-content:start;flex:1}
+
+/* paste */
+.label{font:500 12px/1 var(--font-mono);color:var(--ink-2);letter-spacing:.06em;text-transform:uppercase}
+.field{display:grid;grid-template-columns:minmax(0,1fr) auto;border:1px solid var(--rule-2);border-radius:var(--r);background:var(--well)}
+.field:focus-within{border-color:var(--focus)}
+.field input{border:0;background:transparent;padding:0 var(--s3);height:52px;min-width:0;outline:none;font:400 14px/1 var(--font-mono)}
+.field input::placeholder{color:var(--ink-3)}
+.field .paste{border:0;border-left:1px solid var(--rule-2);background:transparent;padding:0 var(--s4);cursor:pointer;font-weight:600;white-space:nowrap}
+.hint{font-size:13px;color:var(--ink-3);margin:0}
+.primary{height:52px;border-radius:var(--r);border:0;background:var(--ink);color:var(--paper);font-weight:600;font-size:16px;cursor:pointer;white-space:nowrap}
+.primary[disabled]{background:var(--rule);color:var(--ink-3);cursor:not-allowed}
+.secondary{height:44px;border-radius:var(--r);border:1px solid var(--rule-2);background:transparent;cursor:pointer;white-space:nowrap}
+.row2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--s2)}
+
+/* lists */
+.group{font:500 11px/1 var(--font-mono);color:var(--ink-3);letter-spacing:.08em;text-transform:uppercase;padding-top:var(--s2)}
+.list{border-top:1px solid var(--rule)}
+.item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--s3);align-items:center;padding:var(--s3) 0;border-bottom:1px solid var(--rule)}
+.item .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .m{font:400 12px/1.4 var(--font-mono);color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.bar{height:2px;background:var(--rule);margin-top:6px;border-radius:2px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ink-2)}
+.item .go{width:44px;height:44px;border-radius:var(--r);border:1px solid var(--rule-2);background:transparent;cursor:pointer}
+.chips{display:flex;gap:var(--s2);flex-wrap:wrap}
+.chip{height:36px;padding:0 var(--s3);border-radius:18px;border:1px solid var(--rule-2);background:transparent;cursor:pointer;white-space:nowrap;font-size:14px}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.search{height:44px;border:1px solid var(--rule-2);border-radius:var(--r);background:var(--well);padding:0 var(--s3);width:100%}
+
+/* log */
+.summary{border:1px solid color-mix(in oklab,var(--warn) 45%,var(--rule));background:color-mix(in oklab,var(--warn) 8%,var(--panel));border-radius:var(--r);padding:var(--s3) var(--s4);display:grid;gap:var(--s2)}
+.summary b{color:var(--warn)}
+.summary p{margin:0;font-size:14px;color:var(--ink)}
+.tl{list-style:none;margin:0;padding:0;font:400 12.5px/1.45 var(--font-mono)}
+.tl li{display:grid;grid-template-columns:64px 10px minmax(0,1fr);gap:var(--s2);padding:6px 0;border-bottom:1px solid var(--rule);align-items:baseline}
+.tl time{color:var(--ink-3);font-variant-numeric:tabular-nums}
+.tl .d{width:8px;height:8px;border-radius:50%;background:var(--ink-3);align-self:center}
+.tl .ok .d{background:var(--signal)} .tl .w .d{background:var(--warn)} .tl .x .d{background:var(--bad)}
+.tl .x span{color:var(--bad)}
+.tl em{display:block;font-style:normal;color:var(--ink-2);overflow-wrap:anywhere}
+.addr{color:var(--ink-3)}
+.tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border-top:1px solid var(--rule);background:var(--panel)}
+.tabs button{height:56px;border:0;background:transparent;font-size:12px;color:var(--ink-2);cursor:pointer}
+.tabs button[aria-current=page]{color:var(--ink);box-shadow:inset 0 2px 0 var(--ink)}
+@media (max-width:420px){.intro{padding-top:var(--s5)}}
+</style>
+</head>
+<body>
+<header class="intro">
+  <span class="tag">Direction A · Control room</span>
+  <h1>One lit signal. Everything else is quiet.</h1>
+  <p>Near-black and grey, with colour only where something is happening: green while the TV plays, amber when it's stuck. The TV bar stays at the top of every tab. Lists are one line per film, and the log reads as a timeline with the problem pulled out first.</p>
+</header>
+
+<main class="screens">
+  <!-- 1 · Cast -->
+  <section class="screen" aria-label="Cast tab">
+    <div class="cap">01 · Cast</div>
+    <div class="dock">
+      <span class="lamp" aria-hidden="true"></span>
+      <div><b>55" Crystal UHD · playing</b><small>HD · 0:45 / 1:08:40</small></div>
+      <button class="ctl" type="button">Pause</button>
+    </div>
+    <div class="body">
+      <label class="label" for="a-link">Video or page link</label>
+      <div class="field">
+        <input id="a-link" type="url" inputmode="url" placeholder="https://…" autocomplete="off">
+        <button class="paste" type="button">Paste</button>
+      </div>
+      <p class="hint">A page link works too. We find the video on it.</p>
+      <button class="primary" type="button" disabled>Paste a link to play</button>
+      <div class="row2">
+        <button class="secondary" type="button">File on this phone</button>
+        <button class="secondary" type="button">Record screen</button>
+      </div>
+      <div class="group">Continue</div>
+      <div class="list">
+        <div class="item"><div><div class="t">HD · tvarticles.co</div><div class="m">0:45 of 1:08:40 · 55" Crystal UHD</div><div class="bar"><i style="width:2%"></i></div></div><button class="go" type="button" aria-label="Resume HD">▶</button></div>
+        <div class="item"><div><div class="t">flower.webm</div><div class="m">mdn.mozilla.net · this phone</div><div class="bar"><i style="width:60%"></i></div></div><button class="go" type="button" aria-label="Resume flower">▶</button></div>
+      </div>
+    </div>
+    <nav class="tabs" aria-label="Main"><button aria-current="page">Cast</button><button>Browse</button><button>Library</button><button>History</button><button>More</button></nav>
+  </section>
+
+  <!-- 2 · History -->
+  <section class="screen" aria-label="History tab">
+    <div class="cap">02 · History</div>
+    <div class="dock">
+      <span class="lamp off" aria-hidden="true"></span>
+      <div><b>No TV connected</b><small>Can't see your TV? Same Wi-Fi →</small></div>
+      <button class="ctl" type="button">Cast to…</button>
+    </div>
+    <div class="body">
+      <input class="search" type="search" placeholder="Search films and sites" aria-label="Search history">
+      <div class="chips" role="group" aria-label="Filter">
+        <button class="chip" aria-pressed="true">All</button><button class="chip" aria-pressed="false">Unfinished</button><button class="chip" aria-pressed="false">Starred</button><button class="chip" aria-pressed="false">Everyone</button>
+      </div>
+      <div class="group">Today</div>
+      <div class="list">
+        <div class="item"><div><div class="t">HD · tvarticles.co</div><div class="m">19:42 · 55" Crystal UHD · 1:08:40</div><div class="bar"><i style="width:2%"></i></div></div><button class="go" type="button" aria-label="Play HD">▶</button></div>
+        <div class="item"><div><div class="t">720p · tvarticles.co</div><div class="m">19:38 · this phone · stopped</div><div class="bar"><i style="width:0%"></i></div></div><button class="go" type="button" aria-label="Play 720p">▶</button></div>
+        <div class="item"><div><div class="t">tvtest.mp4 ×2</div><div class="m">17:20 · localhost · played twice</div></div><button class="go" type="button" aria-label="Play tvtest">▶</button></div>
+      </div>
+      <div class="group">Yesterday</div>
+      <div class="list">
+        <div class="item"><div><div class="t">flower.webm</div><div class="m">22:04 · mdn.mozilla.net</div><div class="bar"><i style="width:60%"></i></div></div><button class="go" type="button" aria-label="Play flower">▶</button></div>
+      </div>
+      <p class="hint">Swipe a row left to star, copy or remove. Removed rows undo for 10 s. Clear all lives in More → Data.</p>
+    </div>
+    <nav class="tabs" aria-label="Main"><button>Cast</button><button>Browse</button><button>Library</button><button aria-current="page">History</button><button>More</button></nav>
+  </section>
+
+  <!-- 3 · Cast log -->
+  <section class="screen" aria-label="Cast log">
+    <div class="cap">03 · Cast log</div>
+    <div class="dock">
+      <span class="lamp warn" aria-hidden="true"></span>
+      <div><b>HD · 55" Crystal UHD</b><small>rjnflix1 · 16 Sep 19:42 · 21 lines</small></div>
+      <button class="ctl" type="button">Copy</button>
+    </div>
+    <div class="body">
+      <div class="summary" role="status">
+        <b>2 problems, then played</b>
+        <p>The phone couldn't read the stream directly (DEMUXER_ERROR_COULD_NOT_PARSE), so it switched to the bridge. The TV refused the first connection and took the second one 8 s later.</p>
+        <div class="row2"><button class="secondary" type="button">Jump to problem</button><button class="secondary" type="button">Retry via bridge</button></div>
+      </div>
+      <ol class="tl">
+        <li><time>19:42:26</time><span class="d"></span><span>Cast sender ready</span></li>
+        <li><time>19:42:28</time><span class="d"></span><span>Film chosen<em class="addr">HD · tvlogy.to/…/video.m3u8</em></span></li>
+        <li class="x"><time>19:42:28</time><span class="d"></span><span>Phone player error<em>media error 4 · could not parse · direct from host</em></span></li>
+        <li class="w"><time>19:42:28</time><span class="d"></span><span>Retrying<em>serving through the bridge</em></span></li>
+        <li class="x"><time>19:42:28</time><span class="d"></span><span>Session start failed<em>TV refused the connection</em></span></li>
+        <li class="ok"><time>19:42:36</time><span class="d"></span><span>Connected to 55" Crystal UHD</span></li>
+        <li><time>19:42:36</time><span class="d"></span><span>Loading on TV<em>HLS · through the bridge</em></span></li>
+        <li class="w"><time>19:42:40</time><span class="d"></span><span>TV buffering</span></li>
+        <li class="ok"><time>19:42:41</time><span class="d"></span><span>TV playing</span></li>
+        <li><time>19:43:30</time><span class="d"></span><span>Beat<em>TV playing at 0:45 / 1:08:40</em></span></li>
+      </ol>
+    </div>
+    <nav class="tabs" aria-label="Main"><button>Cast</button><button>Browse</button><button>Library</button><button>History</button><button aria-current="page">More</button></nav>
+  </section>
+</main>
+</body>
+</html>
