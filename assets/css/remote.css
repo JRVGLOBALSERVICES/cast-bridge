@@ -483,7 +483,10 @@ body.is-gated .cb-head { position: static; }
 /* ======================================================================
    Tapes — every list row is a paper label stuck on the body
    ====================================================================== */
-.list-group, .cb-list { gap: 10px; display: grid; background: transparent; }
+/* minmax(0, 1fr), not the implicit auto track: an auto track grows to the
+   row's min-content, and a long unbroken film name (nowrap title) then pushed
+   every row past the screen and widened the page, so iOS zoomed it out. */
+.list-group, .cb-list { gap: 10px; display: grid; grid-template-columns: minmax(0, 1fr); background: transparent; }
 .list-group-item,
 .cb-menurow,
 .cb-seriesrow,
@@ -506,7 +509,8 @@ body.is-gated .cb-head { position: static; }
   box-shadow: 0 2px 0 #b8b0a1, 0 4px 8px rgba(0, 0, 0, .3) !important;
   margin: 0 !important;
 }
-.list-group-item { padding: 12px 12px 12px 22px; }
+.list-group-item,
+.cb-list .list-group-item { padding: 12px 12px 12px 24px; }
 /* The tape's spine: orange once it has been watched part-way, grey otherwise. */
 .list-group-item::before {
   content: "";

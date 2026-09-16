@@ -1489,3 +1489,7 @@ things were, and the second one was invisible until the first was fixed.
       drawer (Chrome/Full/No pop-ups/Mirror/Start/Close tab), start page with pinned sites + opened lately, load bar,
       "hasn't loaded" overlay after 15s.
       Proof: breakpoint-checker 56/56 signed in, audit-gate VERIFIED, npm test 24/24, Lighthouse mobile A11y 100 / BP 81 / SEO 100.
+- [x] Task 45: Rj's screenshot (iPhone, Cast tab): Continue watching rows ran past the right edge, the page zoomed out, one row titled only "1080p".
+      Cause: `.list-group` is a grid with an implicit auto track, which grew to the nowrap title's full width (426px on a 390 screen).
+      Fix: grid-template-columns minmax(0,1fr) in remote.css; text cleared from the tape spine; titleOf() names a quality-only title after its page.
+      Proof: reproduced with seeded history (row 19→426, page 426 wide) → after 19→371, page 390. breakpoint-checker 16/16, npm test 24/24.

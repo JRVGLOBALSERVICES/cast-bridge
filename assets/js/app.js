@@ -60,6 +60,16 @@
     } catch (e) { return String(u).slice(0, 70); }
   }
 
+  /* Some pages label their stream with the quality alone, so a row read
+     "1080p" and nothing else. Name it after the page it came from instead. */
+  function titleOf(it) {
+    var t = (it.title || '').trim();
+    if (t && !/^(\d{3,4}p|[48]k|hd|sd|fhd|uhd|auto)$/i.test(t)) return t;
+    var name = it.from ? nameOf(it.from) : '';
+    if (!name || name === hostOf(it.from)) name = nameOf(it.url);
+    return t && name.toLowerCase().indexOf(t.toLowerCase()) < 0 ? name + ' · ' + t : name;
+  }
+
   function hostOf(u) {
     try { return new URL(u).host.replace(/^www\./, ''); } catch (e) { return ''; }
   }
@@ -7526,7 +7536,7 @@
 
     var title = document.createElement('span');
     title.className = 'cb-item-title';
-    title.textContent = it.title || nameOf(it.url);
+    title.textContent = titleOf(it);
     title.title = it.url;
     body.appendChild(title);
 
@@ -7644,7 +7654,7 @@
     /* The same film played twice is one row here; History keeps both. */
     var seen = {};
     var items = (store.count() ? store.all() : []).filter(function (it) {
-      var k = (it.title || nameOf(it.url)).toLowerCase() + '|' + hostOf(it.from || it.url);
+      var k = titleOf(it).toLowerCase() + '|' + hostOf(it.from || it.url);
       if (seen[k]) return false;
       seen[k] = 1;
       return true;
