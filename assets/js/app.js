@@ -218,7 +218,11 @@
         found.lastAt = Date.now();
         found.plays = (found.plays || 0) + 1;
         if (meta.title) found.title = meta.title;
-        if (meta.from) found.from = meta.from;
+        /* A link opened on its own names itself as its page. Writing that
+           over the scan's page loses the one thing that can renew the link
+           once its host stops honouring it, for every later play. */
+        if (meta.from && meta.from !== url) found.from = meta.from;
+        else if (meta.from && !found.from) found.from = meta.from;
         if (meta.poster) found.poster = meta.poster;
         /* The other streams the same scan found for this film. Written only
            when there are any, so replaying a row from History — which knows
@@ -1458,6 +1462,11 @@
   var subsCarry = null;
 
   function setStatus(text, kind) {
+    /* Everything the person is told went wrong goes into the log too, so a
+       screenshot of the red line and the log can never disagree. */
+    if (kind === 'bad' && text && text !== statusText.textContent && typeof logCast === 'function') {
+      try { logCast('Error shown', text); } catch (e) { /* the log never breaks the status */ }
+    }
     statusText.textContent = text;
     statusDot.className = 'cb-dot' + (kind ? ' is-' + kind : '');
     statusBox.classList.toggle('is-bad', kind === 'bad');
@@ -1529,6 +1538,9 @@
     });
     hls.on(window.Hls.Events.ERROR, function (_, data) {
       if (!data.fatal) return;
+      logCast('HLS error', data.type + ' · ' + data.details +
+        (data.response && data.response.code ? ' · HTTP ' + data.response.code : '') +
+        (hlsProxied ? ' · through the bridge' : ' · direct from the host'));
       if (data.type === window.Hls.ErrorTypes.NETWORK_ERROR) {
         /* Almost always the host refusing a request that does not carry
            the page it was embedded in, or simply sending no cross-origin
@@ -1731,6 +1743,17 @@
 
   /* `quiet` lines (the once-a-minute position beat) go to the server's copy
      only: on the phone they would push the lines worth reading off the top. */
+  /* A script that breaks leaves the app looking frozen — "nothing runs" —
+     and used to leave no trace anywhere. Both kinds go in the log. */
+  window.addEventListener('error', function (ev) {
+    if (!ev || !ev.message) return; // resource load errors are logged where they happen
+    logCast('App error', ev.message + (ev.filename ? ' @ ' + ev.filename.split('/').pop() + ':' + ev.lineno : ''));
+  });
+  window.addEventListener('unhandledrejection', function (ev) {
+    var r = ev && ev.reason;
+    logCast('App error', 'unhandled: ' + String((r && (r.message || r.code)) || r).slice(0, 300));
+  });
+
   function logCast(line, detail, opts) {
     var e = {
       at: Date.now(),
@@ -2024,6 +2047,19 @@
       return true;
     }
 
+    /* Opened with no page, or with itself as its page (pasted, opened in
+       the browser, tapped in a log): if History knows the page this film
+       was found on, use that. Without it the bridge cannot ask the page for
+       a fresh link, and a link locked to the network that found it just
+       fails with "format error". */
+    if (!meta.from || meta.from === u) {
+      var known = store.find(u);
+      if (known && known.from && known.from !== u && /^https?:/i.test(known.from)) {
+        logCast('Page found in History', known.from);
+        meta.from = known.from;
+      }
+    }
+
     current = u;
     currentTitle = meta.title || nameOf(u);
     currentFrom = meta.from || '';
@@ -2165,8 +2201,40 @@
     if (hls) hls.currentLevel = parseInt(qualitySel.value, 10);
   });
 
+  /* What the player itself said, read before anything swaps the source —
+     a retry that sets video.src clears video.error, which is how every
+     failure used to be logged as "unknown". */
+  function mediaErrorText() {
+    var me2 = video.error;
+    if (!me2) return 'no error detail from the browser';
+    return 'media error ' + me2.code + (me2.message ? ' · ' + me2.message : '');
+  }
+
+  /* A <video> pointed at the bridge reports a refusal as "format error".
+     The bridge put the real reason in a header; ask for it and log that. */
+  function logBridgeReason(src) {
+    if (!src || src.indexOf('/api/stream') === -1 || !window.fetch) return;
+    var ctl = window.AbortController ? new AbortController() : null;
+    fetch(src, { headers: { Range: 'bytes=0-1' }, referrerPolicy: 'no-referrer', signal: ctl ? ctl.signal : undefined })
+      .then(function (r) {
+        var why = r.headers.get('X-Cast-Error');
+        if (ctl) ctl.abort();
+        if (why) logCast('Bridge refused', 'HTTP ' + r.status + ' · ' + decodeURIComponent(why));
+        else logCast('Bridge answered', 'HTTP ' + r.status + ' · ' + (r.headers.get('content-type') || 'no type') + ' — the file itself would not decode');
+      })
+      .catch(function (e) {
+        if (e && e.name === 'AbortError') return;
+        logCast('Bridge unreachable', String((e && e.message) || e));
+      });
+  }
+
   video.addEventListener('error', function () {
     if (!current) return;
+    var failedSrc = video.currentSrc || video.src || '';
+    logCast('Phone player error', mediaErrorText() + ' · ' +
+      (failedSrc.indexOf('/api/stream') !== -1 ? 'through the bridge' : 'direct from the host') +
+      (dash ? ' · DASH' : ''));
+    logBridgeReason(failedSrc);
     /* Shaka reports its own failures; the proxy retry below would hand the
        manifest to /api/stream, which cannot serve one. */
     if (dash) return;
@@ -2204,7 +2272,7 @@
         current.indexOf(STREAM_HOSTS[0] + '/api/stream') !== 0 &&
         current.indexOf(location.origin + '/api/stream') !== 0) {
       hlsProxied = true;
-      logCast('Retrying', 'the host refused this origin — serving through the bridge');
+      logCast('Retrying', 'direct play failed — serving through the bridge');
       var via = streamUrl(current, true);
       video.src = via;
       video.load();
@@ -2288,11 +2356,6 @@
       }, 10000);
     });
     video.addEventListener('ended', function () { logCast('Film ended on the phone', clock(video.currentTime || 0)); });
-    video.addEventListener('error', function () {
-      var me2 = video.error;
-      if (!current) return;
-      logCast('Phone player error', me2 ? 'media error ' + me2.code + (me2.message ? ' · ' + me2.message : '') : 'unknown');
-    });
   })();
 
   video.addEventListener('play', function () { mediaSession.update({ state: 'playing' }); });

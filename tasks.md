@@ -1456,3 +1456,19 @@ things were, and the second one was invisible until the first was fixed.
       and clean. Proof: test-control against throwaway clones; restart cmd injected.
 
 - [x] Fix "No connection to the scanner" on every link (16 Sep): it.kind ReferenceError in mediaRow from 41e5831, fixed in 687de56
+
+## 2026-09-16 — Rj: "logs shows phone player error, nothing runs, nothing in logs"
+
+- [x] Task 38: Fix the phone player error. Cause: a vkcdn link opened on its own (in-app browser / pasted)
+      was sent with ITSELF as its page, so the bridge could not ask the page for a fresh link once the host
+      locked it to another network (Error_wrong_ip → 502). Playing it that way also overwrote the History row's
+      real page with the link. Fix: load() takes the page from History, store.touch never overwrites a page
+      with the link itself, api/stream remembers media→page from earlier requests, and a host that refuses any
+      referer gets one bare retry. Proof: test-stream-referer 5/5 (the memory case seen red), live 206 for the
+      failing film with its page, test-all 24/24.
+- [x] Task 39: Everything logged. Phone log: the real media error before the retry clears it, the bridge's
+      reason (X-Cast-Error header), HLS fatal errors, uncaught app errors, every red status line. Stream host
+      log: why="…" on every 4xx/5xx. test-sources no longer writes fake dead/*.m3u8 failures into the
+      production stream log.
+- [ ] Task 40: !research-design cast app with in-app browser
+- [ ] Task 41: !audit-strict cast bridge

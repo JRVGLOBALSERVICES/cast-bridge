@@ -823,8 +823,12 @@ function selfUpdateBeat() {
       bytes + 'B',
       (Date.now() - t0) + 'ms',
       (res.writableFinished ? 'complete' : 'aborted'),
-      target
-    ].join(' '));
+      target,
+      /* Why, for anything that did not play. Without it a 502 here is a
+         number with no reason and the phone's "format error" has nothing
+         to be matched against. */
+      res.statusCode >= 400 ? 'why="' + decodeURIComponent(String(res.getHeader('x-cast-error') || '')) + '"' : ''
+    ].join(' ').trim());
   });
 
   try {

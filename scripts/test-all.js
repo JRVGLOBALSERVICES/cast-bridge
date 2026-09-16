@@ -16,6 +16,7 @@ const path = require('path');
 const SUITES = [
   ['unpack', 'test-unpack.js'],
   ['reissue', 'test-reissue.js'],
+  ['stream-referer', 'test-stream-referer.js'],
   ['deep-reissue', 'test-deepreissue.js'],
   ['poke', 'test-poke.js'],
   ['cookies', 'test-cookies.js'],

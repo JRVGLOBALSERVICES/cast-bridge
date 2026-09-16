@@ -615,6 +615,15 @@ async function appHalf(forceHlsJs) {
     await page.setRequestInterception(true);
     page.on('request', (r) => {
       if (/gstatic\.com/.test(r.url())) { r.abort().catch(() => {}); return; }
+      /* The page's proxy hop goes to the REAL stream host. Answered here
+         instead, so a test run never writes fake failures into the log a
+         person reads to find out why their film did not play. */
+      if (/^https:\/\/stream\.jrvsystems\.app\//.test(r.url())) {
+        r.respond({ status: 502, contentType: 'application/json',
+          headers: { 'access-control-allow-origin': '*' },
+          body: '{"ok":false,"error":"test: stream host stubbed"}' }).catch(() => {});
+        return;
+      }
       r.continue().catch(() => {});
     });
 

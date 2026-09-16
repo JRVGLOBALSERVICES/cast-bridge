@@ -78,6 +78,9 @@ const STREAM_TIMEOUT_MS = 20000;
    dead" — which sends someone hunting for another copy of the film — and
    "the page has stopped handing them out", which is answered by scanning
    the page again. */
+const NO_PAGE_NOTE =
+  ' No page is known for this link, so a fresh one could not be asked for.' +
+  ' Open the page it came from in Browse and pick the video there.';
 const REISSUE_NOTE =
   ' The page it came from was asked for a fresh address and could not give one — ' +
   'scan the page again.';
@@ -179,8 +182,48 @@ const REFUSED_TYPE = /^text\/html|^application\/xhtml/i;
 const MEDIA_TYPE =
   /^(video|audio|application\/(vnd\.apple\.mpegurl|x-mpegurl|dash\+xml|mp4|iso\.segment))/i;
 
+/* The refusal in the host's own words, appended to ours. A link locked to
+   the network that found it gets named as that, because the fix for it is
+   "play it on the phone", not "scan again". */
+function hostSaid(opened, ours) {
+  const said = opened && opened.said;
+  if (!said) return ours;
+  if (/wrong_?ip/i.test(said)) {
+    return 'That link is locked to the network that found it, so the bridge cannot fetch it ' +
+      '(host said "' + said + '"). Play it on the phone, or scan the page again from here.';
+  }
+  return ours + ' Host said: "' + said + '".';
+}
+
+/* Media address (without query) → the page it was found on. Per process:
+   long-lived on the stream host, which is where films play; on a Vercel
+   instance it is simply a smaller memory. */
+const PAGE_MEMORY_MAX = 500;
+const pageMemory = new Map();
+function mediaKey(u) {
+  try { const x = new URL(u); return x.host + x.pathname; } catch (e) { return String(u); }
+}
+function rememberPage(media, page) {
+  if (!/^https?:\/\//i.test(page)) return;
+  const k = mediaKey(media);
+  pageMemory.delete(k);
+  pageMemory.set(k, page);
+  if (pageMemory.size > PAGE_MEMORY_MAX) pageMemory.delete(pageMemory.keys().next().value);
+}
+function pageFor(media) {
+  return pageMemory.get(mediaKey(media)) || '';
+}
+
 function fail(res, status, message) {
   res.statusCode = status;
+  /* The reason, where a log can reach it. A <video> that gets this answer
+     reports only "format error"; the phone reads the header back into its
+     cast log, and the stream host writes it on the request's log line.
+     Exposed, because a cross-origin fetch cannot otherwise read it. */
+  try {
+    res.setHeader('X-Cast-Error', encodeURIComponent(String(message)).slice(0, 1000));
+    res.setHeader('Access-Control-Expose-Headers', 'X-Cast-Error');
+  } catch (e) { /* headers already gone */ }
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.end(JSON.stringify({ ok: false, error: message }));
 }
@@ -298,7 +341,7 @@ module.exports = async function handler(req, res) {
      `p` is only for a caller that wants to name it separately. The label
      matters because these hosts serve every quality as the same filename —
      without it, a re-issued address is the right film at the wrong size. */
-  const pageRaw = (req.query && req.query.p) || params.get('p') || refRaw;
+  let pageRaw = (req.query && req.query.p) || params.get('p') || refRaw;
   const wantLabel = (req.query && req.query.q) || params.get('q') || '';
 
   if (!raw) {
@@ -309,12 +352,28 @@ module.exports = async function handler(req, res) {
   let target = String(raw).trim();
   if (!/^https?:\/\//i.test(target)) target = 'https://' + target;
 
+  /* The page this film was found on, remembered from an earlier request
+     that named it. A link opened on its own (pasted, opened in the in-app
+     browser) arrives naming itself, or nothing, as its page — and then
+     nothing can re-issue it once the host locks it to another network.
+     Measured 16 Sep 2026: the same vkcdn link played at 16:50:06 with its
+     page and 502'd at 16:50:56 without it. */
+  let pageRemembered = false;
+  if (pageRaw && String(pageRaw) !== target) {
+    rememberPage(target, String(pageRaw));
+  } else {
+    const known = pageFor(target);
+    if (known) { pageRaw = known; pageRemembered = true; }
+    else pageRaw = pageRaw && String(pageRaw) !== target ? pageRaw : '';
+  }
+
   /* The page the media was embedded in, which is what the host is checking
      for. Absent that, its own origin is the closest honest answer and is
      what most hosts accept. */
   let referer = '';
+  const refUse = pageRemembered ? pageRaw : (refRaw && String(refRaw) !== target ? refRaw : '');
   try {
-    referer = refRaw ? new URL(String(refRaw)).toString() : new URL(target).origin + '/';
+    referer = refUse ? new URL(String(refUse)).toString() : new URL(target).origin + '/';
   } catch (e) {
     referer = new URL(target).origin + '/';
   }
@@ -338,10 +397,12 @@ module.exports = async function handler(req, res) {
      behind the vkprime embed answers a stranger's request with 200 and
      fourteen bytes of HTML, which relays as a perfectly successful nothing
      unless the type is read too. */
-  const openOnce = async (url, refererOverride) => {
+  const openOnce = async (url, refererOverride, bare) => {
     /* A re-issued address belongs to the document that just handed it
        over, not to the page the viewer started from. */
-    const h = refererOverride
+    const h = bare
+      ? Object.fromEntries(Object.entries(headers).filter(([k]) => k !== 'referer' && k !== 'origin'))
+      : refererOverride
       ? Object.assign({}, headers, {
         referer: refererOverride,
         origin: new URL(refererOverride).origin
@@ -349,16 +410,28 @@ module.exports = async function handler(req, res) {
       : headers;
     const got = await safeFetch(url, '*/*', { headers: h, timeoutMs: STREAM_TIMEOUT_MS });
     const t = (got.res.headers.get('content-type') || '').toLowerCase();
-    return {
-      res: got.res,
-      url: got.url,
-      type: t,
-      refused: (!got.res.ok && got.res.status !== 206) || REFUSED_TYPE.test(t)
-    };
+    const refused = (!got.res.ok && got.res.status !== 206) || REFUSED_TYPE.test(t);
+    /* What the host actually said when it refused. "403" and "a web page"
+       are two very different answers once the words are read: vkcdn's
+       200 + "Error_wrong_ip" means the link is locked to another network,
+       not that it is dead. Only a refusal is read — never a film. */
+    let said = '';
+    if (refused) {
+      try {
+        said = (await readCapped(got.res)).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
+      } catch (e) { said = ''; }
+    }
+    return { res: got.res, url: got.url, type: t, refused, said };
   };
 
   const discard = (r) => {
-    try { r && r.res && r.res.body && r.res.body.cancel(); } catch (e) { /* already gone */ }
+    /* cancel() REJECTS (not throws) on a body already read or locked — a
+       refusal whose words were read for the report is exactly that. A
+       rejection nobody handles takes the whole stream host down. */
+    try {
+      const p = r && r.res && r.res.body && !r.res.body.locked && r.res.body.cancel();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch (e) { /* already gone */ }
   };
 
   let opened = null;
@@ -373,6 +446,20 @@ module.exports = async function handler(req, res) {
     opened = await openOnce(target);
   } catch (e) {
     openError = e;
+  }
+
+  /* Some hosts refuse ANY referer — vkcdn answers 403 to the page's own
+     address and serves the file only to a request that names none. So a
+     refusal with a referer gets one more try without it, before the far
+     dearer re-issue. Measured 16 Sep 2026: Referer tvarticles.org → 403,
+     none → the file (or Error_wrong_ip when the link is not ours). */
+  if (opened && opened.refused && headers.referer) {
+    let bareTry = null;
+    try { bareTry = await openOnce(target, null, true); } catch (e) { bareTry = null; }
+    /* Kept even when it too refuses, if it says why: without the referer
+       the host names the real problem instead of a bare 403. */
+    if (bareTry && (!bareTry.refused || bareTry.said)) { discard(opened); opened = bareTry; }
+    else discard(bareTry);
   }
 
   /* Refused, or unreachable, but we know the page it came from.
@@ -424,6 +511,7 @@ module.exports = async function handler(req, res) {
       opened = retry;
       openError = null;
       target = fresh.url;
+      rememberPage(target, String(pageRaw));
       break;
     }
 
@@ -443,10 +531,11 @@ module.exports = async function handler(req, res) {
     /* 403 here is the referer check refusing us, which is the one failure
        worth naming — it means the address is real but the host wants a
        different page in the header than the one we were told. */
-    const why = upstream.status === 403
+    const why0 = upstream.status === 403
       ? 'That host refused the stream (403). It expects the page it was embedded in.'
       : 'That stream answered ' + upstream.status + '.';
-    fail(res, 502, why + (reissueFailed ? REISSUE_NOTE : ''));
+    const why = hostSaid(opened, why0);
+    fail(res, 502, why + (reissueFailed ? REISSUE_NOTE : '') + (pageRaw ? '' : NO_PAGE_NOTE));
     return;
   }
 
@@ -459,8 +548,8 @@ module.exports = async function handler(req, res) {
      someone else's HTML from our origin is the thing this endpoint most
      needs not to do. */
   if (REFUSED_TYPE.test(type)) {
-    fail(res, 415, 'That address is a web page, not a stream.' +
-      (reissueFailed ? REISSUE_NOTE : ''));
+    fail(res, 415, hostSaid(opened, 'That address is a web page, not a stream.') +
+      (reissueFailed ? REISSUE_NOTE : '') + (pageRaw ? '' : NO_PAGE_NOTE));
     return;
   }
 
