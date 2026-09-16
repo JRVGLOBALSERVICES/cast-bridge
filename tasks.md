@@ -1478,4 +1478,14 @@ things were, and the second one was invisible until the first was fixed.
       --cookie, and skips children of fixed elements). Signed-in audit 50/52 (tv.html eyebrow clipped at 375/768).
       Findings: docs/audit/20260916-revamp-audit.md (20 visual issues, 11 missing features/flows).
       3 directions: docs/design-directions/20260916-plan-starting-now-1-search/{a,b,c}.html (6/6 pass at 375/1440).
-- [ ] Task 44: Build the picked revamp direction (waiting for Rj: a / b / c)
+- [x] Task 44: Build the picked revamp direction. Rj picked C: "All pages and components should match skeumorphic. Need more features. Web browser revamped all over."
+      assets/css/remote.css (skeuomorphic layer over the kit: brushed body, recessed slots, keys that travel, tape rows,
+      LCD toasts, keypad nav, receipt logs), tv.html, partners.html and embed.js restyled to match.
+      Features: LCD header on every screen (where it plays, what, time), amber fault LCD + fix keys (retry through
+      bridge / VLC / TV browser / log), TV picker sheet with inline "Can't see your TV?", Paste key, History day groups
+      + ×N duplicate collapse, Continue watching de-duplicated, cast log printed as a receipt with fault lines and
+      First fault, Library error reason before Try again, Help stray bullet fixed.
+      Browser rebuilt: tabs (6 max, frames kept alive), address slot with Paste, key row (Back/Reload/Pin/Scan/To TV/More),
+      drawer (Chrome/Full/No pop-ups/Mirror/Start/Close tab), start page with pinned sites + opened lately, load bar,
+      "hasn't loaded" overlay after 15s.
+      Proof: breakpoint-checker 56/56 signed in, audit-gate VERIFIED, npm test 24/24, Lighthouse mobile A11y 100 / BP 81 / SEO 100.

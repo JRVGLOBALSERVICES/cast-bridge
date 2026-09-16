@@ -1281,8 +1281,7 @@
      app feels slow for no reason. */
   function onEnterView(name) {
     if (name === 'browse') refreshSeries();
-    if (name === 'web' && webUrlNow && !$('webFrameBox').firstChild) webLoad();
-    if (name === 'web') webDrawTools();
+    if (name === 'web') webEnter();
     if (name === 'history') renderHistory();
     if (name === 'people') renderUsers();
     if (name === 'library') renderLibrary();
@@ -1314,6 +1313,7 @@
       onLeaveView(activeView);
     }
     activeView = name;
+    document.body.classList.toggle('is-web', name === 'web');
 
     VIEWS.forEach(function (v) {
       var el = viewEl(v);
@@ -5108,7 +5108,7 @@
     gate.hidden = false;
     sealShell(true);
     var themeBack = $('themeColor');
-    if (themeBack) themeBack.setAttribute('content', '#e6e7ee');
+    if (themeBack) themeBack.setAttribute('content', '#2a2723');
     document.body.classList.add('is-gated');
     if (message) gateError(message);
 
@@ -5133,7 +5133,7 @@
     reserveBusy($('btnScan'), ['Scanning…']);
     reserveBusy($('btnSubs'), ['Adding…']);
     var themeMeta = $('themeColor');
-    if (themeMeta) themeMeta.setAttribute('content', '#e6e7ee');
+    if (themeMeta) themeMeta.setAttribute('content', '#2a2723');
     signedIn = true;
     var out = $('btnSignOut');
     if (out) out.hidden = false;
@@ -6032,6 +6032,362 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * The remote's own chrome (direction C, 16 Sep 2026)
+   *
+   * The LCD at the top of every screen, the fault keys under it, the TV
+   * picker, and Paste. Rj: "all pages and components should match
+   * skeumorphic. Need more features." The research gaps this closes:
+   * the player never said where the film was playing (LCD), help for a TV
+   * you can't see was three screens away (picker), and a failure was
+   * logged but offered no fix (fault keys).
+   * ------------------------------------------------------------------ */
+
+  /* Paste in one tap. The app's main job is pasting a link, and on a phone
+     a long press on an empty field is the only other way in. */
+  function pasteInto(input, then) {
+    if (!(navigator.clipboard && navigator.clipboard.readText)) {
+      input.focus();
+      toast({ text: 'Long-press the slot and choose Paste.' });
+      return;
+    }
+    navigator.clipboard.readText().then(function (text) {
+      text = String(text || '').trim();
+      if (!text) { toast({ text: 'The clipboard is empty. Copy a link first.' }); return; }
+      input.value = text;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      if (then) then(text);
+    }, function () {
+      input.focus();
+      toast({ text: 'The phone didn\'t allow reading the clipboard. Long-press the slot and choose Paste.' });
+    });
+  }
+  (function wirePaste() {
+    var can = !!(navigator.clipboard && navigator.clipboard.readText);
+    $('btnPaste').hidden = !can;
+    $('btnPaste').addEventListener('click', function () {
+      pasteInto($('url'), function () {
+        /* A link that is obviously a link plays straight away; anything
+           else waits in the slot for Play. */
+        if (/^https?:\/\/\S+$/i.test($('url').value)) $('linkForm').requestSubmit();
+      });
+    });
+  })();
+
+  /* ---------- The LCD ---------- */
+  var faultDismissed = '';
+
+  function lcdTimes() {
+    try {
+      if (castState === 'CONNECTED' && remotePlayer && remotePlayer.isMediaLoaded && remotePlayer.duration) {
+        return clock(remotePlayer.currentTime) + ' / ' + clock(remotePlayer.duration);
+      }
+      if (current && video && isFinite(video.duration) && video.duration > 0) {
+        return clock(video.currentTime) + ' / ' + clock(video.duration);
+      }
+    } catch (e) { /* a time is decoration; never break the LCD over it */ }
+    return '';
+  }
+
+  function paintLcd() {
+    var title = currentTitle || (current ? nameOf(current) : '');
+    var what;
+    var tvb = window.CBTvMode && window.CBTvMode.paired && window.CBTvMode.paired();
+    if (current && castState === 'CONNECTED' && remotePlayer && remotePlayer.isMediaLoaded) {
+      var st = String(remotePlayer.playerState || '').toLowerCase();
+      what = (st === 'paused' ? '❚❚ ' : st === 'buffering' ? '… ' : '▶ ') + title;
+    } else if (current && window.CBTvMode && window.CBTvMode.onTv && window.CBTvMode.onTv()) {
+      what = '▶ TV browser · ' + title;
+    } else if (current) {
+      what = (video && !video.paused ? '▶ ' : '') + title + ' · on this phone';
+    } else if (castState === 'CONNECTED') {
+      what = 'Connected · pick a film';
+    } else if (tvb) {
+      what = 'TV browser paired · pick a film';
+    } else {
+      what = 'Find a video, put it on the TV';
+    }
+    var w = $('lcdWhat');
+    if (w.textContent !== what) { w.textContent = what; w.title = what; }
+    var t = lcdTimes();
+    if ($('lcdTime').textContent !== t) $('lcdTime').textContent = t;
+
+    var bad = statusBox.classList.contains('is-bad') && !!current;
+    var why = bad ? statusText.textContent : '';
+    var showFault = bad && why && why !== faultDismissed;
+    $('lcd').classList.toggle('is-fault', !!showFault);
+    var box = $('fault');
+    if (box.hidden === !!showFault) {
+      box.hidden = !showFault;
+    }
+    if (showFault && $('faultWhy').textContent !== why) {
+      $('faultWhy').textContent = why;
+      $('faultTvb').textContent = tvb ? 'Send to TV browser' : 'Pair a TV browser';
+    }
+  }
+  setInterval(paintLcd, 1000);
+  document.addEventListener('visibilitychange', paintLcd);
+
+  function faultFix(name) {
+    faultDismissed = statusText.textContent;
+    logCast('Fix pressed: ' + name, statusText.textContent);
+    paintLcd();
+  }
+  $('faultBridge').addEventListener('click', function () {
+    if (!current) return;
+    faultFix('retry through bridge');
+    if (castState === 'CONNECTED') castLoad(current, { viaProxy: true });
+    else load(current, { title: currentTitle, from: currentFrom, proxy: true });
+  });
+  $('faultVlc').addEventListener('click', function () { faultFix('open in VLC'); handoffVlc(); });
+  $('faultTvb').addEventListener('click', function () {
+    faultFix('TV browser');
+    if (window.CBTvMode && window.CBTvMode.paired()) window.CBTvMode.sendCurrent();
+    else showTab('tv', { focus: true, push: true });
+  });
+  $('faultLog').addEventListener('click', function () {
+    showTab('playing', { push: true });
+    openCastLog(true);
+    var el = $('castLog');
+    if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  });
+
+  /* ---------- The TV picker ---------- */
+  var TV_ICONS = {
+    cast: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><circle cx="2" cy="20" r="1"/></svg>',
+    tv: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 9h6"/></svg>',
+    air: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"/><path d="m12 15 5 6H7z"/></svg>',
+    vlc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 3 5 8 5-8"/><path d="M5 14h14l2 7H3z"/></svg>',
+    phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>'
+  };
+
+  function tvTarget(opt) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'cb-target';
+    if (opt.disabled) b.disabled = true;
+    var ico = document.createElement('span');
+    ico.className = 'cb-target-ico';
+    ico.innerHTML = TV_ICONS[opt.icon];
+    var mid = document.createElement('span');
+    mid.style.minWidth = '0';
+    var name = document.createElement('b');
+    name.textContent = opt.name;
+    var sub = document.createElement('small');
+    sub.textContent = opt.sub;
+    mid.appendChild(name);
+    mid.appendChild(sub);
+    var st = document.createElement('span');
+    st.className = 'cb-target-state' + (opt.kind ? ' is-' + opt.kind : '');
+    st.textContent = opt.state;
+    b.appendChild(ico);
+    b.appendChild(mid);
+    b.appendChild(st);
+    b.addEventListener('click', function () {
+      closeTvSheet();
+      opt.go();
+    });
+    return b;
+  }
+
+  function drawTvTargets() {
+    var list = $('tvTargets');
+    list.textContent = '';
+    var film = !!current;
+
+    var castSub = castImpossible
+      ? 'Needs Chrome on Android or a computer'
+      : 'Chromecast, Google TV, Android TV';
+    var castState2 = castImpossible ? 'Open Chrome'
+      : castState === 'CONNECTED' ? 'Connected'
+      : castState === 'NOT_CONNECTED' ? 'Ready'
+      : castState === 'CONNECTING' ? 'Connecting'
+      : 'None found';
+    list.appendChild(tvTarget({
+      icon: 'cast',
+      name: castState === 'CONNECTED' ? deviceName() : 'Chromecast',
+      sub: castSub,
+      state: castState2,
+      kind: castState === 'CONNECTED' ? 'live' : castState === 'NOT_CONNECTED' ? 'ready' : '',
+      go: function () { $('btnCast').disabled = false; $('btnCast').click(); updateCastUi(); }
+    }));
+
+    var paired = !!(window.CBTvMode && window.CBTvMode.paired());
+    list.appendChild(tvTarget({
+      icon: 'tv',
+      name: 'TV browser',
+      sub: 'Samsung, LG, Sony, any TV with a web browser',
+      state: paired ? (window.CBTvMode.onTv() ? 'Playing' : 'Paired') : 'Pair with code',
+      kind: paired ? 'live' : '',
+      go: function () {
+        if (paired && film) window.CBTvMode.sendCurrent();
+        else showTab('tv', { focus: true, push: true });
+      }
+    }));
+
+    if (!$('btnRemote').hidden) {
+      list.appendChild(tvTarget({
+        icon: 'air',
+        name: 'AirPlay',
+        sub: 'Apple TV and AirPlay TVs, from Safari',
+        state: film ? 'Choose' : 'Pick a film',
+        kind: film ? 'ready' : '',
+        disabled: !film,
+        go: function () { $('btnRemote').click(); }
+      }));
+    }
+
+    list.appendChild(tvTarget({
+      icon: 'vlc',
+      name: 'VLC',
+      sub: 'Roku, Fire TV, and TVs VLC finds over DLNA',
+      state: film ? 'Hand over' : 'Pick a film',
+      kind: film ? 'ready' : '',
+      disabled: !film,
+      go: handoffVlc
+    }));
+
+    list.appendChild(tvTarget({
+      icon: 'phone',
+      name: 'This phone',
+      sub: 'Play it here, no TV',
+      state: film ? 'Play here' : 'Pick a film',
+      disabled: !film,
+      go: function () { $('onPhone').click(); showTab('playing', { push: true }); }
+    }));
+  }
+
+  function openTvSheet() {
+    var d = $('tvSheet');
+    drawTvTargets();
+    if (d.showModal) { if (!d.open) d.showModal(); }
+    else d.setAttribute('open', '');
+  }
+  function closeTvSheet() {
+    var d = $('tvSheet');
+    if (d.close && d.open) d.close();
+    else d.removeAttribute('open');
+  }
+  $('btnPickTv').addEventListener('click', openTvSheet);
+  $('tvSheetClose').addEventListener('click', closeTvSheet);
+  $('tvSheetHelp').addEventListener('click', function () { closeTvSheet(); showTab('help', { focus: true, push: true }); });
+  $('tvSheet').addEventListener('click', function (e) {
+    /* A tap on the dimmed backdrop lands on the dialog itself. */
+    if (e.target === this) closeTvSheet();
+  });
+
+  /* ---------- History, grouped by day ---------- */
+  function dayLabel(t) {
+    var d = new Date(t || 0);
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    var day = new Date(d);
+    day.setHours(0, 0, 0, 0);
+    var diff = Math.round((today - day) / 86400000);
+    if (diff <= 0) return 'Today';
+    if (diff === 1) return 'Yesterday';
+    if (diff < 7) return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getDay()];
+    return d.getDate() + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()] +
+      (d.getFullYear() !== today.getFullYear() ? ' ' + d.getFullYear() : '');
+  }
+
+  var histExpanded = {};
+  /* Same film played again the same day, back to back, is one tape with a
+     ×N on it. Tapping ×N lays the copies out again. */
+  function paintHistoryGroups(list, items) {
+    var lastDay = '';
+    var i = 0;
+    while (i < items.length) {
+      var it = items[i];
+      var day = dayLabel(it.lastAt || it.addedAt);
+      if (day !== lastDay) {
+        var lbl = document.createElement('p');
+        lbl.className = 'cb-daylbl';
+        lbl.textContent = day;
+        list.appendChild(lbl);
+        lastDay = day;
+      }
+      var key = day + '|' + (it.title || nameOf(it.url)).toLowerCase() + '|' + hostOf(it.from || it.url);
+      var j = i + 1;
+      while (j < items.length &&
+        dayLabel(items[j].lastAt || items[j].addedAt) === day &&
+        (day + '|' + (items[j].title || nameOf(items[j].url)).toLowerCase() + '|' + hostOf(items[j].from || items[j].url)) === key) j++;
+      var n = j - i;
+      var row = historyRow(it);
+      if (n > 1 && !histExpanded[key]) {
+        var dupe = document.createElement('button');
+        dupe.type = 'button';
+        dupe.className = 'cb-dupe';
+        dupe.textContent = '×' + n;
+        dupe.setAttribute('aria-label', 'Played ' + n + ' times. Show each one.');
+        dupe.addEventListener('click', (function (k) {
+          return function () { histExpanded[k] = true; renderHistory(); };
+        })(key));
+        var meta = row.querySelector('.cb-item-meta');
+        if (meta) meta.appendChild(dupe);
+        list.appendChild(row);
+        i = j;
+      } else {
+        list.appendChild(row);
+        i++;
+      }
+    }
+  }
+
+  /* ---------- Cast log, printed as a receipt ---------- */
+  var LOG_PROBLEM = /\b(refused|error|failed|not playing|expired|couldn'?t|could not|did not end|took the tv|stalled|idle reason: (error|interrupted|cancelled))\b/i;
+
+  function receiptOf(L) {
+    var rc = document.createElement('div');
+    rc.className = 'cb-receipt';
+    rc.tabIndex = 0;
+    var h = document.createElement('h4');
+    h.textContent = 'CAST BRIDGE';
+    rc.appendChild(h);
+    var sub = document.createElement('p');
+    sub.className = 'cb-rc-sub';
+    sub.textContent = (L.title || 'Untitled film') + ' → ' + (L.device || 'no TV') + (L.build ? ' · build ' + L.build : '');
+    rc.appendChild(sub);
+    function kv(k, v) {
+      if (!v) return;
+      var r = document.createElement('div');
+      r.className = 'cb-rc-kv';
+      var b = document.createElement('b');
+      b.textContent = k;
+      var s = document.createElement('span');
+      s.textContent = v;
+      r.appendChild(b);
+      r.appendChild(s);
+      rc.appendChild(r);
+    }
+    /* The signed address is hundreds of characters of token; the host is
+       what a person reads. The whole address is still in Copy log. */
+    kv('Link', L.url ? hostOf(L.url) : '');
+    kv('Page', L.page ? hostOf(L.page) : '');
+    kv('User', L.who || '');
+    rc.appendChild(document.createElement('hr'));
+    var faults = [];
+    (L.lines || []).forEach(function (e) {
+      var ln = document.createElement('div');
+      var bad = LOG_PROBLEM.test(e.line) || /idle reason: (ERROR|INTERRUPTED)/.test(e.detail || '');
+      ln.className = 'cb-rc-ln' + (bad ? ' is-bad' : '');
+      var t = document.createElement('time');
+      t.textContent = stamp(e.at);
+      var s = document.createElement('span');
+      s.textContent = (bad ? '✕ ' : '') + e.line + (e.detail ? ' — ' + e.detail : '');
+      ln.appendChild(t);
+      ln.appendChild(s);
+      rc.appendChild(ln);
+      if (bad) faults.push(ln);
+    });
+    rc.appendChild(document.createElement('hr'));
+    var st = document.createElement('div');
+    st.className = 'cb-stamp' + (faults.length ? '' : ' is-ok');
+    st.textContent = faults.length ? faults.length + (faults.length === 1 ? ' fault' : ' faults') : 'No faults';
+    rc.appendChild(st);
+    return { el: rc, faults: faults };
+  }
+
+  /* ------------------------------------------------------------------ *
    * Browser — show the page itself
    *
    * Rj: "just add a browser where I can paste these links and view the
@@ -6045,15 +6401,29 @@
    * to run sandboxed, so Allow reloads the frame without it.
    * ------------------------------------------------------------------ */
 
-  var webUrlNow = '';
-  var WEB_LAST = 'cb:web:last';
+  /* Tabs, pins and a start page, rebuilt 16 Sep 2026 (direction C).
+   *
+   * A tab is one frame, kept alive while it is open: switching tabs must not
+   * reload the page you clicked through to, because a cross-origin frame
+   * will not tell this page its address, and a reload can only go back to
+   * the link that was opened. Six tabs at most; a seventh replaces the
+   * oldest. With no tab chosen, the start page shows pinned sites and the
+   * pages opened lately (History rows of kind PAGE). */
+  var WEB_LAST = 'cb:web:last';     // before tabs: one address. Still read once.
+  var WEB_TABS = 'cb:web:tabs';
   var WEB_STRICT = 'cb:web:strict';
+  var WEB_PINS = 'cb:web:pins';
+  var WEB_MAX_TABS = 6;
+  var WEB_STUCK_MS = 15000;
+  var webTabs = [];                 // { id, url }
+  var webActive = null;             // id of the tab on screen, or null for the start page
+  var webSeq = 0;
+  var webUrlNow = '';               // the active tab's link; the rest of the file reads this name
 
   /* Pop-ups used to be blocked by default, with a sandbox. viewverse's
      player refuses to run in a sandboxed frame ("Playback blocked"), and a
      sandbox is the only way a page can stop a framed site's pop-ups — so
-     blocking is now opt-in, and remembered per site, for sites where it
-     does not break the player. */
+     blocking is opt-in, and remembered per site. */
   function webStrictMap() {
     try { return JSON.parse(localStorage.getItem(WEB_STRICT) || '{}') || {}; } catch (e) { return {}; }
   }
@@ -6065,51 +6435,273 @@
     if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
     try {
       var u = new URL(v);
-      return /^https?:$/.test(u.protocol) ? u.href : '';
+      return /^https?:$/.test(u.protocol) && u.hostname.indexOf('.') > 0 ? u.href : '';
     } catch (err) { return ''; }
   }
 
-  function webDrawTools() {
-    var strict = webStrict();
-    $('webPopOff').classList.toggle('is-on', strict);
-    $('webPopOn').classList.toggle('is-on', !strict);
-    $('webPopOff').setAttribute('aria-pressed', strict ? 'true' : 'false');
-    $('webPopOn').setAttribute('aria-pressed', strict ? 'false' : 'true');
-    var tv = !!(window.CBTvMode && window.CBTvMode.paired());
-    $('webTv').textContent = tv ? 'Send to TV' : 'Connect a TV';
+  function webPins() {
+    try { return JSON.parse(localStorage.getItem(WEB_PINS) || '[]') || []; } catch (e) { return []; }
+  }
+  function webSetPins(list) {
+    try { localStorage.setItem(WEB_PINS, JSON.stringify(list.slice(0, 24))); } catch (e) {}
+  }
+  function webPinned(u) {
+    return webPins().some(function (p) { return p.url === u; });
   }
 
-  /* Loads webUrlNow from the start. Only called on a new link, on ⌂, or on
-     a pop-up change — the frame is otherwise left alone, because the page a
-     person has clicked through to lives only inside it: a cross-origin
-     frame will not tell this page its address, so a reload can only ever
-     go back to the link that was opened. That reload, and unloading the
-     frame whenever the screen was left, is why it "kept falling back to
-     the main page". */
-  function webLoad() {
-    var box = $('webFrameBox');
-    box.textContent = '';
-    if (!webUrlNow) return;
+  function webTab(id) {
+    for (var i = 0; i < webTabs.length; i++) if (webTabs[i].id === id) return webTabs[i];
+    return null;
+  }
+  function webFrame(id) {
+    return $('webFrameBox').querySelector('[data-tab="' + id + '"]');
+  }
+  function webSaveTabs() {
+    try {
+      sessionStorage.setItem(WEB_TABS, JSON.stringify({
+        tabs: webTabs.map(function (t) { return t.url; }),
+        active: webTabs.indexOf(webTab(webActive))
+      }));
+    } catch (e) {}
+  }
+
+  /* One letter on a key, not a favicon: a favicon service would be told
+     every site opened here. */
+  function webMono(u) {
+    var h = hostOf(u).replace(/^www\./, '');
+    var el = document.createElement('span');
+    el.className = 'cb-bx-mono';
+    el.setAttribute('aria-hidden', 'true');
+    el.textContent = (h.charAt(0) || '?').toUpperCase();
+    return el;
+  }
+
+  var webStuckTimer = 0;
+  function webProgress(state) {
+    var bar = $('bxProgress');
+    bar.classList.remove('is-loading', 'is-done');
+    if (state) { void bar.offsetWidth; bar.classList.add(state); }
+  }
+
+  function webMakeFrame(tab) {
+    var old = webFrame(tab.id);
+    if (old) old.remove();
     var f = document.createElement('iframe');
     f.className = 'cb-webiframe';
-    f.title = 'Web page';
+    f.title = 'Web page: ' + hostOf(tab.url);
+    f.dataset.tab = tab.id;
     f.referrerPolicy = 'no-referrer-when-downgrade';
     f.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture; presentation');
     f.setAttribute('allowfullscreen', '');
-    if (webStrict()) {
+    if (webStrictMap()[hostOf(tab.url)]) {
       f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation allow-orientation-lock');
     }
-    f.src = webUrlNow;
-    box.appendChild(f);
-    $('webUrl').value = webUrlNow;
-    $('webExternal').href = IOS ? chromeHref(webUrlNow) : webUrlNow;
-    webDrawTools();
+    f.addEventListener('load', function () {
+      f.dataset.loaded = '1';
+      if (tab.id !== webActive) return;
+      clearTimeout(webStuckTimer);
+      webProgress('is-done');
+      $('bxStuck').hidden = true;
+    });
+    f.src = tab.url;
+    $('webFrameBox').appendChild(f);
+    if (tab.id === webActive) webWatchLoad(f);
+    return f;
   }
 
-  function webClose() {
-    $('webFrameBox').textContent = '';
-    webUrlNow = '';
-    try { sessionStorage.removeItem(WEB_LAST); } catch (e) {}
+  /* A frame that never finishes gets the way out drawn over it. A site that
+     refuses framing outright still fires load in Chrome (on its own blank
+     error page), so this catches hangs, not every refusal; Chrome is in the
+     drawer for those. */
+  function webWatchLoad(f) {
+    clearTimeout(webStuckTimer);
+    $('bxStuck').hidden = true;
+    if (f.dataset.loaded) { webProgress(''); return; }
+    webProgress('is-loading');
+    webStuckTimer = setTimeout(function () {
+      if (f.dataset.loaded || f.dataset.tab !== webActive) return;
+      $('bxStuck').hidden = false;
+      logCast('Browser page slow to load', hostOf(webUrlNow) + ' · no load event after ' + (WEB_STUCK_MS / 1000) + 's', { quiet: true });
+    }, WEB_STUCK_MS);
+  }
+
+  /* Reloads the active tab from its link. Only on Reload, or a pop-up
+     change: everywhere else the frame is left alone. */
+  function webLoad() {
+    var tab = webTab(webActive);
+    if (!tab) { webDraw(); return; }
+    webMakeFrame(tab);
+    webDraw();
+  }
+
+  function webShow(id) {
+    webActive = id && webTab(id) ? id : null;
+    var tab = webTab(webActive);
+    webUrlNow = tab ? tab.url : '';
+    var frames = $('webFrameBox').querySelectorAll('iframe');
+    for (var i = 0; i < frames.length; i++) frames[i].hidden = frames[i].dataset.tab !== webActive;
+    if (tab) {
+      var f = webFrame(tab.id) || webMakeFrame(tab);
+      webWatchLoad(f);
+    } else {
+      clearTimeout(webStuckTimer);
+      webProgress('');
+    }
+    webSaveTabs();
+    webDraw();
+  }
+
+  function webDrawTabs() {
+    var bar = $('bxTabs');
+    bar.textContent = '';
+    webTabs.forEach(function (t) {
+      var on = t.id === webActive;
+      var chip = document.createElement('div');
+      chip.className = 'cb-bx-tab' + (on ? ' is-on' : '');
+      var name = document.createElement('button');
+      name.type = 'button';
+      name.className = 'cb-bx-tabname';
+      name.textContent = hostOf(t.url).replace(/^www\./, '');
+      name.setAttribute('aria-pressed', on ? 'true' : 'false');
+      name.title = t.url;
+      name.addEventListener('click', function () { webShow(t.id); });
+      var x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'cb-bx-tabx';
+      x.setAttribute('aria-label', 'Close ' + hostOf(t.url));
+      x.textContent = '×';
+      x.addEventListener('click', function () { webCloseTab(t.id); });
+      chip.appendChild(name);
+      chip.appendChild(x);
+      bar.appendChild(chip);
+    });
+    var plus = document.createElement('button');
+    plus.type = 'button';
+    plus.className = 'cb-bx-newtab';
+    plus.setAttribute('aria-label', 'New tab');
+    plus.textContent = '+';
+    plus.addEventListener('click', function () {
+      webShow(null);
+      $('webUrl').value = '';
+      $('webUrl').focus();
+    });
+    bar.appendChild(plus);
+  }
+
+  function webDrawStart() {
+    var dial = $('bxDial');
+    dial.textContent = '';
+    var pins = webPins();
+    pins.forEach(function (p) {
+      var key = document.createElement('div');
+      key.style.position = 'relative';
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cb-bx-dialkey';
+      b.style.width = '100%';
+      b.title = p.url;
+      b.appendChild(webMono(p.url));
+      var name = document.createElement('span');
+      name.textContent = p.title || hostOf(p.url).replace(/^www\./, '');
+      b.appendChild(name);
+      b.addEventListener('click', function () { webOpen(p.url, { newTab: true }); });
+      var x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'cb-bx-dialx';
+      x.setAttribute('aria-label', 'Unpin ' + (p.title || hostOf(p.url)));
+      x.textContent = '×';
+      x.addEventListener('click', function () {
+        var at = webPins().findIndex(function (q) { return q.url === p.url; });
+        webSetPins(webPins().filter(function (q) { return q.url !== p.url; }));
+        webDraw();
+        toast({
+          text: 'Unpinned ' + (p.title || hostOf(p.url)) + '.',
+          actionLabel: 'Undo',
+          onAction: function () {
+            var list = webPins();
+            list.splice(Math.max(0, at), 0, p);
+            webSetPins(list);
+            webDraw();
+          }
+        });
+      });
+      key.appendChild(b);
+      key.appendChild(x);
+      dial.appendChild(key);
+    });
+    $('bxDialEmpty').hidden = pins.length > 0;
+
+    var recent = $('bxRecent');
+    recent.textContent = '';
+    var seen = {};
+    var rows = (store.count() ? store.all() : []).filter(function (it) {
+      if (it.kind !== 'PAGE' || seen[it.url]) return false;
+      seen[it.url] = 1;
+      return true;
+    }).slice(0, 8);
+    rows.forEach(function (it) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cb-bx-recentrow';
+      b.appendChild(webMono(it.url));
+      var mid = document.createElement('span');
+      mid.style.minWidth = '0';
+      var t = document.createElement('b');
+      t.textContent = it.title || hostOf(it.url);
+      var s = document.createElement('small');
+      s.textContent = it.url.replace(/^https?:\/\//, '');
+      mid.appendChild(t);
+      mid.appendChild(s);
+      var w = document.createElement('time');
+      w.textContent = ago(it.lastAt || it.addedAt);
+      b.appendChild(mid);
+      b.appendChild(w);
+      b.addEventListener('click', function () { webOpen(it.url, { newTab: true }); });
+      recent.appendChild(b);
+    });
+    $('bxRecentEmpty').hidden = rows.length > 0;
+  }
+
+  function webDraw() {
+    var tab = webTab(webActive);
+    var has = !!tab;
+    $('bxStart').hidden = has;
+    $('bxScreen').hidden = !has;
+    if (document.activeElement !== $('webUrl')) $('webUrl').value = has ? tab.url : '';
+    ['webBack', 'webReload', 'webSave', 'webScan', 'webTv', 'webFull', 'webPop', 'webClose'].forEach(function (id) {
+      $(id).disabled = !has;
+    });
+    var lock = $('bxLock');
+    lock.classList.toggle('is-open', has && !/^https:/i.test(tab.url));
+    var ext = has ? (IOS ? chromeHref(tab.url) : tab.url) : '#';
+    $('webExternal').href = ext;
+    $('bxStuckChrome').href = ext;
+    var pinned = has && webPinned(tab.url);
+    $('webSave').setAttribute('aria-pressed', pinned ? 'true' : 'false');
+    $('webSave').querySelector('span').textContent = pinned ? 'Pinned' : 'Pin';
+    var strict = webStrict();
+    $('webPop').setAttribute('aria-pressed', strict ? 'true' : 'false');
+    var tv = !!(window.CBTvMode && window.CBTvMode.paired());
+    $('webTvLabel').textContent = tv ? 'To TV' : 'Pair TV';
+    webDrawTabs();
+    if (!has) webDrawStart();
+  }
+  /* The name the screen router already calls. */
+  function webDrawTools() { webDraw(); }
+
+  function webCloseTab(id) {
+    var at = webTabs.indexOf(webTab(id));
+    if (at < 0) return;
+    var f = webFrame(id);
+    if (f) f.remove();
+    webTabs.splice(at, 1);
+    if (webActive === id) {
+      var next = webTabs[at] || webTabs[at - 1] || null;
+      webShow(next ? next.id : null);
+    } else {
+      webSaveTabs();
+      webDraw();
+    }
   }
 
   /* Every opened page is a History row, kind PAGE, whose Open comes back
@@ -6121,25 +6713,46 @@
     if (path) title += ' · ' + nameOf(u);
     store.touch(u, { title: title, from: u, kind: 'PAGE' });
     recordPlay(u, { title: title, from: u, kind: 'PAGE' });
-    try { sessionStorage.setItem(WEB_LAST, u); } catch (e) {}
   }
 
-  function webGo(u) {
-    webUrlNow = u;
+  /* Opens u in the active tab, or in a new one from the start page. A link
+     already open in a tab switches to that tab instead of loading twice. */
+  function webOpen(u, opts) {
+    opts = opts || {};
+    for (var i = 0; i < webTabs.length; i++) {
+      if (webTabs[i].url === u) { webShow(webTabs[i].id); return; }
+    }
+    var tab = (!opts.newTab && webTab(webActive)) || null;
+    if (tab) {
+      tab.url = u;
+      webUrlNow = u;
+    } else {
+      if (webTabs.length >= WEB_MAX_TABS) {
+        var oldest = webTabs[0];
+        var f = webFrame(oldest.id);
+        if (f) f.remove();
+        webTabs.shift();
+        toast({ text: 'Six tabs is the most. Closed ' + hostOf(oldest.url) + ' to make room.' });
+      }
+      tab = { id: 'bx' + (++webSeq), url: u };
+      webTabs.push(tab);
+    }
     webRemember(u);
-    webLoad();
+    webActive = tab.id;
+    webMakeFrame(tab);
+    webShow(tab.id);
   }
+  function webGo(u) { webOpen(u); }
 
   /* A real video address (.mp4, .m3u8, a Drive/Dropbox share) is not a web
      page. Framing it gives Chrome's bare file viewer, with no Cast to TV.
-     It goes to the player instead, which casts it straight to a Chromecast
-     TV, or through Chrome's cast picker. Returns true when it did. */
+     It goes to the player instead. Returns true when it did. */
   function webPlayDirect(u) {
     if (!looksDirect(u)) return false;
     $('url').value = u;
     if (load(u, { from: u }) === false) return false;
     showView('cast', { focus: true, push: true });
-    toast({ text: 'That\'s a video link, so it opened in the player. Tap Cast to TV.' });
+    toast({ text: 'That\'s a video link, so it opened in the player. Tap Pick TV to send it.' });
     return true;
   }
 
@@ -6151,9 +6764,8 @@
       return;
     }
     if (webPlayDirect(u)) return;
-    var same = u === webUrlNow && $('webFrameBox').firstChild;
     showTab('web', { push: true });
-    if (!same) webGo(u);
+    webOpen(u, { newTab: !webActive });
   }
 
   function setWebPopups(block) {
@@ -6162,13 +6774,18 @@
     if (block) m[hostOf(webUrlNow)] = 1; else delete m[hostOf(webUrlNow)];
     try { localStorage.setItem(WEB_STRICT, JSON.stringify(m)); } catch (e) {}
     webLoad();
-    if (block) toast({ text: 'Pop-ups blocked on ' + hostOf(webUrlNow) + '. If the player says "Playback blocked", switch back to Pop-ups allowed.' });
+    if (block) toast({ text: 'Pop-ups blocked on ' + hostOf(webUrlNow) + '. If the player says "Playback blocked", press No pop-ups again.' });
+  }
+
+  function webEnter() {
+    if (webActive && !webFrame(webActive)) webShow(webActive);
+    else webDraw();
   }
 
   /* Without a sandbox a framed site may send the whole app to itself when
      tapped. Asking first keeps Cast Bridge from being replaced by it. */
   window.addEventListener('beforeunload', function (e) {
-    if (activeView === 'web' && $('webFrameBox').firstChild && !webStrict()) {
+    if (activeView === 'web' && webActive && !webStrict()) {
       e.preventDefault();
       e.returnValue = '';
     }
@@ -6178,15 +6795,23 @@
   $('webForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var u = webAddress($('webUrl').value);
-    if (!u) return;
+    if (!u) {
+      toast({ text: 'That isn\'t a web address. Paste a link like https://example.com/watch/123.' });
+      return;
+    }
     $('webUrl').blur();
-    if (!webPlayDirect(u)) webGo(u);
+    if (!webPlayDirect(u)) webOpen(u);
+  });
+  $('bxPaste').addEventListener('click', function () {
+    pasteInto($('webUrl'), function (text) {
+      var u = webAddress(text);
+      if (u && !webPlayDirect(u)) webOpen(u);
+    });
   });
 
   /* Mirror to TV. A web page cannot reach Android's Smart View or cast
-     settings (Chrome only launches apps that accept links), so the panel
-     gives the steps, and TV view gets the page ready for a mirrored screen:
-     full screen, turned sideways. No pairing, and it works on every site. */
+     settings, so the panel gives the steps, and TV view gets the page ready
+     for a mirrored screen: full screen, turned sideways. */
   var ANDROID = /Android/i.test(navigator.userAgent);
   $('webMirror').hidden = !ANDROID;
   $('webMirror').addEventListener('click', function () {
@@ -6194,22 +6819,29 @@
     box.hidden = !box.hidden;
     $('webMirror').setAttribute('aria-expanded', box.hidden ? 'false' : 'true');
   });
-  $('webMirrorGo').addEventListener('click', function () {
+  function webFullscreen(thenLandscape) {
     var el = $('webFrameBox');
     var req = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (!req) { toast({ text: 'Use the player\'s own full-screen button, then turn the phone sideways.' }); return; }
+    if (!req) { toast({ text: 'Use the player\'s own full-screen button' + (thenLandscape ? ', then turn the phone sideways.' : '.') }); return; }
     Promise.resolve(req.call(el)).then(function () {
-      if (screen.orientation && screen.orientation.lock) {
+      if (thenLandscape && screen.orientation && screen.orientation.lock) {
         return screen.orientation.lock('landscape').catch(function () {});
       }
     }).catch(function () {
       toast({ text: 'Full screen was refused. Use the player\'s own full-screen button.' });
     });
-  });
+  }
+  $('webMirrorGo').addEventListener('click', function () { webFullscreen(true); });
+  $('webFull').addEventListener('click', function () { webFullscreen(false); });
   document.addEventListener('fullscreenchange', function () {
     if (!document.fullscreenElement && screen.orientation && screen.orientation.unlock) {
       try { screen.orientation.unlock(); } catch (e) {}
     }
+  });
+  $('webMore').addEventListener('click', function () {
+    var d = $('bxDrawer');
+    d.hidden = !d.hidden;
+    this.setAttribute('aria-expanded', d.hidden ? 'false' : 'true');
   });
   $('webBack').addEventListener('click', function () {
     /* The frame's own page changes are entries in this tab's history, so
@@ -6218,9 +6850,30 @@
     else showTab('browse');
   });
   $('webReload').addEventListener('click', webLoad);
-  $('webClose').addEventListener('click', function () {
-    webClose();
-    showTab('browse');
+  $('webHome').addEventListener('click', function () { webShow(null); });
+  $('webClose').addEventListener('click', function () { if (webActive) webCloseTab(webActive); });
+  $('webSave').addEventListener('click', function () {
+    if (!webUrlNow) return;
+    var u = webUrlNow;
+    if (webPinned(u)) {
+      webSetPins(webPins().filter(function (p) { return p.url !== u; }));
+      toast({ text: 'Unpinned.' });
+    } else {
+      var list = webPins();
+      list.unshift({ url: u, title: hostOf(u).replace(/^www\./, ''), at: Date.now() });
+      webSetPins(list);
+      toast({ text: 'Pinned to the start page.' });
+    }
+    webDraw();
+  });
+  $('bxStuckWait').addEventListener('click', function () {
+    $('bxStuck').hidden = true;
+    var f = webActive && webFrame(webActive);
+    if (f && !f.dataset.loaded) {
+      webStuckTimer = setTimeout(function () {
+        if (!f.dataset.loaded && f.dataset.tab === webActive) $('bxStuck').hidden = false;
+      }, WEB_STUCK_MS);
+    }
   });
   $('webTv').addEventListener('click', function () {
     if (!webUrlNow) return;
@@ -6229,11 +6882,10 @@
       showTab('tv', { focus: true, push: true });
       return;
     }
-    toast({ text: 'The TV opens the link you opened here. If you have clicked through to a film inside the page, paste that film\'s own link in the address bar first.' });
+    toast({ text: 'The TV opens the link you opened here. If you have clicked through to a film inside the page, paste that film\'s own link in the address slot first.' });
     window.CBTvMode.sendPage(webUrlNow, hostOf(webUrlNow));
   });
-  $('webPopOff').addEventListener('click', function () { setWebPopups(true); });
-  $('webPopOn').addEventListener('click', function () { setWebPopups(false); });
+  $('webPop').addEventListener('click', function () { setWebPopups(!webStrict()); });
   $('webScan').addEventListener('click', function () {
     if (!webUrlNow) return;
     showTab('browse');
@@ -6241,15 +6893,22 @@
     $('pageUrl').value = webUrlNow;
     scan(webUrlNow);
   });
-  $('webFull').addEventListener('click', function () {
-    var el = $('webFrameBox');
-    var req = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (req) req.call(el);
-    else toast({ text: 'Use the player\'s own full-screen button.' });
-  });
 
-  /* A reload of the app on the Browser screen comes back to the page. */
-  try { webUrlNow = sessionStorage.getItem(WEB_LAST) || ''; } catch (e) {}
+  /* A reload of the app on the Browser screen comes back to its tabs. Frames
+     are made when the screen is opened, not here. */
+  (function restoreWebTabs() {
+    var saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem(WEB_TABS) || 'null'); } catch (e) {}
+    var urls = saved && Array.isArray(saved.tabs) ? saved.tabs : [];
+    if (!urls.length) {
+      try { var last = sessionStorage.getItem(WEB_LAST); if (last) urls = [last]; } catch (e) {}
+    }
+    urls.slice(0, WEB_MAX_TABS).forEach(function (u) {
+      if (webAddress(u)) webTabs.push({ id: 'bx' + (++webSeq), url: u });
+    });
+    var a = saved && typeof saved.active === 'number' ? saved.active : 0;
+    if (webTabs[a]) { webActive = webTabs[a].id; webUrlNow = webTabs[a].url; }
+  })();
 
   $('browseForm').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -6895,6 +7554,7 @@
     body.appendChild(meta);
 
     if (it.dur && it.pos) {
+      row.classList.add('has-progress');
       var bar = document.createElement('div');
       bar.className = 'cb-progress';
       var fill = document.createElement('i');
@@ -6981,7 +7641,14 @@
   function renderRecent() {
     var list = $('recentList');
     if (!list) return;
-    var items = store.count() ? store.all().slice(0, 3) : [];
+    /* The same film played twice is one row here; History keeps both. */
+    var seen = {};
+    var items = (store.count() ? store.all() : []).filter(function (it) {
+      var k = (it.title || nameOf(it.url)).toLowerCase() + '|' + hostOf(it.from || it.url);
+      if (seen[k]) return false;
+      seen[k] = 1;
+      return true;
+    }).slice(0, 3);
     list.innerHTML = '';
     items.forEach(function (it) { list.appendChild(historyRow(it, { compact: true })); });
     $('recentBox').hidden = items.length === 0;
@@ -6997,7 +7664,7 @@
     var total = store.count();
 
     list.innerHTML = '';
-    items.forEach(function (it) { list.appendChild(historyRow(it)); });
+    paintHistoryGroups(list, items);
 
     renderRecent();
     $('histEmpty').hidden = total !== 0;
@@ -8407,6 +9074,7 @@
       if (run !== libRun) return;
       libraryFiles = b.files || [];
       libraryStale = false;
+      document.querySelectorAll('.cb-libretry').forEach(function (x) { x.remove(); });
       renderLibraryList();
     }).catch(function (e) {
       if (run !== libRun) return;
@@ -8415,13 +9083,21 @@
       /* An error rendered as an empty list reads as "you have no files",
          which is a different and much worse sentence than "I could not
          ask". Say which one happened. */
-      libError((e && e.message) || 'Could not reach the stream host.');
+      /* The browser's own words ("Failed to fetch") are not a reason a
+         person can act on, and the reason comes before the key that
+         retries it, not after. */
+      var why = (e && e.message) || '';
+      libError(/failed to fetch|networkerror|load failed/i.test(why)
+        ? 'Couldn\'t reach the stream host. It may be restarting, or this phone is offline.'
+        : (why || 'Couldn\'t reach the stream host.'));
       var retry = document.createElement('button');
       retry.type = 'button';
       retry.className = 'btn btn-secondary btn-sm';
       retry.textContent = 'Try again';
       retry.addEventListener('click', function () { renderLibrary({ force: true }); });
-      list.appendChild(retry);
+      document.querySelectorAll('.cb-libretry').forEach(function (x) { x.remove(); });
+      $('libError').insertAdjacentElement('afterend', retry);
+      retry.classList.add('cb-libretry');
     });
   }
 
@@ -8868,10 +9544,9 @@
           d.addEventListener('toggle', function () {
             if (!d.open || d.dataset.loaded) return;
             d.dataset.loaded = '1';
-            var pre = document.createElement('pre');
-            pre.className = 'cb-log-lines';
-            pre.tabIndex = 0;
-            pre.textContent = 'Loading…';
+            var pre = document.createElement('p');
+            pre.className = 'cb-host-empty';
+            pre.textContent = 'Printing the log…';
             d.appendChild(pre);
             fetch('/api/castlog?id=' + encodeURIComponent(it.id), { headers: { accept: 'application/json' }, cache: 'no-store' })
               .then(function (r) { return r.json(); })
@@ -8882,7 +9557,9 @@
                   (L.page ? '\nPage: ' + L.page : '') + '\nDevice: ' + (L.device || '') +
                   (L.who ? '\nUser: ' + L.who : '') + '\nBuild: ' + (L.build || '') +
                   '\nPhone: ' + (L.agent || '') + '\n\n' + castLogLinesText(L.lines);
-                pre.textContent = text;
+                var printed = receiptOf(L);
+                pre.replaceWith(printed.el);
+                pre = printed.el;
                 var acts = document.createElement('div');
                 acts.className = 'cb-log-actions';
                 var copy = document.createElement('button');
@@ -8899,6 +9576,19 @@
                   }
                 });
                 acts.appendChild(copy);
+                if (printed.faults.length) {
+                  var first = document.createElement('button');
+                  first.type = 'button';
+                  first.className = 'cb-log-btn';
+                  first.textContent = 'First fault';
+                  first.addEventListener('click', function () {
+                    var ln = printed.faults[0];
+                    ln.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    ln.classList.add('is-flash');
+                    setTimeout(function () { ln.classList.remove('is-flash'); }, 1600);
+                  });
+                  acts.appendChild(first);
+                }
                 d.appendChild(acts);
               })
               .catch(function (e) {

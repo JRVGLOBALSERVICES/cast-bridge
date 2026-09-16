@@ -79,12 +79,13 @@
     ':host{all:initial;display:block;margin:8px 0 0}' +
     ':host([hidden]){display:none}' +
     'button{display:inline-flex;align-items:center;gap:8px;min-height:44px;' +
-    'padding:0 16px;border:0;border-radius:8.8px;background:#2d4cc8;color:#fff;' +
-    'font:600 14px/1 "Nunito Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;' +
-    'cursor:pointer;-webkit-tap-highlight-color:transparent}' +
-    'button:hover{background:#2440ad}' +
-    'button:active{transform:translateY(1px)}' +
-    'button:focus-visible{outline:2px solid #2d4cc8;outline-offset:3px}' +
+    'padding:0 16px;border:0;border-radius:12px;color:#1b0d03;' +
+    'background:linear-gradient(180deg,#ff8a45,#ff6a1a);box-shadow:0 3px 0 #c24a08,0 5px 8px rgba(0,0,0,.3);' +
+    'font:700 14px/1 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;' +
+    'cursor:pointer;transition:transform .08s,box-shadow .08s;-webkit-tap-highlight-color:transparent}' +
+    'button:hover{filter:brightness(1.06)}' +
+    'button:active{transform:translateY(3px);box-shadow:0 0 0 #c24a08,0 1px 2px rgba(0,0,0,.3)}' +
+    'button:focus-visible{outline:2px solid #7fb2ff;outline-offset:3px}' +
     'svg{width:18px;height:18px;flex:none}' +
     '@media (prefers-reduced-motion:reduce){button:active{transform:none}}';
 

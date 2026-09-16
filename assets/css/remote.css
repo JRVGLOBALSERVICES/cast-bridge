@@ -1,0 +1,1256 @@
+/* Hallmark · pre-emit critique: P5 H4 E4 S5 R4 V5
+   Consulted: RJ-Design-Skill §forms, §tables, §destructive-actions,
+   §notifications, §focus-a11y, §numbers. Direction C, picked by Rj 16 Sep 2026:
+   docs/design-directions/20260916-plan-starting-now-1-search/c.html.
+
+   Cast Bridge — "The remote". A skeuomorphic layer over the kit and app.css.
+
+   The phone is a hardware remote: a brushed body, a recessed backlit LCD that
+   always says what the TV is doing, slots you paste into, keys that travel
+   down when pressed, history as labelled tapes, and cast logs that print out
+   like a till receipt with faults stamped in red.
+
+   How it is applied: app.css draws everything from --cb-* tokens, so those are
+   re-pointed here first. Then every surface family gets its physical material:
+   body (brushed), well (recessed), key (raised, travels), tape (paper label),
+   LCD (backlit green), receipt (thermal paper). Loaded LAST, after
+   neumorphism.css and app.css, so equal specificity wins by order. */
+
+:root {
+  /* ---- materials, verbatim from direction C ---- */
+  --rm-body: #2a2723;
+  --rm-body-hi: #3a3631;
+  --rm-body-lo: #1c1a17;
+  --rm-edge: #4a453e;
+  --rm-key: #d9d3c7;
+  --rm-key-hi: #f3efe7;
+  --rm-key-lo: #a9a295;
+  --rm-key-ink: #23201c;
+  --rm-dkey: #4a453e;
+  --rm-dkey-lo: #35312b;
+  --rm-lcd: #b9c78a;
+  --rm-lcd-lo: #8d9a62;
+  --rm-lcd-ink: #1e2413;
+  --rm-lcd-amber: #f2b441;
+  --rm-lcd-amber-lo: #c98a1c;
+  --rm-orange: #ff6a1a;
+  --rm-orange-hi: #ff8a45;
+  --rm-orange-lo: #c24a08;
+  --rm-paper: #fbf8f1;
+  --rm-paper-ink: #2b2824;
+  --rm-paper-ink-2: #5f584d;   /* 6.6:1 on the paper */
+  --rm-stamp: #c8321e;
+  --rm-ink: #efe9de;           /* 12.6:1 on the body */
+  --rm-ink-2: #bdb4a5;         /* 7.2:1 on the body */
+  --rm-focus: #7fb2ff;
+
+  --rm-font-ui: "Bricolage Grotesque", system-ui, sans-serif;
+  --rm-font-lcd: "Doto", "Space Mono", ui-monospace, monospace;
+  --rm-font-mono: "Space Mono", ui-monospace, monospace;
+
+  --rm-well: inset 0 3px 6px rgba(0, 0, 0, .6), 0 1px 0 rgba(255, 255, 255, .07);
+  --rm-raise-key: 0 3px 0 var(--rm-key-lo), 0 5px 8px rgba(0, 0, 0, .35), inset 0 1px 0 #fff;
+  --rm-raise-dkey: 0 3px 0 #15130f, 0 5px 8px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .15);
+  --rm-raise-go: 0 4px 0 var(--rm-orange-lo), 0 8px 14px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(255, 255, 255, .5);
+  --rm-plate: inset 0 1px 0 rgba(255, 255, 255, .1), inset 0 -2px 0 rgba(0, 0, 0, .35), 0 10px 24px rgba(0, 0, 0, .35);
+
+  /* ---- the app's own tokens, re-pointed at the materials ---- */
+  --cb-surface: var(--rm-body);
+  --cb-accent: var(--rm-orange-hi);   /* 6.1:1 on the body: text-safe */
+  --cb-accent-dark: var(--rm-orange-hi);
+  --cb-ink: var(--rm-ink);
+  --cb-ink-soft: var(--rm-ink-2);
+  --cb-ink-2: var(--rm-ink-2);
+  --cb-mute: #6d665b;
+  --cb-line: var(--rm-edge);
+  --cb-ok: #a9d98c;
+  --cb-warn: var(--rm-lcd-amber);
+  --cb-warn-ink: var(--rm-lcd-amber);
+  --cb-bad: #ff7a66;                  /* 6.0:1 on the body */
+  --cb-shadow-soft: var(--rm-plate);
+  --cb-shadow-light: 0 2px 0 rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .08);
+  --cb-shadow-inset: var(--rm-well);
+  --cb-radius: 12px;
+  --cb-radius-xl: 20px;
+  --cb-label-size: 0.6875rem;
+  --cb-label-weight: 700;
+  --cb-label-track: 0.1em;
+}
+
+/* ======================================================================
+   Body and type
+   ====================================================================== */
+html { background: var(--rm-body-lo); }
+body {
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .014) 0 1px, transparent 1px 3px),
+    radial-gradient(120% 70% at 50% 0%, #3b362f 0%, #24211d 55%, #171512 100%) fixed;
+  color: var(--rm-ink);
+  font-family: var(--rm-font-ui);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font-family: inherit; }
+a { color: var(--rm-orange-hi); }
+a:hover { color: #ffb07e; }
+h1, h2, h3, h4 { color: var(--rm-ink); font-family: var(--rm-font-ui); }
+::selection { background: var(--rm-orange); color: #1b0d03; }
+
+:focus-visible,
+.btn:focus-visible,
+.form-control:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--rm-focus) !important;
+  outline-offset: 3px;
+}
+
+/* The small uppercase label every section uses — stencilled onto the body. */
+.cb-groupk,
+.cb-scoperow-label,
+.cb-gate-label,
+.cb-sources-label,
+.cb-keep-label,
+.cb-step,
+.cb-recenttitle,
+.cb-seriestitle,
+.cb-sub,
+.cb-danger h3 {
+  font-family: var(--rm-font-mono) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: .12em !important;
+  text-transform: uppercase;
+  color: var(--rm-ink-2) !important;
+}
+.cb-step b {
+  display: inline-grid;
+  place-items: center;
+  width: 18px; height: 18px;
+  margin-right: 4px;
+  border-radius: 4px;
+  background: var(--rm-orange);
+  color: #1b0d03;
+  font-size: 10px;
+}
+
+/* ======================================================================
+   The shell — one brushed remote body per screen
+   ====================================================================== */
+.cb-shell {
+  max-width: 640px;
+  padding: 0 12px;
+}
+main#main {
+  position: relative;
+  border-radius: 28px;
+  padding: 16px;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .018) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, var(--rm-body-hi), var(--rm-body) 26%, var(--rm-body-lo));
+  border: 1px solid var(--rm-edge);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12), inset 0 -2px 0 rgba(0, 0, 0, .4), 0 18px 40px rgba(0, 0, 0, .45);
+  min-width: 0;
+}
+/* The browser needs every pixel of width on a phone. */
+body.is-web main#main { padding: 10px; border-radius: 22px; }
+
+.cb-viewhead { margin: 2px 0 14px; }
+.cb-viewtitle,
+.cb-picktitle,
+.cb-playtitle {
+  font: 800 clamp(22px, 5.4vw, 30px)/1.05 var(--rm-font-ui) !important;
+  letter-spacing: -.02em;
+  color: var(--rm-ink) !important;
+  overflow-wrap: anywhere;
+}
+.cb-viewsub, .cb-viewnote, .cb-hint, .cb-device-note, .cb-tvnote, .cb-subs-note, .cb-setv, .cb-playfrom {
+  color: var(--rm-ink-2) !important;
+}
+.cb-back {
+  color: var(--rm-ink-2);
+  font: 700 11px/1 var(--rm-font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.cb-back:hover { color: var(--rm-ink); }
+
+/* ======================================================================
+   The LCD — the header on every screen
+   ====================================================================== */
+.cb-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 10px;
+  margin: 0 0 12px;
+  position: sticky;
+  top: max(6px, env(safe-area-inset-top));
+  z-index: 30;
+}
+body.is-gated .cb-head { position: static; }
+.cb-lcd {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 2px solid #11100e;
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, .05) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, var(--rm-lcd-lo), var(--rm-lcd) 28%);
+  color: var(--rm-lcd-ink);
+  box-shadow: inset 0 3px 8px rgba(0, 0, 0, .45), 0 1px 0 rgba(255, 255, 255, .08), 0 6px 14px rgba(0, 0, 0, .35);
+  transition: background .25s ease;
+}
+.cb-lcd.is-fault {
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, .05) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, var(--rm-lcd-amber-lo), var(--rm-lcd-amber) 28%);
+}
+.cb-lcd-l1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font: 900 20px/1.05 var(--rm-font-lcd);
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+.cb-lcd-l1 > span:last-child {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cb-lcd-l2 {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  font: 700 12px/1.3 var(--rm-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.cb-lcd-l2 span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.cb-lcd-l2 span:last-child { flex: none; }
+.cb-lcd .cb-dot {
+  flex: none;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: rgba(30, 36, 19, .35);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, .35);
+}
+.cb-lcd .cb-dot.is-ready { background: var(--rm-lcd-ink); }
+.cb-lcd .cb-dot.is-live { background: var(--rm-lcd-ink); animation: rm-blink 1.2s steps(1) infinite; }
+.cb-lcd .cb-dot.is-bad { background: #7a1b0d; }
+@keyframes rm-blink { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .cb-lcd .cb-dot.is-live { animation: none; } }
+
+/* The one key that lives next to the LCD: pick where it plays. */
+.cb-lcdkey {
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  min-width: 64px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 14px;
+  cursor: pointer;
+  color: var(--rm-ink);
+  font: 700 10px/1 var(--rm-font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, #4d4841, #35312b);
+  box-shadow: var(--rm-raise-dkey);
+  transition: transform .08s, box-shadow .08s;
+}
+.cb-lcdkey svg { width: 22px; height: 22px; }
+.cb-lcdkey:active { transform: translateY(3px); box-shadow: 0 0 0 #15130f, 0 1px 2px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .15); }
+
+/* Fault keys — the reason is on the LCD, the fix is one press below it. */
+.cb-fault {
+  display: grid;
+  gap: 8px;
+  margin: -4px 0 12px;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--rm-body-lo);
+  box-shadow: var(--rm-well);
+}
+.cb-fault[hidden] { display: none; }
+.cb-fault-why {
+  margin: 0;
+  font: 700 12px/1.4 var(--rm-font-mono);
+  color: var(--rm-lcd-amber);
+  overflow-wrap: anywhere;
+}
+.cb-fault-keys {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: 8px;
+}
+
+/* ======================================================================
+   Keys — every button is a physical key that travels 3px
+   ====================================================================== */
+.btn,
+.cb-key {
+  font-family: var(--rm-font-ui);
+  font-weight: 700;
+  border: 0 !important;
+  border-radius: 12px;
+  min-height: 44px;
+  transition: transform .08s ease, box-shadow .08s ease, filter .15s ease !important;
+}
+.cb-key { cursor: pointer; padding: 0 16px; white-space: nowrap; }
+.btn-sm { min-height: 40px; border-radius: 10px; font-size: 14px; padding: 0 12px; }
+
+/* Primary in the kit = the quiet action → a dark key on the body. */
+.btn-primary,
+.cb-key.is-dark {
+  color: var(--rm-ink) !important;
+  background: linear-gradient(180deg, #4d4841, #35312b) !important;
+  box-shadow: var(--rm-raise-dkey) !important;
+}
+.btn-primary:hover,
+.cb-key.is-dark:hover { filter: brightness(1.1); }
+
+/* Secondary in the kit = the live action → the orange key. */
+.btn-secondary,
+.cb-key.is-go {
+  color: #1b0d03 !important;
+  background: linear-gradient(180deg, var(--rm-orange-hi), var(--rm-orange)) !important;
+  box-shadow: var(--rm-raise-go) !important;
+}
+.btn-secondary:hover,
+.cb-key.is-go:hover { filter: brightness(1.06); }
+
+/* Cream keys — the everyday tools inside a slot. */
+.cb-key.is-cream {
+  color: var(--rm-key-ink);
+  background: linear-gradient(180deg, var(--rm-key-hi), var(--rm-key));
+  box-shadow: var(--rm-raise-key);
+}
+
+.btn:not(:disabled):not(.disabled):active,
+.btn:not(:disabled):not(.disabled).active,
+.cb-key:not(:disabled):active {
+  transform: translateY(3px);
+  box-shadow: 0 0 0 transparent, 0 1px 2px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .12) !important;
+}
+.btn:disabled, .btn.disabled, .cb-key:disabled {
+  opacity: 1 !important;
+  filter: saturate(.2) brightness(.72);
+  cursor: not-allowed;
+  box-shadow: 0 1px 0 #15130f !important;
+  transform: none;
+}
+
+/* A quiet text button, stencilled. */
+.cb-linkbtn {
+  color: var(--rm-orange-hi) !important;
+  font-family: var(--rm-font-mono) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  text-decoration: none !important;
+  min-height: 44px;
+}
+.cb-linkbtn:hover { color: #ffb07e !important; }
+.cb-linkbtn.is-danger { color: var(--cb-bad) !important; }
+
+/* ======================================================================
+   Slots — every text field is recessed into the body
+   ====================================================================== */
+.form-control,
+.cb-input,
+.custom-select {
+  color: var(--rm-ink) !important;
+  background-color: var(--rm-body-lo) !important;
+  border: 1px solid #0f0e0c !important;
+  border-radius: 12px !important;
+  box-shadow: var(--rm-well) !important;
+  font-family: var(--rm-font-mono);
+  font-size: 14px;
+  font-weight: 400;
+  min-height: 48px;
+}
+.form-control-lg { min-height: 52px; font-size: 15px; }
+.form-control::placeholder, .cb-input::placeholder { color: #9a9182 !important; opacity: 1; }
+.form-control:focus, .cb-input:focus, .custom-select:focus {
+  background-color: #141210 !important;
+  box-shadow: var(--rm-well), 0 0 0 2px var(--rm-focus) !important;
+}
+.custom-select {
+  background-image: linear-gradient(45deg, transparent 50%, var(--rm-ink-2) 50%), linear-gradient(135deg, var(--rm-ink-2) 50%, transparent 50%) !important;
+  background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50% !important;
+  background-size: 6px 6px !important;
+  background-repeat: no-repeat !important;
+}
+.custom-select option { background: var(--rm-body-lo); color: var(--rm-ink); }
+
+/* An input-group becomes one slot: the well around the field and its keys. */
+.input-group {
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 16px;
+  background: var(--rm-body-lo);
+  box-shadow: var(--rm-well);
+  align-items: center;
+}
+.input-group:focus-within { box-shadow: var(--rm-well), 0 0 0 2px var(--rm-focus); }
+.input-group > .form-control,
+.input-group > .custom-select {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  min-width: 0;
+}
+.input-group > .form-control:focus { box-shadow: none !important; }
+.input-group-append { display: flex; gap: 6px; margin: 0; }
+.input-group-append .btn,
+.input-group > .btn { border-radius: 11px !important; min-height: 44px; }
+.input-group > .custom-select { flex: 0 0 auto; width: auto; max-width: 45%; }
+
+.cb-fielderror { color: var(--cb-bad) !important; font-family: var(--rm-font-mono); font-size: 12px; }
+.form-control.is-invalid, .cb-input.is-invalid { box-shadow: var(--rm-well), 0 0 0 2px var(--cb-bad) !important; }
+
+/* ======================================================================
+   Rocker switches — segments, chips, the on/off toggle
+   ====================================================================== */
+.cb-segment {
+  padding: 5px;
+  gap: 5px;
+  border-radius: 14px;
+  background: var(--rm-body-lo) !important;
+  box-shadow: var(--rm-well) !important;
+  border: 0 !important;
+}
+.cb-segment-btn {
+  min-height: 40px;
+  border-radius: 10px !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--rm-ink-2) !important;
+  font: 700 11px/1.1 var(--rm-font-mono) !important;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  box-shadow: none !important;
+}
+.cb-segment-btn.is-on {
+  color: var(--rm-key-ink) !important;
+  background: linear-gradient(180deg, var(--rm-key-hi), var(--rm-key)) !important;
+  box-shadow: 0 2px 0 var(--rm-key-lo), inset 0 1px 0 #fff !important;
+}
+
+.cb-chip {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0 !important;
+  border-radius: 11px !important;
+  color: var(--rm-ink) !important;
+  font: 700 11px/1 var(--rm-font-mono) !important;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, #4d4841, #35312b) !important;
+  box-shadow: var(--rm-raise-dkey) !important;
+}
+.cb-chip[aria-pressed="true"] {
+  color: var(--rm-key-ink) !important;
+  background: linear-gradient(180deg, var(--rm-key-hi), var(--rm-key)) !important;
+  box-shadow: 0 1px 0 var(--rm-key-lo), inset 0 2px 3px rgba(0, 0, 0, .2) !important;
+  transform: translateY(2px);
+}
+
+.cb-switch-track {
+  background: var(--rm-body-lo) !important;
+  box-shadow: var(--rm-well) !important;
+  border: 1px solid #0f0e0c;
+}
+.cb-switch-thumb {
+  background: linear-gradient(180deg, var(--rm-key-hi), var(--rm-key)) !important;
+  box-shadow: 0 2px 0 var(--rm-key-lo), 0 3px 5px rgba(0, 0, 0, .45) !important;
+}
+.cb-switch[aria-checked="true"] .cb-switch-track {
+  background: linear-gradient(180deg, var(--rm-orange-lo), var(--rm-orange)) !important;
+}
+
+/* ======================================================================
+   Tapes — every list row is a paper label stuck on the body
+   ====================================================================== */
+.list-group, .cb-list { gap: 10px; display: grid; background: transparent; }
+.list-group-item,
+.cb-menurow,
+.cb-seriesrow,
+.cb-eprow,
+.cb-userrow,
+.cb-librow,
+.cb-clog-item > summary {
+  --cb-ink: var(--rm-paper-ink);
+  --cb-ink-2: var(--rm-paper-ink-2);
+  --cb-ink-soft: var(--rm-paper-ink-2);
+  --cb-accent: #b33f00;             /* 5.4:1 on the paper */
+  --cb-bad: var(--rm-stamp);
+  --cb-ok: #2f6b1f;
+  --cb-warn-ink: #7a5200;
+  position: relative;
+  color: var(--rm-paper-ink) !important;
+  background: linear-gradient(180deg, #f4efe4, #e6dfd1) !important;
+  border: 0 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 0 #b8b0a1, 0 4px 8px rgba(0, 0, 0, .3) !important;
+  margin: 0 !important;
+}
+.list-group-item { padding: 12px 12px 12px 22px; }
+/* The tape's spine: orange once it has been watched part-way, grey otherwise. */
+.list-group-item::before {
+  content: "";
+  position: absolute;
+  left: 8px; top: 10px; bottom: 10px;
+  width: 6px;
+  border-radius: 3px;
+  background: #9c9486;
+}
+.list-group-item.has-progress::before,
+.list-group-item.is-live::before { background: var(--rm-orange); }
+.list-group-item.is-fault::before { background: var(--rm-stamp); }
+.list-group-item .cb-linkbtn { color: #b33f00 !important; }
+.list-group-item .btn-primary,
+.cb-menurow .btn-primary {
+  color: var(--rm-key-ink) !important;
+  background: linear-gradient(180deg, #fffdf8, #ddd6c9) !important;
+  box-shadow: 0 2px 0 #a69e90, 0 3px 5px rgba(0, 0, 0, .2), inset 0 1px 0 #fff !important;
+}
+.cb-item-title { font-weight: 800; color: var(--rm-paper-ink) !important; }
+.cb-item-meta { font-family: var(--rm-font-mono); font-size: 12px; color: var(--rm-paper-ink-2) !important; }
+.cb-progress {
+  height: 6px !important;
+  border-radius: 3px !important;
+  background: #cfc7b8 !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .25) !important;
+  overflow: hidden;
+}
+.cb-progress i { background: var(--rm-orange) !important; }
+.badge, .badge-secondary {
+  font: 700 10px/1 var(--rm-font-mono) !important;
+  letter-spacing: .08em;
+  color: var(--rm-paper-ink) !important;
+  background: transparent !important;
+  border: 1.5px solid currentColor !important;
+  border-radius: 4px !important;
+  padding: 3px 5px !important;
+}
+.cb-star.is-on { color: #b33f00 !important; }
+
+.cb-daylbl {
+  margin: 14px 0 6px 4px;
+  font: 700 11px/1 var(--rm-font-mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--rm-ink-2);
+}
+.cb-daylbl:first-child { margin-top: 2px; }
+.cb-dupe {
+  font: 700 10px/1 var(--rm-font-mono);
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #d6cebf;
+  color: var(--rm-paper-ink);
+}
+
+/* The More menu: a column of labelled tapes. */
+.cb-menu { display: grid; gap: 10px; }
+.cb-menurow { padding: 14px 16px !important; text-align: left; }
+.cb-menuk { font-weight: 800; color: var(--rm-paper-ink) !important; }
+.cb-menuv { color: var(--rm-paper-ink-2) !important; }
+
+/* ======================================================================
+   Wells — status strip, settings, empty states, danger plate
+   ====================================================================== */
+.alert, .cb-status {
+  color: var(--rm-ink) !important;
+  background: var(--rm-body-lo) !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  box-shadow: var(--rm-well) !important;
+  font-family: var(--rm-font-mono);
+  font-size: 13px;
+}
+.cb-status.is-bad { box-shadow: var(--rm-well), inset 0 0 0 2px var(--rm-lcd-amber) !important; }
+.cb-status .cb-dot.is-live { background: var(--cb-ok); }
+
+.cb-settings, .cb-tvremote, .cb-sources, .cb-mirror, .cb-tvlinked, .cb-adduser, .cb-host-body > section, .cb-host-ctl {
+  border-radius: 16px !important;
+  background: var(--rm-body-lo) !important;
+  box-shadow: var(--rm-well) !important;
+  border: 0 !important;
+}
+
+/* Empty states are a paper note: what this is, and the one next thing. */
+.cb-empty {
+  --cb-ink: var(--rm-paper-ink);
+  --cb-ink-2: var(--rm-paper-ink-2);
+  color: var(--rm-paper-ink) !important;
+  background: var(--rm-paper) !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .4) !important;
+  padding: 18px !important;
+  transform: rotate(-.4deg);
+}
+.cb-empty h3 { color: var(--rm-paper-ink) !important; font-weight: 800; }
+.cb-empty p { color: var(--rm-paper-ink-2) !important; }
+
+.cb-danger {
+  border-radius: 14px !important;
+  border: 2px dashed rgba(255, 122, 102, .55) !important;
+  background: rgba(200, 50, 30, .06) !important;
+  box-shadow: none !important;
+}
+
+/* Details panels fold like a hinged cover. */
+details.cb-subs, details.cb-log, details.cb-help {
+  border-radius: 14px !important;
+  background: linear-gradient(180deg, #34302a, #2a2622) !important;
+  border: 1px solid var(--rm-edge) !important;
+  box-shadow: 0 3px 0 #15130f, 0 6px 12px rgba(0, 0, 0, .3) !important;
+}
+details.cb-subs > summary, details.cb-log > summary, details.cb-help > summary {
+  color: var(--rm-ink) !important;
+  font-weight: 700;
+  min-height: 48px;
+}
+
+/* ======================================================================
+   The receipt — every cast log prints on thermal paper
+   ====================================================================== */
+.cb-log-lines,
+.cb-receipt {
+  position: relative;
+  color: var(--rm-paper-ink) !important;
+  background: var(--rm-paper) !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .4) !important;
+  font: 400 12.5px/1.5 var(--rm-font-mono) !important;
+  padding: 14px 14px 26px !important;
+  -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom/14px 51% repeat-x, linear-gradient(#000 0 0) top/100% 50% no-repeat;
+          mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom/14px 51% repeat-x, linear-gradient(#000 0 0) top/100% 50% no-repeat;
+}
+.cb-receipt { display: grid; gap: 1px; }
+.cb-receipt h4 { margin: 0; text-align: center; font: 700 14px/1.2 var(--rm-font-mono); letter-spacing: .1em; color: var(--rm-paper-ink); }
+.cb-receipt .cb-rc-sub { margin: 2px 0 6px; text-align: center; color: var(--rm-paper-ink-2); overflow-wrap: anywhere; }
+.cb-receipt hr { border: 0; border-top: 1px dashed #a79f90; margin: 8px 0; }
+.cb-rc-ln { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; scroll-margin-top: 120px; }
+.cb-rc-ln time { color: #7d756a; font-variant-numeric: tabular-nums; }
+.cb-rc-ln span { overflow-wrap: anywhere; }
+.cb-rc-ln.is-bad span { color: var(--rm-stamp); font-weight: 700; }
+.cb-rc-ln.is-flash { background: rgba(200, 50, 30, .12); }
+.cb-rc-kv { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; color: var(--rm-paper-ink-2); }
+.cb-rc-kv b { font-weight: 700; color: var(--rm-paper-ink-2); }
+.cb-rc-kv span { overflow-wrap: anywhere; }
+.cb-stamp {
+  margin: 10px auto 0;
+  width: max-content;
+  max-width: 100%;
+  border: 2px solid var(--rm-stamp);
+  color: var(--rm-stamp);
+  padding: 4px 10px;
+  transform: rotate(-3deg);
+  font: 700 13px/1.2 var(--rm-font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  text-align: center;
+}
+.cb-stamp.is-ok { border-color: #2f6b1f; color: #2f6b1f; }
+.cb-log-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr)); gap: 10px; margin-top: 12px; }
+.cb-log-btn {
+  min-height: 44px;
+  border: 0;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--rm-key-ink);
+  background: linear-gradient(180deg, var(--rm-key-hi), var(--rm-key));
+  box-shadow: var(--rm-raise-key);
+}
+.cb-log-btn:active { transform: translateY(3px); box-shadow: 0 0 0 transparent; }
+
+/* The cast-log list rows. Summary is the tape; the receipt prints below. */
+.cb-clog-item { border: 0 !important; background: none !important; box-shadow: none !important; margin: 0 0 10px !important; padding: 0 !important; }
+.cb-clog-item > summary { padding: 12px 14px 12px 22px !important; cursor: pointer; list-style: none; }
+.cb-clog-item > summary::-webkit-details-marker { display: none; }
+.cb-clog-item[open] > summary { margin-bottom: 10px !important; }
+.cb-clog-title { font-weight: 800; }
+.cb-clog-when, .cb-clog-meta { font-family: var(--rm-font-mono); font-size: 12px; color: var(--rm-paper-ink-2) !important; }
+.cb-clog-meta .is-bad { color: var(--rm-stamp) !important; font-weight: 700; }
+.cb-clog-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+
+/* ======================================================================
+   The player bezel and the transport keys
+   ====================================================================== */
+.cb-screen {
+  border-radius: 18px !important;
+  padding: 8px !important;
+  background: linear-gradient(180deg, #151412, #0b0a09) !important;
+  border: 1px solid #000 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 3px 0 #0a0908, 0 10px 22px rgba(0, 0, 0, .45) !important;
+}
+.cb-screen-inner { border-radius: 10px; overflow: hidden; background: #000; }
+.cb-idle { color: var(--rm-ink-2) !important; font-family: var(--rm-font-mono); }
+.cb-onair { background: radial-gradient(120% 90% at 50% 0%, #26231f, #0d0c0b) !important; color: var(--rm-ink) !important; }
+
+.cb-rbtn {
+  border: 0 !important;
+  border-radius: 50% !important;
+  color: var(--rm-ink) !important;
+  background: radial-gradient(circle at 50% 35%, #5a544b, #34302a 70%) !important;
+  box-shadow: 0 3px 0 #0f0e0c, 0 6px 10px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .18) !important;
+}
+.cb-rbtn-lg {
+  color: #1b0d03 !important;
+  background: radial-gradient(circle at 50% 35%, #ffa46b, var(--rm-orange) 70%) !important;
+  box-shadow: 0 4px 0 var(--rm-orange-lo), 0 8px 14px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .5) !important;
+}
+.cb-rbtn:active { transform: translateY(3px); box-shadow: 0 0 0 transparent, 0 1px 2px rgba(0, 0, 0, .4) !important; }
+.cb-stop, .cb-stop-inline {
+  border: 2px solid rgba(255, 122, 102, .7) !important;
+  background: transparent !important;
+  color: var(--cb-bad) !important;
+  border-radius: 12px !important;
+  font: 700 12px/1 var(--rm-font-mono) !important;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  min-height: 44px;
+}
+.cb-times, .cb-vol-num, .cb-tv-scrub { font-family: var(--rm-font-mono); font-variant-numeric: tabular-nums; color: var(--rm-ink-2); }
+
+/* Sliders — a machined groove and a knurled cap. */
+.cb-range, .cb-tv-scrub input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--rm-body-lo) !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, .7) !important;
+}
+.cb-range::-webkit-slider-thumb, .cb-tv-scrub input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  border: 0;
+  background: repeating-conic-gradient(from 0deg, #e9e3d6 0 10deg, #c9c2b3 10deg 20deg);
+  box-shadow: 0 2px 0 #7d766a, 0 3px 6px rgba(0, 0, 0, .5);
+}
+.cb-range::-moz-range-thumb, .cb-tv-scrub input[type=range]::-moz-range-thumb {
+  width: 24px; height: 24px; border-radius: 50%; border: 0;
+  background: #d9d3c7; box-shadow: 0 2px 0 #7d766a, 0 3px 6px rgba(0, 0, 0, .5);
+}
+
+/* ======================================================================
+   Now-playing bar, resume card, "Continue watching"
+   ====================================================================== */
+.cb-nowbar, .cb-session {
+  color: var(--rm-ink) !important;
+  border: 1px solid var(--rm-edge) !important;
+  border-radius: 14px !important;
+  background: linear-gradient(180deg, #3d3832, #2c2925) !important;
+  box-shadow: 0 3px 0 #15130f, 0 6px 12px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .1) !important;
+}
+.cb-nowbar-k, .cb-session-text span { font-family: var(--rm-font-mono); color: var(--rm-orange-hi) !important; }
+.cb-nowbar-eq i { background: var(--rm-orange) !important; }
+.cb-session-go {
+  color: #1b0d03 !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  background: linear-gradient(180deg, var(--rm-orange-hi), var(--rm-orange)) !important;
+  box-shadow: var(--rm-raise-go) !important;
+  min-height: 40px;
+  font-weight: 700;
+}
+
+/* The Play key on Cast is the one "go" key on the screen: tall, orange. */
+/* The link slot: the field gets the whole top row, the keys sit under it,
+   Play twice the width of Paste. A phone cannot fit a link and two keys in
+   one row without the link shrinking to ten characters. */
+#linkForm .input-group { flex-wrap: wrap; padding: 6px; }
+#linkForm .input-group > .form-control { flex: 1 1 100%; }
+#linkForm .input-group-append { flex: 1 1 100%; display: grid; grid-template-columns: 1fr 2fr; }
+#linkForm .input-group-append .btn { min-height: 56px; font-size: 17px; }
+#linkForm .input-group-append .cb-pastekey[hidden] + .btn { grid-column: 1 / -1; }
+
+/* Cast-log filters: indicator keys with a lamp, not browser checkboxes. */
+.cb-clog-bar label {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 44px; padding: 0 14px 0 10px; margin: 0;
+  border-radius: 11px; cursor: pointer;
+  color: var(--rm-ink); font: 700 11px/1 var(--rm-font-mono); letter-spacing: .06em; text-transform: uppercase;
+  background: linear-gradient(180deg, #4d4841, #35312b);
+  box-shadow: var(--rm-raise-dkey);
+}
+.cb-clog-bar input[type=checkbox] {
+  -webkit-appearance: none; appearance: none; margin: 0;
+  width: 12px; height: 12px; border-radius: 50%;
+  background: #15130f; box-shadow: inset 0 1px 2px rgba(0,0,0,.8), 0 1px 0 rgba(255,255,255,.08);
+}
+.cb-clog-bar input[type=checkbox]:checked { background: var(--rm-orange); box-shadow: 0 0 8px var(--rm-orange), inset 0 1px 0 rgba(255,255,255,.4); }
+.cb-clog-bar label:has(input:checked) { transform: translateY(2px); box-shadow: 0 1px 0 #15130f; }
+.cb-clog-bar input[type=checkbox]:focus-visible { outline: 2px solid var(--rm-focus); outline-offset: 3px; }
+
+/* ======================================================================
+   Tables (scan results) — a recessed readout panel
+   ====================================================================== */
+.cb-tablewrap {
+  border-radius: 14px;
+  background: var(--rm-body-lo);
+  box-shadow: var(--rm-well);
+  border: 0 !important;
+}
+.cb-table { color: var(--rm-ink); font-size: 13px; }
+.cb-table th {
+  font: 700 10px/1.2 var(--rm-font-mono) !important;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--rm-ink-2) !important;
+  background: #141210 !important;
+  border-color: #0f0e0c !important;
+}
+.cb-table td { border-color: rgba(255, 255, 255, .06) !important; font-variant-numeric: tabular-nums; }
+.cb-t-row:hover td { background: rgba(255, 255, 255, .03); }
+
+.card { background: var(--rm-body-lo) !important; box-shadow: var(--rm-well) !important; border: 0 !important; color: var(--rm-ink); }
+.shadow-soft { box-shadow: var(--rm-plate) !important; }
+.shadow-inset { box-shadow: var(--rm-well) !important; }
+
+/* ======================================================================
+   Keypad nav — five keys in a recessed tray at the thumb
+   ====================================================================== */
+.cb-nav {
+  left: 50% !important;
+  right: auto !important;
+  transform: translateX(-50%);
+  width: min(640px, calc(100% - 16px));
+  bottom: max(8px, env(safe-area-inset-bottom)) !important;
+  padding: 6px !important;
+  gap: 6px !important;
+  border-radius: 20px !important;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .018) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #34302a, var(--rm-body-lo)) !important;
+  border: 1px solid #0f0e0c;
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, .55), 0 10px 26px rgba(0, 0, 0, .55) !important;
+}
+.cb-navbtn {
+  min-height: 54px !important;
+  border-radius: 13px !important;
+  color: var(--rm-ink-2) !important;
+  font: 700 10px/1 var(--rm-font-mono) !important;
+  letter-spacing: .06em !important;
+  text-transform: uppercase;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.cb-navbtn.is-on {
+  color: var(--rm-key-ink) !important;
+  background: linear-gradient(180deg, var(--rm-key-hi), var(--rm-key)) !important;
+  box-shadow: 0 2px 0 var(--rm-key-lo), inset 0 1px 0 #fff !important;
+}
+.cb-navbtn:focus-visible { outline: 2px solid var(--rm-focus) !important; outline-offset: -2px; }
+.cb-navcount {
+  background: var(--rm-orange) !important;
+  color: #1b0d03 !important;
+  font-family: var(--rm-font-mono) !important;
+  box-shadow: 0 1px 0 var(--rm-orange-lo);
+}
+body { padding-bottom: calc(6rem + env(safe-area-inset-bottom)) !important; }
+
+/* ======================================================================
+   Toasts — a second little LCD that slides up above the keypad
+   ====================================================================== */
+.cb-toast {
+  color: var(--rm-lcd-ink) !important;
+  border: 2px solid #11100e !important;
+  border-radius: 14px !important;
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, .05) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, var(--rm-lcd-lo), var(--rm-lcd) 30%) !important;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, .4), 0 10px 24px rgba(0, 0, 0, .5) !important;
+  font: 700 13px/1.4 var(--rm-font-mono) !important;
+}
+.cb-toast .close { color: var(--rm-lcd-ink) !important; opacity: .8; text-shadow: none; }
+.cb-toast .btn-primary {
+  color: var(--rm-ink) !important;
+  background: linear-gradient(180deg, #4d4841, #2c2925) !important;
+}
+
+/* ======================================================================
+   TV picker sheet
+   ====================================================================== */
+.cb-sheet {
+  width: min(560px, calc(100% - 16px));
+  max-height: min(86vh, 760px);
+  margin: auto auto max(8px, env(safe-area-inset-bottom));
+  padding: 0;
+  border: 1px solid var(--rm-edge);
+  border-radius: 24px;
+  color: var(--rm-ink);
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .018) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, var(--rm-body-hi), var(--rm-body) 30%, var(--rm-body-lo));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12), 0 24px 60px rgba(0, 0, 0, .6);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.cb-sheet::backdrop { background: rgba(8, 7, 6, .62); }
+.cb-sheet-in { display: grid; gap: 12px; padding: 16px; }
+.cb-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cb-sheet-head h2 { margin: 0; font: 800 22px/1.1 var(--rm-font-ui); }
+.cb-sheet-grip { width: 44px; height: 5px; margin: 0 auto -4px; border-radius: 3px; background: #0f0e0c; box-shadow: 0 1px 0 rgba(255, 255, 255, .08); }
+.cb-target {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 14px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--rm-paper-ink);
+  background: linear-gradient(180deg, #f4efe4, #e6dfd1);
+  box-shadow: 0 3px 0 #b8b0a1, 0 5px 10px rgba(0, 0, 0, .3);
+  transition: transform .08s, box-shadow .08s;
+}
+.cb-target:active { transform: translateY(3px); box-shadow: 0 0 0 #b8b0a1, 0 1px 2px rgba(0, 0, 0, .3); }
+.cb-target:disabled { cursor: default; opacity: .62; transform: none; }
+.cb-target-ico { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: #2a2723; color: var(--rm-key-hi); }
+.cb-target-ico svg { width: 22px; height: 22px; }
+.cb-target b { display: block; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-target small { display: block; font: 400 12px/1.35 var(--rm-font-mono); color: var(--rm-paper-ink-2); }
+.cb-target-state {
+  font: 700 10px/1 var(--rm-font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 5px 6px;
+  border-radius: 4px;
+  border: 1.5px solid currentColor;
+  color: var(--rm-paper-ink-2);
+  white-space: nowrap;
+}
+.cb-target-state.is-live { color: #2f6b1f; }
+.cb-target-state.is-ready { color: #b33f00; }
+.cb-sheet .cb-help-body { font-size: 14px; color: var(--rm-ink-2); }
+.cb-sheet .cb-help-body b { color: var(--rm-ink); }
+.cb-sheet .cb-help-body ol { padding-left: 1.2rem; margin: 8px 0 0; display: grid; gap: 6px; }
+
+/* ======================================================================
+   The browser — rebuilt as a handheld with its own address LCD
+   ====================================================================== */
+.cb-web .cb-webbar { display: none !important; }   /* legacy bar, replaced below */
+.cb-web .cb-webtools { display: none !important; }
+.cb-web .cb-webhint { display: none !important; }
+
+.cb-bx { display: grid; gap: 10px; min-width: 0; }
+.cb-bx-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 2px 4px;
+  min-width: 0;
+}
+.cb-bx-tabs::-webkit-scrollbar { display: none; }
+.cb-bx-tab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 190px;
+  min-height: 40px;
+  padding: 0 4px 0 10px;
+  border-radius: 10px;
+  color: var(--rm-ink-2);
+  background: var(--rm-body-lo);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, .55);
+  font: 700 11px/1 var(--rm-font-mono);
+}
+.cb-bx-tab.is-on {
+  color: var(--rm-key-ink);
+  background: linear-gradient(180deg, var(--rm-key-hi), var(--rm-key));
+  box-shadow: 0 2px 0 var(--rm-key-lo), inset 0 1px 0 #fff;
+}
+.cb-bx-tab button { border: 0; background: none; color: inherit; cursor: pointer; font: inherit; }
+.cb-bx-tab .cb-bx-tabname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; min-height: 40px; padding: 0; }
+.cb-bx-tab .cb-bx-tabx { width: 32px; min-height: 36px; font-size: 16px; line-height: 1; opacity: .75; }
+.cb-bx-tab img { width: 14px; height: 14px; border-radius: 3px; flex: none; }
+.cb-bx-newtab {
+  flex: 0 0 auto;
+  width: 40px; min-height: 40px;
+  border: 0; border-radius: 10px; cursor: pointer;
+  color: var(--rm-ink); font: 700 20px/1 var(--rm-font-mono);
+  background: linear-gradient(180deg, #4d4841, #35312b);
+  box-shadow: 0 2px 0 #15130f;
+}
+
+.cb-bx-addr {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  padding: 6px;
+  border-radius: 16px;
+  background: var(--rm-body-lo);
+  box-shadow: var(--rm-well);
+}
+.cb-bx-addr:focus-within { box-shadow: var(--rm-well), 0 0 0 2px var(--rm-focus); }
+.cb-bx-lock { display: grid; place-items: center; width: 34px; color: var(--cb-ok); }
+.cb-bx-lock.is-open { color: var(--rm-lcd-amber); }
+.cb-bx-lock svg { width: 16px; height: 16px; }
+.cb-bx-addr input {
+  min-width: 0;
+  height: 44px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--rm-ink);
+  font: 400 14px/1 var(--rm-font-mono);
+  padding: 0 4px;
+}
+.cb-bx-addr input::placeholder { color: #9a9182; }
+.cb-bx-go { display: flex; gap: 6px; }
+.cb-bx-go .cb-key { min-height: 44px; padding: 0 12px; font-size: 14px; }
+
+.cb-bx-progress { height: 3px; margin: -6px 12px 0; border-radius: 2px; overflow: hidden; background: transparent; }
+.cb-bx-progress i { display: block; height: 100%; width: 0; background: var(--rm-orange); transition: width .4s ease; }
+.cb-bx-progress.is-loading i { width: 82%; transition: width 6s cubic-bezier(.1, .7, .2, 1); }
+.cb-bx-progress.is-done i { width: 100%; opacity: 0; transition: width .2s ease, opacity .4s .2s ease; }
+
+.cb-bx-keys {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+.cb-bx-k {
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  min-height: 52px;
+  padding: 6px 2px;
+  border: 0;
+  border-radius: 12px;
+  cursor: pointer;
+  color: var(--rm-ink);
+  font: 700 9.5px/1 var(--rm-font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, #4d4841, #35312b);
+  box-shadow: var(--rm-raise-dkey);
+  transition: transform .08s, box-shadow .08s;
+  min-width: 0;
+}
+.cb-bx-k svg { width: 20px; height: 20px; }
+.cb-bx-k span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-bx-k:active { transform: translateY(3px); box-shadow: 0 0 0 #15130f, 0 1px 2px rgba(0, 0, 0, .35); }
+.cb-bx-k:disabled { filter: saturate(.2) brightness(.65); cursor: not-allowed; transform: none; }
+.cb-bx-k.is-go { color: #1b0d03; background: linear-gradient(180deg, var(--rm-orange-hi), var(--rm-orange)); box-shadow: var(--rm-raise-go); }
+.cb-bx-k[aria-pressed="true"] { color: var(--rm-key-ink); background: linear-gradient(180deg, var(--rm-key-hi), var(--rm-key)); box-shadow: 0 1px 0 var(--rm-key-lo), inset 0 2px 3px rgba(0, 0, 0, .2); transform: translateY(2px); }
+
+.cb-bx-screen {
+  position: relative;
+  border-radius: 18px;
+  padding: 8px;
+  background: linear-gradient(180deg, #151412, #0b0a09);
+  border: 1px solid #000;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 3px 0 #0a0908, 0 10px 22px rgba(0, 0, 0, .45);
+}
+.cb-web .cb-webframe {
+  border-radius: 10px !important;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: none !important;
+  border: 0 !important;
+  height: max(300px, calc(100dvh - 400px)) !important;
+  min-height: 0 !important;
+}
+.cb-web .cb-webframe.is-blank { background: #0d0c0b; }
+.cb-webiframe { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
+.cb-webiframe[hidden] { display: none; }
+
+/* A page that will not open inside apps: say so on the screen, with the way out. */
+.cb-bx-stuck {
+  position: absolute;
+  inset: 8px;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  padding: 20px;
+  text-align: center;
+  border-radius: 10px;
+  color: var(--rm-ink);
+  background: rgba(13, 12, 11, .92);
+}
+.cb-bx-stuck[hidden] { display: none; }
+.cb-bx-stuck p { margin: 0; color: var(--rm-ink-2); max-width: 36ch; font-size: 14px; }
+.cb-bx-stuck b { font-size: 17px; color: var(--rm-ink); }
+.cb-bx-stuck .cb-bx-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+
+/* The start page: a speed dial of saved sites, then recently opened. */
+.cb-bx-start { display: grid; gap: 14px; }
+.cb-bx-start[hidden] { display: none; }
+.cb-bx-dial {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 10px;
+}
+.cb-bx-dialkey {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 6px;
+  min-height: 92px;
+  padding: 10px 6px;
+  border: 0;
+  border-radius: 14px;
+  cursor: pointer;
+  color: var(--rm-paper-ink);
+  background: linear-gradient(180deg, #f4efe4, #e6dfd1);
+  box-shadow: 0 3px 0 #b8b0a1, 0 5px 10px rgba(0, 0, 0, .3);
+  min-width: 0;
+}
+.cb-bx-dialkey:active { transform: translateY(3px); box-shadow: 0 0 0 #b8b0a1; }
+.cb-bx-dialkey img, .cb-bx-dialkey .cb-bx-mono {
+  width: 34px; height: 34px; border-radius: 9px;
+  display: grid; place-items: center;
+  background: #2a2723; color: var(--rm-key-hi);
+  font: 800 16px/1 var(--rm-font-ui);
+}
+.cb-bx-dialkey span { max-width: 100%; font: 700 11px/1.2 var(--rm-font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-bx-dialx {
+  position: absolute; top: 2px; right: 2px;
+  width: 30px; height: 30px;
+  border: 0; border-radius: 8px; background: transparent;
+  color: var(--rm-paper-ink-2); font-size: 16px; cursor: pointer;
+}
+.cb-bx-recent { display: grid; gap: 8px; }
+.cb-bx-recentrow {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 52px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--rm-paper-ink);
+  background: linear-gradient(180deg, #f4efe4, #e6dfd1);
+  box-shadow: 0 2px 0 #b8b0a1, 0 4px 8px rgba(0, 0, 0, .3);
+  width: 100%;
+}
+.cb-bx-recentrow img { width: 16px; height: 16px; border-radius: 3px; }
+.cb-bx-recentrow b { display: block; font-weight: 800; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-bx-recentrow small { display: block; font: 400 11.5px/1.3 var(--rm-font-mono); color: var(--rm-paper-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-bx-recentrow time { font: 400 11px/1 var(--rm-font-mono); color: var(--rm-paper-ink-2); }
+
+/* The mirror steps and Send-to-TV note as a paper card under the screen. */
+.cb-web .cb-mirror {
+  --cb-ink: var(--rm-paper-ink);
+  color: var(--rm-paper-ink) !important;
+  background: var(--rm-paper) !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .4) !important;
+  border-radius: 6px !important;
+  padding: 14px !important;
+}
+.cb-web .cb-mirror p, .cb-web .cb-mirror li { color: var(--rm-paper-ink) !important; }
+
+/* Full screen: just the page. */
+.cb-webframe:fullscreen { height: 100% !important; border-radius: 0 !important; }
+
+/* ======================================================================
+   The sign-in gate — the remote before it is switched on
+   ====================================================================== */
+.cb-gate {
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .014) 0 1px, transparent 1px 3px),
+    radial-gradient(120% 80% at 50% 0%, #39342e 0%, #1a1815 70%) !important;
+  color: var(--rm-ink) !important;
+}
+.cb-gate-inner {
+  border-radius: 28px;
+  padding: 22px !important;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .018) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, var(--rm-body-hi), var(--rm-body) 30%, var(--rm-body-lo));
+  border: 1px solid var(--rm-edge);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12), inset 0 -2px 0 rgba(0, 0, 0, .4), 0 18px 40px rgba(0, 0, 0, .45);
+}
+.cb-gate-head {
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 2px solid #11100e;
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, .05) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, var(--rm-lcd-lo), var(--rm-lcd) 28%);
+  box-shadow: inset 0 3px 8px rgba(0, 0, 0, .45);
+  color: var(--rm-lcd-ink) !important;
+}
+.cb-gate-eyebrow { color: var(--rm-lcd-ink) !important; font-family: var(--rm-font-mono) !important; }
+.cb-gate-mark, .cb-gate-mark em { color: var(--rm-lcd-ink) !important; font-family: var(--rm-font-lcd) !important; font-weight: 900 !important; font-style: normal !important; }
+.cb-standby { background: var(--rm-lcd-ink) !important; box-shadow: none !important; }
+.cb-gate-field .cb-bar { background: linear-gradient(180deg, var(--rm-orange), rgba(255, 106, 26, .15)) !important; opacity: .35; }
+.cb-gate-btn {
+  color: #1b0d03 !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  min-height: 60px !important;
+  font-weight: 800 !important;
+  font-size: 18px !important;
+  background: linear-gradient(180deg, var(--rm-orange-hi), var(--rm-orange)) !important;
+  box-shadow: var(--rm-raise-go) !important;
+}
+.cb-gate-btn:active { transform: translateY(4px); box-shadow: 0 0 0 transparent !important; }
+.cb-gate-foot { color: var(--rm-ink-2) !important; font-family: var(--rm-font-mono); font-size: 12px; }
+.cb-reveal { color: var(--rm-ink-2) !important; }
+
+/* ======================================================================
+   Odds and ends that carried light-kit colours
+   ====================================================================== */
+.cb-build { color: var(--rm-ink-2) !important; font-family: var(--rm-font-mono); font-size: 11px; }
+.cb-skel { background: linear-gradient(90deg, #2f2b26, #3b362f, #2f2b26) !important; background-size: 200% 100% !important; }
+.cb-tvsteps-n { background: var(--rm-orange) !important; color: #1b0d03 !important; box-shadow: 0 2px 0 var(--rm-orange-lo) !important; }
+.cb-tv-code { font: 900 30px/1 var(--rm-font-lcd) !important; letter-spacing: .3em; text-align: center; }
+.cb-tvaddr { color: var(--rm-orange-hi); font-family: var(--rm-font-mono); }
+.cb-helpdl dt { color: var(--rm-ink); font-weight: 800; }
+.cb-helpdl dd { color: var(--rm-ink-2); }
+.cb-rules li { color: var(--rm-ink-2); font-family: var(--rm-font-mono); font-size: 12px; }
+.cb-ptr-ring { border-color: var(--rm-orange) !important; }
+.cb-skip { background: var(--rm-key) !important; color: var(--rm-key-ink) !important; }
+.close { color: var(--rm-ink); text-shadow: none; }
+code, pre, kbd { font-family: var(--rm-font-mono); }
+hr { border-color: var(--rm-edge); }
+
+/* Narrow phones: tighten the body so content keeps its width. */
+@media (max-width: 400px) {
+  .cb-shell { padding: 0 6px; }
+  main#main { padding: 12px; border-radius: 22px; }
+  .cb-lcd-l1 { font-size: 17px; }
+}
+@media (max-width: 340px) {
+  .cb-bx-keys { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* Wide screens: the remote stays remote-sized; the browser is allowed wider. */
+@media (min-width: 1000px) {
+  body.is-web .cb-shell { max-width: 1100px; }
+  body.is-web .cb-nav { width: 640px; }
+}
+.cb-bx-stuckgo { display: inline-grid; place-items: center; text-decoration: none !important; }
+.cb-receipt .cb-rc-sub { font-family: var(--rm-font-mono) !important; font-size: 12px; }

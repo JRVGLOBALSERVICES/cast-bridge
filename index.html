@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<!-- One colour for both surfaces: the sign-in screen is painted in the same
-     kit as the app, so there is nothing for app.js to swap it to. -->
-<meta name="theme-color" content="#e6e7ee" id="themeColor">
+<!-- One colour for both surfaces: the sign-in screen and the app are the same
+     brushed remote body, so there is nothing for app.js to swap it to. -->
+<meta name="theme-color" content="#2a2723" id="themeColor">
 <meta name="description" content="Paste or find a video link, play it, and send it to the TV.">
 <title>Cast Bridge</title>
 <link rel="manifest" href="manifest.json">
@@ -19,9 +19,11 @@
 <meta name="apple-mobile-web-app-title" content="Cast Bridge">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Doto:wght@700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/css/neumorphism.css">
 <link rel="stylesheet" href="assets/css/app.css">
+<!-- Direction C, "the remote": the skeuomorphic layer. Last, so it wins. -->
+<link rel="stylesheet" href="assets/css/remote.css">
 </head>
 <body class="is-gated">
 
@@ -110,16 +112,39 @@
 
 <div class="cb-shell">
 
+  <!-- The LCD. On every screen, because "what is the TV doing" does not go
+       away when you open History. Line 1 is where it plays, line 2 is what
+       and how far. It turns amber on a fault, and the fix keys sit right
+       under it. The key beside it opens the TV picker. -->
   <header class="cb-head">
-    <div>
-      <h1 class="cb-wordmark">Cast<span>&nbsp;Bridge</span></h1>
-      <p class="cb-tagline">Find a video. Put it on the TV.</p>
+    <div class="cb-lcd" id="lcd" role="status" aria-live="polite">
+      <h1 class="cb-sronly">Cast Bridge</h1>
+      <div class="cb-lcd-l1">
+        <span class="cb-dot" id="devicePillDot"></span>
+        <span id="devicePillText">Looking…</span>
+      </div>
+      <div class="cb-lcd-l2">
+        <span id="lcdWhat">Cast Bridge · find a video, put it on the TV</span>
+        <span id="lcdTime"></span>
+      </div>
     </div>
-    <span class="cb-devicepill" id="devicePill">
-      <span class="cb-dot" id="devicePillDot"></span>
-      <span id="devicePillText">Looking…</span>
-    </span>
+    <button type="button" class="cb-lcdkey" id="btnPickTv" aria-haspopup="dialog" aria-controls="tvSheet">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><circle cx="2" cy="20" r="1"/></svg>
+      <span>Pick TV</span>
+    </button>
   </header>
+
+  <!-- Fault keys. The reason is the one the cast log recorded; each key is a
+       real way round it, not advice. Shown only while something is failing. -->
+  <div class="cb-fault" id="fault" hidden>
+    <p class="cb-fault-why" id="faultWhy" role="alert"></p>
+    <div class="cb-fault-keys">
+      <button type="button" class="cb-key is-go" id="faultBridge">Retry through bridge</button>
+      <button type="button" class="cb-key is-dark" id="faultVlc">Open in VLC</button>
+      <button type="button" class="cb-key is-dark" id="faultTvb">Send to TV browser</button>
+      <button type="button" class="cb-key is-dark" id="faultLog">Show the log</button>
+    </div>
+  </div>
 
   <main id="main">
 
@@ -166,6 +191,7 @@
                    placeholder="Paste a video or page link" autocomplete="off" spellcheck="false"
                    aria-describedby="urlError">
             <div class="input-group-append">
+              <button type="button" class="btn btn-primary cb-pastekey" id="btnPaste" hidden>Paste</button>
               <button type="submit" class="btn btn-secondary" id="btnPlay">
                 <span class="cb-label">Play</span>
                 <span class="cb-spin" aria-hidden="true"></span>
@@ -636,48 +662,81 @@
         </div>
     </section>
 
-    <!-- The built-in browser. The page loads exactly as the site serves it:
-         nothing is fetched on its behalf, nothing is stripped. Casting is
-         Chrome's own (the site's cast button, or Chrome menu > Cast). -->
+    <!-- The built-in browser, rebuilt as a handheld: tabs, an address slot
+         with Paste, a row of keys, the page behind a bezel, and a start page
+         of pinned sites and recent pages. The page still loads exactly as the
+         site serves it: nothing is fetched on its behalf, nothing stripped.
+         The code is the "Browser" section of the app script. -->
     <section class="cb-view cb-web" id="view-web" tabindex="-1" hidden aria-labelledby="title-web">
       <h2 class="cb-sronly" id="title-web">Browser</h2>
-      <div class="cb-webbar">
-        <button type="button" class="btn btn-secondary cb-webbtn" id="webBack" aria-label="Back to Browse">&larr;</button>
-        <form class="cb-webform" id="webForm" novalidate>
+      <div class="cb-bx">
+        <div class="cb-bx-tabs" id="bxTabs" role="group" aria-label="Open pages"></div>
+
+        <form class="cb-bx-addr" id="webForm" novalidate>
+          <span class="cb-bx-lock" id="bxLock" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          </span>
           <label class="cb-sronly" for="webUrl">Page address</label>
-          <input class="form-control" id="webUrl" type="url" inputmode="url"
-                 autocomplete="off" spellcheck="false" placeholder="Paste a link">
+          <input id="webUrl" type="url" inputmode="url" enterkeyhint="go"
+                 autocomplete="off" spellcheck="false" placeholder="Paste or type a web address">
+          <div class="cb-bx-go">
+            <button type="button" class="cb-key is-cream" id="bxPaste">Paste</button>
+            <button type="submit" class="cb-key is-go" id="bxGo">Go</button>
+          </div>
         </form>
-        <button type="button" class="btn btn-secondary cb-webbtn" id="webReload" aria-label="Back to the link you opened" title="Back to the link you opened">&#x2302;</button>
-        <button type="button" class="btn btn-secondary cb-webbtn" id="webFull" aria-label="Full screen">&#x26f6;</button>
-      </div>
-      <div class="cb-webtools">
-        <button type="button" class="btn btn-secondary btn-sm cb-webtv" id="webMirror" aria-expanded="false" aria-controls="webMirrorHelp" hidden>Mirror to TV</button>
-        <button type="button" class="btn btn-primary btn-sm cb-webtv" id="webTv">Send to TV</button>
-        <button type="button" class="cb-linkbtn" id="webScan">Scan this page</button>
-        <a class="cb-linkbtn" id="webExternal" href="#" target="_blank" rel="noopener noreferrer">Open in Chrome</a>
-        <button type="button" class="cb-linkbtn" id="webClose">Close page</button>
-      </div>
-      <div class="cb-mirror" id="webMirrorHelp" hidden>
-        <p class="cb-mirror-title">Mirror your phone to the TV (no pairing)</p>
-        <ol class="cb-mirror-steps">
-          <li>Swipe down from the top of the screen twice to open quick settings.</li>
-          <li>Tap <b>Smart View</b> (Samsung) or <b>Cast / Screen cast</b> and pick your TV.</li>
-          <li>Come back here, start the film, then tap <b>TV view</b>.</li>
-        </ol>
-        <button type="button" class="btn btn-primary btn-sm" id="webMirrorGo">TV view</button>
-        <p class="cb-mirror-note">Keep the phone awake while you watch. To stop, open quick settings and tap Smart View again.</p>
-      </div>
-      <div class="cb-webframe" id="webFrameBox"></div>
-      <div class="cb-webtools cb-webtools-end">
-        <div class="cb-segment" role="group" aria-label="Pop-ups">
-          <button type="button" class="cb-segment-btn is-on" id="webPopOn" aria-pressed="true">Pop-ups allowed</button>
-          <button type="button" class="cb-segment-btn" id="webPopOff" aria-pressed="false">Block pop-ups</button>
+        <div class="cb-bx-progress" id="bxProgress" aria-hidden="true"><i></i></div>
+
+        <div class="cb-bx-keys" role="toolbar" aria-label="Page keys">
+          <button type="button" class="cb-bx-k" id="webBack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span>Back</span></button>
+          <button type="button" class="cb-bx-k" id="webReload" title="Back to the link you opened"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg><span>Reload</span></button>
+          <button type="button" class="cb-bx-k" id="webSave" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg><span>Pin</span></button>
+          <button type="button" class="cb-bx-k" id="webScan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg><span>Scan</span></button>
+          <button type="button" class="cb-bx-k is-go" id="webTv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span id="webTvLabel">To TV</span></button>
+          <button type="button" class="cb-bx-k" id="webMore" aria-expanded="false" aria-controls="bxDrawer"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg><span>More</span></button>
+        </div>
+
+        <div class="cb-bx-keys" id="bxDrawer" role="toolbar" aria-label="More page keys" hidden>
+          <a class="cb-bx-k" id="webExternal" href="#" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M21 3l-9 9"/><path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/></svg><span>Chrome</span></a>
+          <button type="button" class="cb-bx-k" id="webFull"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6"/></svg><span>Full</span></button>
+          <button type="button" class="cb-bx-k" id="webPop" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/></svg><span>No pop-ups</span></button>
+          <button type="button" class="cb-bx-k" id="webMirror" aria-expanded="false" aria-controls="webMirrorHelp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg><span>Mirror</span></button>
+          <button type="button" class="cb-bx-k" id="webHome"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/></svg><span>Start</span></button>
+          <button type="button" class="cb-bx-k" id="webClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg><span>Close tab</span></button>
+        </div>
+
+        <div class="cb-mirror" id="webMirrorHelp" hidden>
+          <p class="cb-mirror-title">Mirror your phone to the TV (no pairing)</p>
+          <ol class="cb-mirror-steps">
+            <li>Swipe down from the top of the screen twice to open quick settings.</li>
+            <li>Tap <b>Smart View</b> (Samsung) or <b>Cast / Screen cast</b> and pick your TV.</li>
+            <li>Come back here, start the film, then tap <b>TV view</b>.</li>
+          </ol>
+          <button type="button" class="btn btn-primary btn-sm" id="webMirrorGo">TV view</button>
+          <p class="cb-mirror-note">Keep the phone awake while you watch. To stop, open quick settings and tap Smart View again.</p>
+        </div>
+
+        <!-- Start page: what is here when no tab has a page open. -->
+        <div class="cb-bx-start" id="bxStart">
+          <p class="cb-groupk">Pinned sites</p>
+          <div class="cb-bx-dial" id="bxDial"></div>
+          <p class="cb-hint" id="bxDialEmpty">Open a page and press <b>Pin</b>. It lands here, one tap away.</p>
+          <p class="cb-groupk">Opened lately</p>
+          <div class="cb-bx-recent" id="bxRecent"></div>
+          <p class="cb-hint" id="bxRecentEmpty">Pages you open show up here.</p>
+        </div>
+
+        <div class="cb-bx-screen" id="bxScreen" hidden>
+          <div class="cb-webframe" id="webFrameBox"></div>
+          <div class="cb-bx-stuck" id="bxStuck" hidden>
+            <b>This page hasn&rsquo;t loaded yet</b>
+            <p>Some sites refuse to open inside apps and stay blank. Chrome always opens them.</p>
+            <div class="cb-bx-row">
+              <a class="cb-key is-go cb-bx-stuckgo" id="bxStuckChrome" href="#" target="_blank" rel="noopener noreferrer">Open in Chrome</a>
+              <button type="button" class="cb-key is-dark" id="bxStuckWait">Keep waiting</button>
+            </div>
+          </div>
         </div>
       </div>
-      <p class="cb-webhint" id="webHint"><b>Send to TV</b> opens this page in TV mode on the TV (connect a TV under Cast first). The TV remote plays it there.
-        Or tap the player&rsquo;s own cast button. Blocking pop-ups breaks some players (&ldquo;Playback blocked&rdquo;), so it stays off for those sites.
-        Blank page? That site won&rsquo;t open inside apps. Use <b>Open in Chrome</b>.</p>
     </section>
 
     <section class="cb-view" id="view-library" tabindex="-1" hidden aria-labelledby="title-library">
@@ -906,8 +965,6 @@
         <h2 class="cb-viewtitle" id="title-help">Which TVs work, and how</h2>
       </div>
       <dl class="cb-helpdl">
-          <summary>Which TVs work, and how</summary>
-          <dl>
               <dt>Chromecast, Google TV, Android TV (Sony, TCL, Hisense)</dt>
             <dd>Use <b>Cast to TV</b>. Chrome on Android or desktop Chrome only — other browsers have no Cast API.</dd>
               <dt>Apple TV, AirPlay speakers</dt>
@@ -928,7 +985,6 @@
             <dd>Paste an <b>.srt</b> or <b>.vtt</b> link under <b>Subtitles</b>. SRT is converted for you — the TV only accepts VTT. Adding one mid-film reloads it and picks up where it was.</dd>
               <dt>A stream that plays here but not on the TV</dt>
             <dd>The TV fetches the link itself, so it has to be a public <b>https</b> address. Links that need a login or a signed cookie won't reach it.</dd>
-          </dl>
       </dl>
     </section>
 
@@ -966,6 +1022,32 @@
   </nav>
 
 
+
+<!-- The TV picker. Every way this app can reach a television, in one list,
+     with "I can't see my TV" right under it instead of three screens away.
+     app.js paints the states. -->
+<dialog class="cb-sheet" id="tvSheet" aria-labelledby="tvSheetTitle">
+  <div class="cb-sheet-in">
+    <div class="cb-sheet-grip" aria-hidden="true"></div>
+    <div class="cb-sheet-head">
+      <h2 id="tvSheetTitle">Play on…</h2>
+      <button type="button" class="cb-key is-dark" id="tvSheetClose">Done</button>
+    </div>
+    <div class="cb-list" id="tvTargets"></div>
+    <details class="cb-help" open>
+      <summary><span>Can&rsquo;t see your TV?</span></summary>
+      <div class="cb-help-body">
+        <ol>
+          <li><b>Same Wi&#8209;Fi, same name.</b> Not the guest network, and not a separate 5&nbsp;GHz name.</li>
+          <li><b>Client isolation off.</b> Mesh and hotel routers ship it on. It&rsquo;s sometimes called AP isolation or Guest mode.</li>
+          <li><b>A Samsung or LG TV has no Cast of its own.</b> Use <b>TV browser</b> above, or <b>Open in VLC</b>.</li>
+          <li><b>On an iPhone</b>, no browser can Chromecast. Use <b>TV browser</b> or <b>AirPlay</b>.</li>
+        </ol>
+        <p><button type="button" class="cb-linkbtn" id="tvSheetHelp">Every TV, and how</button></p>
+      </div>
+    </details>
+  </div>
+</dialog>
 
 <div class="cb-toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
 

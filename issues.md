@@ -1776,3 +1776,18 @@ film plays in the app on your phone and this refuses it with 10015001 or
 **Assumption made:** no. All 8 (app-375, web ×4, history 375/768/1440) flag buttons inside the fixed bottom nav as overlapping page content at scroll-top. Scrolled to the bottom at all 4 widths, nothing tappable sits under the nav. The checker skips fixed elements but not their children. audit-gate exits 1 because of these alone.
 **Context Rj needs to review:** audit-evidence/20260916-now-logs-shows-phone-player/web-375.png; /opt/whatsapp-bridge/src/verification/breakpoint-checker.mjs overlap rule.
 Also seen, not fixed: stray "Which TVs work" bullet on Help (index.html:908-935), tv.html squeezed at 375 (low, it is a TV page), Library error shows "Try again" above the reason, History nav badge not capped at 99+.
+
+## Task 44: direction C build
+**Question:** which "more features" first?
+**Assumption made:** the gaps from the audit and research: LCD status on every screen, fault fix keys, TV picker with help, Paste, history day groups and duplicate collapse, receipt logs, and a rebuilt browser (tabs, pins, start page). Not built yet: F5 quality + subtitles chosen before casting, F6 up-next queue, F11 share-target check.
+**Context Rj needs to review:** assets/js/app.js "The remote's own chrome" and "Browser" sections.
+
+## Task 44: browser "blank page" detection
+**Question:** can the app tell when a site refuses to open inside it?
+**Assumption made:** only partly. Chrome fires `load` even on a refused frame, so the "hasn't loaded yet" overlay only catches pages that hang for 15s. Open in Chrome is under More for pages that load blank.
+**Context Rj needs to review:** app.js `webWatchLoad`, WEB_STUCK_MS.
+
+## Task 44: what was checked, and how
+**Question:** is it verified on a real phone and TV?
+**Assumption made:** no. Headless Chrome only, signed in with a minted session. The receipt was checked against a fixture log routed in the browser (nothing written to the production log). The fault LCD was checked by forcing the status line into its error state. Real casting and iOS Safari were not tested. Lighthouse ran signed out (the sign-in screen); Best Practices 81 is only because localhost has no HTTPS.
+**Context Rj needs to review:** audit-evidence/20260916-plan-starting-now-1-search/
