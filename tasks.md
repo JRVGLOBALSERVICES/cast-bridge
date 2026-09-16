@@ -1472,3 +1472,4 @@ things were, and the second one was invisible until the first was fixed.
       production stream log.
 - [x] Task 40: !research-design cast app with in-app browser — docs/design-research/20260916-now-logs-shows-phone-player/ (7 refs, 5 Mobbin screens, DESIGN.md, README with gaps + fresh move: one cast dock bound to the Browse address bar)
 - [x] Task 41: !audit-strict cast bridge — 40/48 page×breakpoint pass, 8 are checker false alarms (issues.md). Fixed: reload on Library/Stream host crashed behind the sign-in door (d35d804); keyboard focus ring missing on inputs and text buttons. Lighthouse local: A11y 100, BP 81 (no HTTPS locally), SEO 100.
+- [x] Task 42: !research-design "cast app with in app browser. !audit-strict cast bridge" — docs/design-research/20260916-cast-app-with-in-app/ (5 new web refs, 4 Mobbin casting flows, refero; fresh move: phone picture as the TV status line with failure reason + fix). Research only; audit-strict not run.
