@@ -1350,7 +1350,7 @@
     var y = opts.push ? 0 : scrollMemory[name];
     window.scrollTo({ top: typeof y === 'number' ? y : 0, behavior: 'auto' });
 
-    onEnterView(name);
+    if (!opts.later) onEnterView(name);
   }
 
   /* Every call already in this file goes through here. link → cast and
@@ -1404,7 +1404,13 @@
       window.history.replaceState({ view: start }, '',
         start === 'cast' ? location.pathname : '#' + start);
     }
-    showView(start);
+    /* This runs while the file is still being read, so the state Library
+       and Stream host draw from (libraryFiles, STREAM_HOSTS, further down)
+       is still undefined. Drawing them now threw, the rest of the file never
+       ran, and a reload on either screen stuck behind the sign-in door.
+       Show the screen now; fill it once everything below exists. */
+    showView(start, { later: true });
+    setTimeout(function () { onEnterView(activeView); }, 0);
   }());
 
   /* ------------------------------------------------------------------ *
