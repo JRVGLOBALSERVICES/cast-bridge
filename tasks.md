@@ -1470,5 +1470,5 @@ things were, and the second one was invisible until the first was fixed.
       reason (X-Cast-Error header), HLS fatal errors, uncaught app errors, every red status line. Stream host
       log: why="…" on every 4xx/5xx. test-sources no longer writes fake dead/*.m3u8 failures into the
       production stream log.
-- [ ] Task 40: !research-design cast app with in-app browser
-- [ ] Task 41: !audit-strict cast bridge
+- [x] Task 40: !research-design cast app with in-app browser — docs/design-research/20260916-now-logs-shows-phone-player/ (7 refs, 5 Mobbin screens, DESIGN.md, README with gaps + fresh move: one cast dock bound to the Browse address bar)
+- [x] Task 41: !audit-strict cast bridge — 40/48 page×breakpoint pass, 8 are checker false alarms (issues.md). Fixed: reload on Library/Stream host crashed behind the sign-in door (d35d804); keyboard focus ring missing on inputs and text buttons. Lighthouse local: A11y 100, BP 81 (no HTTPS locally), SEO 100.

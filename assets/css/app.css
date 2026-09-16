@@ -1913,7 +1913,7 @@ body.is-gated { overflow: hidden; }
   outline: 3px solid var(--cb-accent);
   outline-offset: 2px;
 }
-.cb-input:focus { outline: none; }
+.cb-input:focus:not(:focus-visible) { outline: none; }
 .cb-input:focus:not(:focus-visible) { box-shadow: var(--cb-shadow-inset); }
 
 /* A field that has already errored turns live (JS switches it to on-input),
@@ -3189,3 +3189,11 @@ a.cb-itemlink:first-child { text-decoration: underline; text-underline-offset: 2
 }
 .cb-clog-meta .is-bad { color: var(--cb-bad); font-weight: 700; }
 .cb-clog-item .cb-log-lines { max-height: 22rem; }
+
+/* Text-style buttons (All history, Clear all, Delete, Sign out) had no ring
+   at all: the kit strips it and nothing put one back. */
+.cb-linkbtn:focus-visible {
+  outline: 3px solid var(--cb-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

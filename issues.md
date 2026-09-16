@@ -1770,3 +1770,9 @@ film plays in the app on your phone and this refuses it with 10015001 or
 **Question:** should the buttons refuse while a film is playing?
 **Assumption made:** no. They warn instead. If something streamed in the last 20 minutes, the first press answers with the reason, and a second press on "Cut off the film and …" goes ahead. A box with local changes is never pulled over.
 **Context Rj needs to review:** `server/control.js`, `server/stream-server.js` /api/system/*.
+
+## Task 41: strict audit — 8 checker FAILs left open on purpose
+**Question:** change the layout so the breakpoint checker goes green?
+**Assumption made:** no. All 8 (app-375, web ×4, history 375/768/1440) flag buttons inside the fixed bottom nav as overlapping page content at scroll-top. Scrolled to the bottom at all 4 widths, nothing tappable sits under the nav. The checker skips fixed elements but not their children. audit-gate exits 1 because of these alone.
+**Context Rj needs to review:** audit-evidence/20260916-now-logs-shows-phone-player/web-375.png; /opt/whatsapp-bridge/src/verification/breakpoint-checker.mjs overlap rule.
+Also seen, not fixed: stray "Which TVs work" bullet on Help (index.html:908-935), tv.html squeezed at 375 (low, it is a TV page), Library error shows "Try again" above the reason, History nav badge not capped at 99+.
