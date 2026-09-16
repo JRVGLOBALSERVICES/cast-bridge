@@ -1454,3 +1454,5 @@ things were, and the second one was invisible until the first was fixed.
       GET /api/system/git (fetch, behind/ahead/dirty, commits), POST /api/system/update
       (ff-only, npm ci when the lock moved, then restart). Button shows only when behind
       and clean. Proof: test-control against throwaway clones; restart cmd injected.
+
+- [x] Fix "No connection to the scanner" on every link (16 Sep): it.kind ReferenceError in mediaRow from 41e5831, fixed in 687de56
