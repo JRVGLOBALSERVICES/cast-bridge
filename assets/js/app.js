@@ -4758,7 +4758,10 @@
 
         handOff(function () { renderScan(body); });
       })
-      .catch(function () {
+      .catch(function (err) {
+        /* A render bug lands here too, not only a dropped connection. Log it,
+           or it hides behind the wrong message as it did for two days. */
+        console.error('scan', err);
         fieldError($('url'), $('urlError'), 'No connection to the scanner.');
       })
       .then(function () {
@@ -5305,7 +5308,8 @@
         }
         renderScan(res.body);
       })
-      .catch(function () {
+      .catch(function (err) {
+        console.error('scan', err);
         $('browseResult').innerHTML = '';
         renderBrowseError('No connection to the scanner.', true);
       })
@@ -5391,7 +5395,8 @@
           urgent: true
         });
       })
-      .catch(function () {
+      .catch(function (err) {
+        console.error('scan', err);
         $('browseResult').innerHTML = '';
         renderBrowseError('No connection to the scanner.', false);
         reportIssue('scan', 'The scan could not finish', 'No connection to the scanner.');
@@ -5743,9 +5748,9 @@
     var play = document.createElement('button');
     play.type = 'button';
     play.className = 'btn btn-secondary btn-sm';
-    play.textContent = it.kind === 'PAGE' ? 'Open' : 'Play';
+    play.textContent = m.kind === 'PAGE' ? 'Open' : 'Play';
     play.addEventListener('click', function () {
-      if (it.kind === 'PAGE') { openWeb(it.url); return; }
+      if (m.kind === 'PAGE') { openWeb(m.url); return; }
       load(m.url, {
         title: m.label || page.title || nameOf(m.url),
         label: m.label || '',
