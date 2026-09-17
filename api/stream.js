@@ -81,6 +81,9 @@ const STREAM_TIMEOUT_MS = 20000;
 const NO_PAGE_NOTE =
   ' No page is known for this link, so a fresh one could not be asked for.' +
   ' Open the page it came from in Browse and pick the video there.';
+function whyNote(list) {
+  return list && list.length ? ' (' + list.join('; ') + ')' : '';
+}
 const REISSUE_NOTE =
   ' The page it came from was asked for a fresh address and could not give one — ' +
   'scan the page again.';
@@ -442,6 +445,9 @@ module.exports = async function handler(req, res) {
      issue another". Without it the report names the wrong cause and sends
      the viewer looking for the wrong fix. */
   let reissueFailed = false;
+  /* Each step of the re-issue that said no, and why — the note alone told
+     nobody whether the page lost its player or the browser never ran. */
+  const reissueWhy = [];
   try {
     opened = await openOnce(target);
   } catch (e) {
@@ -478,6 +484,7 @@ module.exports = async function handler(req, res) {
     const first = opened;
     opened = null;
     reissueFailed = true;
+    reissueWhy.length = 0;
 
     /* Two ways to be handed an address of our own, cheapest first. The
        HTML re-read is a fetch; the deep one is a browser on this machine
@@ -485,9 +492,10 @@ module.exports = async function handler(req, res) {
        which is most of the pages this app is pointed at, because a player
        that builds its source in JavaScript leaves no address in the HTML.
        On a host with no browser configured the second is a no-op. */
+    const note = (w) => { if (w) reissueWhy.push(w); };
     const sources = [
-      () => reissue(String(pageRaw), target, wantLabel),
-      () => deepReissue(String(pageRaw), target, wantLabel)
+      () => reissue(String(pageRaw), target, wantLabel, note),
+      () => deepReissue(String(pageRaw), target, wantLabel, note)
     ];
 
     for (const ask of sources) {
@@ -495,6 +503,7 @@ module.exports = async function handler(req, res) {
       try {
         fresh = await ask();
       } catch (e) {
+        note('re-issue threw: ' + (e && e.message ? e.message : String(e)));
         fresh = null;
       }
       if (!fresh || !fresh.url) continue;
@@ -505,7 +514,11 @@ module.exports = async function handler(req, res) {
       } catch (e) {
         continue;
       }
-      if (retry.refused) { discard(retry); continue; }
+      if (retry.refused) {
+        note('the fresh address was refused too (HTTP ' + (retry.res ? retry.res.status : '?') + ')');
+        discard(retry);
+        continue;
+      }
 
       reissueFailed = false;
       opened = retry;
@@ -535,7 +548,7 @@ module.exports = async function handler(req, res) {
       ? 'That host refused the stream (403). It expects the page it was embedded in.'
       : 'That stream answered ' + upstream.status + '.';
     const why = hostSaid(opened, why0);
-    fail(res, 502, why + (reissueFailed ? REISSUE_NOTE : '') + (pageRaw ? '' : NO_PAGE_NOTE));
+    fail(res, 502, why + (reissueFailed ? REISSUE_NOTE + whyNote(reissueWhy) : '') + (pageRaw ? '' : NO_PAGE_NOTE));
     return;
   }
 
@@ -549,7 +562,7 @@ module.exports = async function handler(req, res) {
      needs not to do. */
   if (REFUSED_TYPE.test(type)) {
     fail(res, 415, hostSaid(opened, 'That address is a web page, not a stream.') +
-      (reissueFailed ? REISSUE_NOTE : '') + (pageRaw ? '' : NO_PAGE_NOTE));
+      (reissueFailed ? REISSUE_NOTE + whyNote(reissueWhy) : '') + (pageRaw ? '' : NO_PAGE_NOTE));
     return;
   }
 

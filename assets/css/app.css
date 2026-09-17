@@ -3197,3 +3197,4 @@ a.cb-itemlink:first-child { text-decoration: underline; text-underline-offset: 2
   outline-offset: 2px;
   border-radius: 4px;
 }
+.cb-tvcard-foot #tvMute { margin-right: auto; }

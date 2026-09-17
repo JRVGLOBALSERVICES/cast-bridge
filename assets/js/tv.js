@@ -340,6 +340,7 @@
       case 'pause': if (loaded) video.pause(); break;
       case 'seek': if (loaded) { try { video.currentTime = c.to; } catch (e) {} showHud(); } break;
       case 'skip': if (loaded) { skip(c.by); } break;
+      case 'mute': setMuted(typeof c.on === 'boolean' ? c.on : !video.muted); break;
       case 'stop':
         loaded = null;
         teardown();
@@ -369,6 +370,7 @@
       duration: loaded && isFinite(d) ? d : 0,
       title: loaded ? loaded.title : null,
       error: lastError || null,
+      muted: !!video.muted,
       seq: since
     };
   }
@@ -439,7 +441,7 @@
     blocked: 'Press OK on the TV remote to start'
   };
   var HIDE_MS = 5000;
-  var KEYS = ['kBack', 'kPlay', 'kFwd', 'kFull', 'kStop'];
+  var KEYS = ['kBack', 'kPlay', 'kFwd', 'kMute', 'kFull', 'kStop'];
   var hudEl = $('hud');
   var seekEl = $('hudSeek');
 
@@ -466,6 +468,11 @@
     var fs = !!fullscreenElement();
     $('kFullText').textContent = fs ? 'Exit full screen' : 'Full screen';
     $('kFull').hidden = !canFullscreen();
+    var muted = !!video.muted;
+    $('kMute').setAttribute('aria-pressed', muted ? 'true' : 'false');
+    $('kMuteText').textContent = muted ? 'Unmute' : 'Mute';
+    $('icoWave').style.display = muted ? 'none' : '';
+    $('icoCross').style.display = muted ? '' : 'none';
   }
 
   function hudShown() { return /\bis-on\b/.test(hudEl.className); }
@@ -513,6 +520,14 @@
     showHud();
   }
 
+  /* Works before a film has loaded too: a TV muted from the phone stays
+     muted for the next film, which is what a mute button on a remote does. */
+  function setMuted(on) {
+    video.muted = !!on;
+    drawKeys();
+    if (loaded) showHud();
+  }
+
   function stopHere() {
     run({ type: 'stop' });
   }
@@ -558,6 +573,8 @@
   $('kPlay').addEventListener('click', toggle);
   $('kFull').addEventListener('click', function () { toggleFullscreen(); showHud(); });
   $('kStop').addEventListener('click', stopHere);
+  $('kMute').addEventListener('click', function () { setMuted(!video.muted); });
+  video.addEventListener('volumechange', drawKeys);
 
   /* A click on the progress bar seeks to that spot. */
   seekEl.addEventListener('click', function (e) {
@@ -591,18 +608,34 @@
      417 fast-forward, 412 rewind, 10009 return). */
   document.addEventListener('keydown', function (e) {
     var k = e.key, c = e.keyCode;
-    if (!loaded) return;  // the idle screen is plain buttons; the browser moves focus
-    if (!$('start').hidden && document.activeElement === $('start')) return;
-
     var left = k === 'ArrowLeft' || k === 'Left' || c === 37;
     var right = k === 'ArrowRight' || k === 'Right' || c === 39;
     var up = k === 'ArrowUp' || k === 'Up' || c === 38;
     var down = k === 'ArrowDown' || k === 'Down' || c === 40;
-    var ok = k === 'Enter' || c === 13 || c === 29443;
+    var ok = k === 'Enter' || c === 13 || c === 29443 || c === 23;
     var back = k === 'Escape' || k === 'GoBack' || k === 'BrowserBack' || c === 10009 || c === 461 || c === 27;
+    var mute = k === 'AudioVolumeMute' || k === 'VolumeMute' || c === 173 || c === 449 || c === 164 || k === 'm' || k === 'M';
     var handled = true;
 
-    if (k === 'MediaPlayPause' || c === 10252 || c === 179) toggle();
+    /* The idle screen. TV browsers without spatial navigation never move
+       focus on the arrows, and some send OK as a keyCode that does not
+       press a button (Samsung 29443, Android TV 23) — so both are done
+       here, for whichever buttons are showing. */
+    if (!loaded || (!$('start').hidden && document.activeElement === $('start'))) {
+      var idle = ['start', 'release'].filter(function (id) { return !$(id).hidden; });
+      var at = idle.indexOf(document.activeElement && document.activeElement.id);
+      if (mute) setMuted(!video.muted);
+      else if ((left || up) && idle.length) $(idle[Math.max(0, at - 1)]).focus();
+      else if ((right || down) && idle.length) $(idle[at === -1 ? 0 : Math.min(idle.length - 1, at + 1)]).focus();
+      else if (ok && at !== -1) $(idle[at]).click();
+      else if (ok && idle.length) $(idle[0]).focus();
+      else handled = false;
+      if (handled) e.preventDefault();
+      return;
+    }
+
+    if (mute) { setMuted(!video.muted); }
+    else if (k === 'MediaPlayPause' || c === 10252 || c === 179 || c === 85) toggle();
     else if (k === 'MediaPlay' || c === 415) { play(); showHud(); }
     else if (k === 'MediaPause' || c === 19) { video.pause(); showHud(); }
     else if (k === 'MediaStop' || c === 413) stopHere();
@@ -629,7 +662,11 @@
         else if (right) moveFocus(1);
         else if (up) { try { seekEl.focus(); } catch (x) {} }
         else if (down) { /* already on the bottom row */ }
-        else handled = false;  // OK presses the focused button itself
+        /* Pressed here rather than left to the browser: an OK that arrives
+           as 29443 or 23 presses nothing on its own, and preventDefault
+           below stops a real Enter from pressing it twice. */
+        else if (ok) el.click();
+        else handled = false;
       } else if (left || right || up || down || ok) {
         showHud(true);
       } else {

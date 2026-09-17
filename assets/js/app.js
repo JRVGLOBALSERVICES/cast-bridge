@@ -2235,7 +2235,13 @@
       .then(function (r) {
         var why = r.headers.get('X-Cast-Error');
         if (ctl) ctl.abort();
-        if (why) logCast('Bridge refused', 'HTTP ' + r.status + ' · ' + decodeURIComponent(why));
+        if (why) {
+          logCast('Bridge refused', 'HTTP ' + r.status + ' · ' + decodeURIComponent(why));
+          /* The status line otherwise ends on "not a webpage", which was
+             wrong for a real stream a host refused (17 Sep: an m3u8 signed
+             to another network). Still the same film, so say why. */
+          if (video.src === src && video.error) setStatus(decodeURIComponent(why), 'bad');
+        }
         else logCast('Bridge answered', 'HTTP ' + r.status + ' · ' + (r.headers.get('content-type') || 'no type') + ' — the file itself would not decode');
       })
       .catch(function (e) {

@@ -276,6 +276,12 @@
 
   $('tvSend').addEventListener('click', function () { sendCurrent(); });
   $('tvStop').addEventListener('click', function () { stopOnTv(false); });
+  $('tvMute').addEventListener('click', function () {
+    var on = !(status && status.muted);
+    $('tvMuteText').textContent = on ? 'Unmute' : 'Mute';
+    $('tvMute').setAttribute('aria-pressed', on ? 'true' : 'false');
+    command({ type: 'mute', on: on });
+  });
   $('tvManage').addEventListener('click', function () { go('tv'); });
   $('tvUnpair').addEventListener('click', function () { unpair(false); });
   $('tvWatchHere').addEventListener('click', function () {
@@ -406,6 +412,9 @@
     $('tvSend').querySelector('.cb-label').textContent =
       s.state === 'ended' || s.state === 'error' ? 'Play it on the TV again' : 'Play it on the TV';
     $('tvStop').disabled = !loaded;
+    $('tvMute').disabled = !paired;
+    $('tvMuteText').textContent = s.muted ? 'Unmute' : 'Mute';
+    $('tvMute').setAttribute('aria-pressed', s.muted ? 'true' : 'false');
 
     var dur = s.duration || 0;
     scrub.max = String(Math.max(1, Math.floor(dur)));
